@@ -153,10 +153,24 @@ verdade é código que ainda não existe.
 
 ## Transversal (quando a operação exigir)
 
-- **Telas que faltam no web app**: conversas, cadências, conexão com o RAVI,
-  detalhe do prospect e Platform Admin. Company Brain, base de conhecimento,
-  equipe ✅; campanhas, import de lista e disparo de agente ✅. Toda a API por
-  trás das que faltam existe
+- **Telas que faltam no web app**: cadências, conexão com o RAVI e Platform
+  Admin. Company Brain, base de conhecimento, equipe ✅; campanhas, import de
+  lista e disparo de agente ✅; conversas e detalhe do prospect ✅. Toda a API
+  por trás das que faltam existe
+
+  A caixa de entrada põe quem escreveu e não foi respondido no topo, porque é o
+  único item da lista com prazo. Na conversa, o humano assume com os mesmos
+  freios do agente: a resposta escrita à mão **nasce rascunho** e passa pela fila
+  de Revisão, já que limite diário, aquecimento, horário comercial e descadastro
+  estão todos depois da aprovação. Passar para uma pessoa é o outro lado do
+  escalonamento que o agente já fazia — ele marcava que precisava de humano, e
+  agora se diz qual
+
+  O detalhe do prospect mostra a nota com o porquê e o veredito **critério a
+  critério, com a evidência**: "qualificado, confiança 80" sem evidência é um
+  palpite com aparência de número. Dali se marca reunião, registra resposta
+  recebida por fora do email, envia para o RAVI e registra descadastro — que vale
+  no ato e não tem desfazer na tela, de propósito
 
   A tela de agentes traduz o que ninguém deveria precisar saber: o envelope pede
   a entidade **daquele** agente, e ela muda — a pesquisa é sobre a conta, a

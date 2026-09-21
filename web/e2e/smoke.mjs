@@ -296,6 +296,88 @@ try {
       (await page.locator('select[name="prospect"]').count()) === 0,
     "escolher Conversa troca a lista de alvos",
   );
+
+  // Onde o humano assume: a caixa de entrada, a thread e o detalhe do prospect.
+  await page.goto(`${WEB}/conversations`);
+  await page.waitForSelector("h1");
+  checar(
+    (await page.locator("tbody tr").innerText()).includes("Northern Ore"),
+    "a caixa de entrada mostra o lead pelo nome",
+  );
+  await page.locator("tbody tr a").first().click();
+  await page.waitForURL(/\/conversations\/[0-9a-f-]+$/);
+  await hidratada();
+  checar(
+    (await page.locator('[data-secao="mensagem"]').count()) >= 1,
+    "a thread mostra as mensagens da conversa",
+  );
+  const manual = `Resposta manual ${Date.now()}`;
+  const escrever = page.locator("section.card", { hasText: "Responder à mão" });
+  await escrever.locator('textarea[name="body"]').fill(manual);
+  await escrever.locator('button[type="submit"]').click();
+  checar(
+    await ate(async () => (await page.locator("p.ok").count()) > 0),
+    "a resposta escrita à mão salva",
+  );
+  await page.reload();
+  await hidratada();
+  // Nasce rascunho de propósito: o caminho de envio (limite diário, aquecimento,
+  // horário, descadastro) está todo depois da aprovação, e um texto que pulasse
+  // essa fila sairia sem freio nenhum — inclusive o escrito por uma pessoa.
+  checar(
+    (await page.locator('[data-secao="mensagem"]').last().innerText()).includes("rascunho"),
+    "a resposta escrita à mão nasce rascunho",
+  );
+  const responsavel = page.locator("section.card", { hasText: "Quem cuida daqui" });
+  await responsavel.locator('select[name="handoff_to_user_id"]').selectOption({ index: 1 });
+  await responsavel.locator('button:has-text("Definir responsável")').click();
+  checar(
+    await ate(async () => (await page.locator("span.ok, p.ok").count()) > 0),
+    "passar a conversa para uma pessoa funciona",
+  );
+
+  await page.goto(`${WEB}/drafts`);
+  await hidratada();
+  checar(
+    (await page.locator('[data-secao="revisao"]').allInnerTexts()).some((t) =>
+      t.includes(manual),
+    ),
+    "o rascunho escrito à mão entra na fila de Revisão",
+  );
+
+  await page.goto(`${WEB}/prospects`);
+  await hidratada();
+  await page.locator("tbody tr a").first().click();
+  await page.waitForURL(/\/prospects\/[0-9a-f-]+$/);
+  await hidratada();
+  const detalhe = await page.locator("main").innerText();
+  checar(
+    detalhe.includes("Aderência ao ICP") && detalhe.includes("Qualificação"),
+    "o detalhe do prospect mostra nota e veredito",
+  );
+  // O disparo a partir do detalhe: quem está decidindo sobre este lead não
+  // deveria ter que procurá-lo numa lista em outra tela.
+  const mandar = page.locator("section.card", { hasText: "Mandar um agente trabalhar" });
+  await mandar.locator('button[value="outreach"]').click();
+  checar(
+    await ate(async () => (await mandar.locator("p.ok, p.erro").count()) > 0),
+    "disparar um agente no detalhe do prospect devolve uma frase",
+  );
+
+  const marcar = page.locator("section.card", { hasText: "Marcar reunião" });
+  await marcar.locator('input[name="scheduled_at"]').fill("2026-12-01T15:00");
+  await marcar.locator('input[name="location"]').fill("Google Meet");
+  await marcar.locator('button[type="submit"]').click();
+  checar(
+    await ate(async () => (await marcar.locator("p.ok").count()) > 0),
+    "marcar reunião responde",
+  );
+  await page.reload();
+  await hidratada();
+  checar(
+    (await page.locator("main").innerText()).includes("reunião marcada"),
+    "a reunião move o prospect no funil",
+  );
 } catch (erro) {
   falhas.push(`exceção: ${erro.message}`);
   console.error(erro);

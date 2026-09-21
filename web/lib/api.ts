@@ -307,3 +307,60 @@ export type Conversation = {
   message_count: number;
   awaiting_reply: boolean;
 };
+
+export type ConversationDetail = Conversation & { messages: Message[] };
+
+export type Score = {
+  id: string;
+  prospect_id: string;
+  value: number;
+  band: string | null;
+  rationale: string | null;
+  signals: Record<string, unknown>;
+  created_at: string;
+};
+
+export type Qualification = {
+  id: string;
+  prospect_id: string;
+  conversation_id: string | null;
+  outcome: string;
+  //: O agente escreve `{"criteria": [{criterion, status, evidence}]}`. É a forma
+  //: que o produtor usa; a tela lê essa, não uma inventada.
+  criteria_results: { criteria?: Criterion[] } & Record<string, unknown>;
+  rationale: string | null;
+  confidence: number;
+  created_at: string;
+};
+
+export type Criterion = {
+  criterion: string;
+  status: string;
+  evidence?: string | null;
+};
+
+export type Meeting = {
+  id: string;
+  prospect_id: string;
+  scheduled_at: string;
+  duration_minutes: number;
+  status: string;
+  location: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export type Contact = {
+  id: string;
+  company_id: string | null;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  title: string | null;
+  persona: string | null;
+  seniority: string | null;
+  linkedin_url: string | null;
+  opted_out: boolean;
+  attributes: Record<string, unknown>;
+  created_at: string;
+};

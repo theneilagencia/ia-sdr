@@ -503,3 +503,31 @@ def funnel(
         meetings=int(db.execute(reunioes).scalar_one()),
         by_band={b: int(n) for b, n in db.execute(bandas).all() if b},
     )
+
+
+#: Declarada no fim de propósito: FastAPI casa rotas na ordem em que foram
+#: declaradas, e `/{prospect_id}` antes de `/funnel` faria `GET
+#: /prospects/funnel` responder 422 dizendo que "funnel" não é um UUID.
+@router.get("/{prospect_id}", response_model=schemas.ProspectListItem)
+def get_prospect(
+    prospect_id: uuid.UUID,
+    ctx: TenantContext = Depends(require(Permission.PROSPECT_READ)),
+    db: Session = Depends(get_db),
+):
+    """Um prospect, com os nomes resolvidos.
+
+    A tela de detalhe existe para a pessoa que assume quando o agente escala, e
+    ela precisa saber para quem está olhando. Sem esta rota, a tela teria de
+    baixar a lista inteira e procurar — que é o que uma tela faz quando falta
+    uma rota, e é lento exatamente quando a base cresce.
+    """
+    prospect = db.get(Prospect, prospect_id)
+    if prospect is None:
+        raise NotFound("Prospect não encontrado")
+    nomes = _nomes(db, [prospect])
+    return schemas.ProspectListItem.model_validate(
+        {
+            **schemas.ProspectResponse.model_validate(prospect).model_dump(),
+            **nomes.get(prospect.id, {}),
+        }
+    )

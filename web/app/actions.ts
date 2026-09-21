@@ -672,3 +672,190 @@ export async function mudarStatusCampanha(_: Resultado, form: FormData): Promise
   revalidatePath("/campaigns");
   return resultado;
 }
+
+// --------------------------------------------------------------- conversas
+export async function escreverResposta(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("conversation_id"));
+  const corpo = String(form.get("body") ?? "").trim();
+  if (!corpo) return { ok: false, message: "Escreva a resposta antes de salvar." };
+
+  const resultado = await executar(
+    () =>
+      api(`/api/v1/conversations/${id}/messages`, {
+        method: "POST",
+        body: { body: corpo, subject: texto(form, "subject") },
+      }),
+    // Nasce rascunho de propósito: limite diário, aquecimento, horário e
+    // descadastro estão todos depois da aprovação. Dizer isso aqui evita a
+    // conclusão errada de que a mensagem já saiu.
+    "Salva como rascunho. Ela sai pela fila de Revisão, com os mesmos freios de envio.",
+  );
+  revalidatePath(`/conversations/${id}`);
+  revalidatePath("/conversations");
+  return resultado;
+}
+
+export async function mudarConversa(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("conversation_id"));
+  const novo = String(form.get("status") ?? "");
+  const resultado = await executar(
+    () => api(`/api/v1/conversations/${id}`, { method: "PATCH", body: { status: novo } }),
+    novo === "closed" ? "Conversa fechada." : "Conversa reaberta.",
+  );
+  revalidatePath(`/conversations/${id}`);
+  revalidatePath("/conversations");
+  return resultado;
+}
+
+export async function passarParaPessoa(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("conversation_id"));
+  const usuario = String(form.get("handoff_to_user_id") ?? "");
+  const resultado = await executar(
+    () =>
+      api(`/api/v1/conversations/${id}`, {
+        method: "PATCH",
+        // Sem ninguém escolhido, a conversa volta para o agente.
+        body: usuario
+          ? { handoff_to_user_id: usuario }
+          : { clear_handoff: true },
+      }),
+    usuario
+      ? "Passada. Ela aparece como responsabilidade dessa pessoa."
+      : "Devolvida ao agente.",
+  );
+  revalidatePath(`/conversations/${id}`);
+  revalidatePath("/conversations");
+  return resultado;
+}
+
+/**
+ * Pedir ao agente de conversa que escreva a resposta.
+ *
+ * É o mesmo disparo da tela de Agentes, oferecido onde a pessoa já está: quem
+ * abriu a conversa para responder não deveria ter que sair dela, procurar a
+ * conversa numa lista e disparar de lá.
+ */
+export async function pedirRespostaAoAgente(_: Resultado, form: FormData): Promise<Resultado> {
+  const envio = new FormData();
+  envio.append("agent", "conversation");
+  envio.append(
+    "conversation",
+    JSON.stringify({
+      conversation: String(form.get("conversation_id")),
+      campaign: String(form.get("campaign_id") ?? "") || null,
+    }),
+  );
+  const resultado = await dispararAgente(null, envio);
+  revalidatePath(`/conversations/${String(form.get("conversation_id"))}`);
+  return resultado;
+}
+
+// ------------------------------------------------------- detalhe do prospect
+export async function marcarReuniao(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("prospect_id"));
+  const quando = String(form.get("scheduled_at") ?? "");
+  if (!quando) return { ok: false, message: "Escolha a data e a hora." };
+
+  const resultado = await executar(
+    () =>
+      api(`/api/v1/prospects/${id}/meetings`, {
+        method: "POST",
+        body: {
+          // O input datetime-local manda hora local sem fuso; o backend quer
+          // instante. A conversão é aqui, no servidor do Next, com o fuso de
+          // quem preencheu — não no banco, adivinhando.
+          scheduled_at: new Date(quando).toISOString(),
+          duration_minutes: Number(form.get("duration_minutes") ?? 30),
+          location: texto(form, "location"),
+          notes: texto(form, "notes"),
+        },
+      }),
+    "Reunião marcada. É a conversão que a plataforma existe para produzir.",
+  );
+  revalidatePath(`/prospects/${id}`);
+  revalidatePath("/");
+  return resultado;
+}
+
+export async function enviarParaRavi(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("prospect_id"));
+  try {
+    const r = await api<{ status: string; lead_id: string | null; reason: string | null }>(
+      `/api/v1/prospects/${id}/sync-crm?force=true`,
+      { method: "POST" },
+    );
+    revalidatePath(`/prospects/${id}`);
+    const legivel: Record<string, string> = {
+      created: "Lead criado no RAVI",
+      updated: "Lead atualizado no RAVI",
+      skipped: "Nada foi enviado",
+      queued: "Na fila para o RAVI",
+    };
+    const cabeca = legivel[r.status] ?? r.status;
+    return {
+      ok: r.status !== "skipped",
+      message: r.reason ? `${cabeca}: ${r.reason}.` : `${cabeca}.`,
+    };
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
+}
+
+export async function registrarDescadastro(_: Resultado, form: FormData): Promise<Resultado> {
+  const contato = String(form.get("contact_id"));
+  const prospect = String(form.get("prospect_id"));
+  const resultado = await executar(
+    () => api(`/api/v1/contacts/${contato}`, { method: "PATCH", body: { opted_out: true } }),
+    // Não há botão para desfazer, e é de propósito: quem pediu para não receber
+    // mais contato não volta para a lista por um clique errado.
+    "Descadastro registrado. Nenhum agente escreve para esta pessoa de novo.",
+  );
+  revalidatePath(`/prospects/${prospect}`);
+  return resultado;
+}
+
+export async function registrarRespostaRecebida(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("prospect_id"));
+  const corpo = String(form.get("body") ?? "").trim();
+  if (!corpo) return { ok: false, message: "Cole o que a pessoa respondeu." };
+
+  const resultado = await executar(
+    () =>
+      api(`/api/v1/prospects/${id}/messages/inbound`, {
+        method: "POST",
+        body: { body: corpo, subject: texto(form, "subject") },
+      }),
+    // O caminho normal é o IMAP trazer a resposta. Isto é para quando o lead
+    // respondeu por outro canal — telefone, WhatsApp, um encontro — e o
+    // histórico do agente ficaria sem o que a pessoa disse.
+    "Resposta registrada. O prospect passou a engajado e o agente já lê isto no contexto.",
+  );
+  revalidatePath(`/prospects/${id}`);
+  revalidatePath("/conversations");
+  return resultado;
+}
+
+/**
+ * Disparar um agente a partir do detalhe do prospect.
+ *
+ * Mesma tradução da tela de Agentes, oferecida onde a decisão acontece: a tela
+ * que diz "sem nota ainda, dispare a pesquisa" não deveria mandar a pessoa
+ * procurar este mesmo prospect numa lista em outra tela.
+ */
+export async function dispararNoProspect(_: Resultado, form: FormData): Promise<Resultado> {
+  const envio = new FormData();
+  envio.append("agent", String(form.get("agent") ?? ""));
+  envio.append(
+    "prospect",
+    JSON.stringify({
+      prospect: String(form.get("prospect_id")),
+      company: String(form.get("company_id") ?? "") || null,
+      contact: String(form.get("contact_id") ?? ""),
+      campaign: String(form.get("campaign_id") ?? "") || null,
+    }),
+  );
+  const resultado = await dispararAgente(null, envio);
+  revalidatePath(`/prospects/${String(form.get("prospect_id"))}`);
+  return resultado;
+}

@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { api, type Campaign, type Me, type Prospect } from "@/lib/api";
 
 import Nav from "../nav";
@@ -54,7 +56,7 @@ export default async function ProspectsPage() {
               {prospects.map((p) => (
                 <tr key={p.id}>
                   <td>
-                    {p.contact_name ?? "—"}
+                    <Link href={`/prospects/${p.id}`}>{p.contact_name ?? "sem nome"}</Link>
                     {p.contact_email ? (
                       <span className="meta"> {p.contact_email}</span>
                     ) : null}

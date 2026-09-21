@@ -402,6 +402,7 @@ def push_prospect(
     *,
     force: bool = False,
     client_factory=None,
+    cfg: dict | None = None,
 ) -> dict:
     """Manda um prospect para o RAVI. Devolve o que aconteceu, para o log.
 
@@ -410,9 +411,28 @@ def push_prospect(
     que permite este envio viver na fila com backoff em vez de precisar de
     controle de exatamente-uma-vez.
     """
+    # A configuração é a primeira coisa verificada, e não a última: mandar a
+    # pessoa buscar a nota do lead para depois dizer que o RAVI nunca foi
+    # conectado é fazê-la trabalhar duas vezes na ordem errada. O envio em lote
+    # já checava isto na entrada; aqui faltava.
+    #
+    # `cfg` entra pronto no caminho em lote: resolvê-lo por prospect seria uma
+    # consulta e uma decifragem por linha do lote, e é o mesmo erro que uma
+    # consulta por linha de tela.
+    if cfg is None:
+        cfg = credentials(session, tenant_id)
+
     payload = build_payload(session, prospect)
     if not payload:
-        return {"status": "skipped", "reason": "sem pontuação, email ou telefone"}
+        # A razão diz o que fazer, não só o que faltou: quem lê isto na tela
+        # precisa saber qual é o próximo passo.
+        return {
+            "status": "skipped",
+            "reason": (
+                "o lead precisa de nota e de um email ou telefone. A nota sai da "
+                "pesquisa; o endereço, do contato"
+            ),
+        }
 
     contato = session.get(Contact, prospect.contact_id)
     marca = _marca(contato)
@@ -420,7 +440,6 @@ def push_prospect(
     if not force and marca.get("revision") == revisao:
         return {"status": "unchanged", "lead_id": marca.get("lead_id")}
 
-    cfg = credentials(session, tenant_id)
     if cfg.get("default_stage"):
         payload["stage"] = cfg["default_stage"]
 
@@ -470,6 +489,7 @@ def sync_pending(
     """
     if _integration(session, tenant_id) is None:
         return {"skipped": 0, "sent": 0, "unchanged": 0, "reason": "RAVI não configurado"}
+    cfg = credentials(session, tenant_id)
 
     prospects = list(
         session.execute(
@@ -480,7 +500,9 @@ def sync_pending(
     resultado = {"sent": 0, "unchanged": 0, "skipped": 0, "failed": 0}
     for prospect in prospects:
         try:
-            saida = push_prospect(session, tenant_id, prospect, client_factory=client_factory)
+            saida = push_prospect(
+                session, tenant_id, prospect, client_factory=client_factory, cfg=cfg
+            )
         except RaviUnavailable:
             # Um lead recusado não pode impedir os outros de subir. A exceção
             # sobe para a fila só se nenhum passar — aqui ela é contada.

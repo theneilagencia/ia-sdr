@@ -8,6 +8,7 @@
   --accent-soft: #fdf1ec;
   --ok: #2f6f4f;
   --warn: #8a6d1f;
+  --warn-soft: #fbf4de;
   --radius: 10px;
 }
 
@@ -22,6 +23,7 @@
     --accent-soft: #2a211f;
     --ok: #7cc39a;
     --warn: #d6b45c;
+    --warn-soft: #2b2617;
   }
 }
 
@@ -161,3 +163,15 @@ table .ajuda { margin: 4px 0 0; font-size: 12px; }
    que não vai rodar. */
 .pendencias { margin: 0 0 12px; padding-left: 18px; color: var(--warn); font-size: 13px; }
 td .meta { display: block; color: var(--muted); font-size: 12px; }
+
+/* Caixa de entrada e conversa. A mensagem do lead encosta à esquerda com marca
+   própria: numa thread longa, saber de quem é cada bloco importa mais do que
+   qualquer enfeite. */
+.filtros { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; font-size: 14px; }
+.filtros a { color: var(--muted); }
+.filtros a.atual { color: var(--accent); font-weight: 600; }
+.tag.urgente { background: var(--warn-soft); color: var(--warn); }
+.card.mensagem { padding: 14px 18px; }
+.card.mensagem.lead { border-left: 3px solid var(--accent); }
+.lista { margin: 0 0 16px; padding-left: 18px; font-size: 14px; }
+.lista li { margin-bottom: 6px; }

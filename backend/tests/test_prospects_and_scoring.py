@@ -329,3 +329,44 @@ def test_nomes_da_lista_saem_em_uma_consulta(client):
     assert len(lista) == 12
     # Uma para os prospects, uma para os nomes. Não doze mais uma.
     assert len(selects) == 2, "\n\n".join(selects)
+
+
+def test_prospect_por_id_e_funil_convivem(client):
+    """`/funnel` é rota literal e `/{prospect_id}` engole tudo.
+
+    FastAPI casa na ordem de declaração: com o detalhe declarado antes, `GET
+    /prospects/funnel` passaria a responder 422 dizendo que "funnel" não é um
+    UUID — e a tela inicial ficaria vazia sem ninguém entender por quê.
+    """
+    reg = _register(client, "Apy Mine", "detalhe@example.com")
+    campanha = _campanha(client, reg, slug="detalhe")
+    ids = client.post(
+        "/api/v1/prospects/import",
+        headers=_headers(reg),
+        json={"campaign_id": campanha, "items": LISTA},
+    ).json()["prospect_ids"]
+
+    funil = client.get("/api/v1/prospects/funnel", headers=_headers(reg))
+    assert funil.status_code == 200, funil.text
+    assert funil.json()["prospects"] == 2
+
+    detalhe = client.get(f"/api/v1/prospects/{ids[0]}", headers=_headers(reg))
+    assert detalhe.status_code == 200, detalhe.text
+    assert detalhe.json()["company_name"] == "Northern Ore"
+    assert detalhe.json()["campaign_name"] == "Mining Canada"
+
+
+def test_prospect_de_outra_empresa_nao_tem_detalhe(client):
+    """Isolamento na rota de detalhe: de fora, "não é seu" e "não existe" são a
+    mesma resposta."""
+    dono = _register(client, "Apy Mine", "dono-detalhe@example.com")
+    campanha = _campanha(client, dono, slug="dono-detalhe")
+    alvo = client.post(
+        "/api/v1/prospects/import",
+        headers=_headers(dono),
+        json={"campaign_id": campanha, "items": LISTA},
+    ).json()["prospect_ids"][0]
+
+    estranho = _register(client, "Outra Empresa", "estranho-detalhe@example.com")
+    r = client.get(f"/api/v1/prospects/{alvo}", headers=_headers(estranho))
+    assert r.status_code == 404

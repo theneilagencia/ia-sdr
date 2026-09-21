@@ -15,6 +15,7 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from app.core.errors import NotFound
 from app.db.models.engagement import Qualification
 from app.db.models.sales import Campaign, Company, Contact, Prospect, Score
 from app.db.session import tenant_session
@@ -285,7 +286,9 @@ def test_prospect_sem_pontuacao_nao_vai(make_tenant):
         resultado = ravi.push_prospect(session, tenant_id, prospect, client_factory=falso.fabrica)
 
     assert resultado["status"] == "skipped"
-    assert "pontuação" in resultado["reason"]
+    # A razão diz o que falta **e** de onde vem: quem lê isto na tela precisa
+    # saber qual é o próximo passo, não só que algo faltou.
+    assert "nota" in resultado["reason"] and "pesquisa" in resultado["reason"]
     assert falso.chamadas == []
 
 
@@ -628,3 +631,22 @@ def test_mapeamento_usa_a_forma_que_o_agente_produz(make_tenant):
     corpo = falso.ultimo_corpo
     assert "R$ 400 mil" in corpo["budget"]
     assert corpo["timeline"] == "não atendido"
+
+
+def test_sem_ravi_configurado_a_recusa_vem_antes_da_nota(make_tenant):
+    """Primeiro o que o admin tem de resolver, depois o que falta no lead.
+
+    Sem esta ordem, a empresa que nunca conectou o RAVI era mandada buscar a
+    nota do lead para só então descobrir que não havia integração nenhuma —
+    trabalho dobrado, na ordem errada.
+    """
+    t = make_tenant()
+    tenant_id = t["tenant_id"]
+    dados = _prospect(tenant_id, score=None)
+    falso = RaviFalso()
+
+    with tenant_session(tenant_id) as session:
+        prospect = session.get(Prospect, dados["prospect_id"])
+        with pytest.raises(NotFound, match="RAVI"):
+            ravi.push_prospect(session, tenant_id, prospect, client_factory=falso.fabrica)
+    assert falso.chamadas == []

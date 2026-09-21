@@ -16,6 +16,7 @@ export default async function Nav() {
         <nav>
           <Link href="/">Funil</Link>
           <Link href="/drafts">Revisão</Link>
+          <Link href="/conversations">Conversas</Link>
           <Link href="/prospects">Prospects</Link>
           <Link href="/campaigns">Campanhas</Link>
           <Link href="/agents">Agentes</Link>
