@@ -18,8 +18,9 @@ from app.api.deps import get_db, require
 from app.api.v1 import schemas
 from app.core.errors import ConflictError, NotFound
 from app.db.models.engagement import Message, MessageStatus
+from app.db.models.platform import Tenant
 from app.rbac.roles import Permission
-from app.services import audit
+from app.services import audit, email_sender
 from app.tenancy.context import TenantContext
 
 router = APIRouter(prefix="/messages", tags=["messages"])
@@ -109,6 +110,74 @@ def reject(
         resource_type="message",
         resource_id=mensagem.id,
         payload={"reason": payload.reason},
+        context=ctx,
+    )
+    return mensagem
+
+
+@router.get("/allowance", response_model=schemas.AllowanceResponse)
+def allowance(
+    ctx: TenantContext = Depends(require(Permission.CONVERSATION_READ)),
+    db: Session = Depends(get_db),
+):
+    """Quantos envios cabem hoje, e por quê esse número."""
+    tenant = db.get(Tenant, ctx.tenant_id)
+    cota = email_sender.allowance_today(db, tenant)
+    return schemas.AllowanceResponse(
+        **cota, within_business_hours=email_sender.within_business_hours(tenant)
+    )
+
+
+@router.post("/{message_id}/send", response_model=schemas.MessageResponse)
+def send(
+    message_id: uuid.UUID,
+    ctx: TenantContext = Depends(require(Permission.CONVERSATION_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """Envia uma mensagem já aprovada, respeitando cota e horário."""
+    return email_sender.send_message(db, tenant_id=ctx.tenant_id, message_id=message_id)
+
+
+@router.post("/send-queued", response_model=schemas.SendQueuedResult)
+def send_queued(
+    ctx: TenantContext = Depends(require(Permission.CONVERSATION_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """Envia a fila aprovada até a cota do dia acabar."""
+    return email_sender.send_queued(db, tenant_id=ctx.tenant_id)
+
+
+@router.post("/{message_id}/requeue", response_model=schemas.MessageResponse)
+def requeue(
+    message_id: uuid.UUID,
+    ctx: TenantContext = Depends(require(Permission.CONVERSATION_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """Devolve para a fila uma mensagem que falhou no envio.
+
+    Falha de rede ou servidor fora do ar não deveria exigir SQL para se
+    recuperar. A aprovação continua valendo: quem aprovou o texto aprovou
+    este texto, e ele não mudou.
+    """
+    mensagem = db.get(Message, message_id)
+    if mensagem is None:
+        raise NotFound("Mensagem não encontrada")
+    if mensagem.status != MessageStatus.FAILED.value:
+        raise ConflictError(
+            f"Mensagem está em '{mensagem.status}': só o que falhou volta para a fila"
+        )
+
+    mensagem.status = MessageStatus.QUEUED.value
+    mensagem.metrics = {
+        **(mensagem.metrics or {}),
+        "requeued_by": str(ctx.user_id),
+        "previous_error": (mensagem.metrics or {}).get("send_error"),
+    }
+    audit.record(
+        db,
+        action="message.requeued",
+        resource_type="message",
+        resource_id=mensagem.id,
         context=ctx,
     )
     return mensagem

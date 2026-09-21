@@ -45,10 +45,30 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
   if (response.status === 401 && requireAuth) redirect("/login");
 
   const texto = await response.text();
-  const dados = texto ? JSON.parse(texto) : null;
+
+  // Nem toda resposta de erro é JSON: um 500 não tratado volta como texto
+  // puro, e tentar interpretar isso como JSON transformaria um erro legível
+  // numa tela de exceção.
+  let dados: unknown = null;
+  try {
+    dados = texto ? JSON.parse(texto) : null;
+  } catch {
+    if (response.ok)
+      throw new ApiError(
+        response.status,
+        "resposta_invalida",
+        "A API devolveu uma resposta que não dá para interpretar.",
+      );
+    throw new ApiError(
+      response.status,
+      "erro_inesperado",
+      `A API falhou (${response.status}). Tente de novo; se persistir, veja os logs.`,
+    );
+  }
 
   if (!response.ok) {
-    const erro = dados?.error ?? {};
+    const erro =
+      (dados as { error?: { code?: string; message?: string } })?.error ?? {};
     throw new ApiError(
       response.status,
       erro.code ?? "erro",
@@ -101,7 +121,10 @@ export type Usage = {
   ai_units_used: number;
   ai_units_limit: number;
   estimated_cost_usd: number;
-  by_kind: Record<string, { units: number; quantity: number; cost_usd: number }>;
+  by_kind: Record<
+    string,
+    { units: number; quantity: number; cost_usd: number }
+  >;
 };
 
 export type Me = {
@@ -150,3 +173,12 @@ export type SendingPolicy = {
 
 /** O que as telas de configuração devolvem: deu certo, e o que dizer. */
 export type Resultado = { ok: boolean; message: string } | null;
+
+export type Allowance = {
+  limit: number;
+  used: number;
+  remaining: number;
+  reason: string;
+  warmup_day: number | null;
+  within_business_hours: boolean;
+};

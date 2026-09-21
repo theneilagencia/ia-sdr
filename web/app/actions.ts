@@ -145,3 +145,44 @@ export async function salvarVolume(_: Resultado, form: FormData): Promise<Result
   revalidatePath("/settings");
   return resultado;
 }
+
+export async function enviarMensagem(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("id"));
+  const resultado = await executar(
+    () => api(`/api/v1/messages/${id}/send`, { method: "POST" }),
+    "Enviada.",
+  );
+  revalidatePath("/drafts");
+  return resultado;
+}
+
+export async function enviarFila(): Promise<Resultado> {
+  try {
+    const r = await api<{ sent: number; blocked: { reason: string }[] }>(
+      "/api/v1/messages/send-queued",
+      { method: "POST" },
+    );
+    revalidatePath("/drafts");
+    const parado = r.blocked[0]?.reason;
+    return {
+      ok: r.sent > 0,
+      message:
+        r.sent > 0
+          ? `${r.sent} ${r.sent === 1 ? "enviada" : "enviadas"}.${parado ? ` Parou em: ${parado}` : ""}`
+          : parado ?? "Nada foi enviado.",
+    };
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
+}
+
+export async function reenviar(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("id"));
+  const resultado = await executar(
+    () => api(`/api/v1/messages/${id}/requeue`, { method: "POST" }),
+    "De volta à fila. Tente enviar de novo.",
+  );
+  revalidatePath("/drafts");
+  return resultado;
+}

@@ -317,6 +317,23 @@ class QualificationResponse(ORMModel):
     created_at: datetime
 
 
+class AllowanceResponse(BaseModel):
+    """A cota do dia, com o motivo — para a tela explicar, não só recusar."""
+
+    limit: int
+    used: int
+    remaining: int
+    reason: str
+    warmup_day: int | None
+    within_business_hours: bool
+
+
+class SendQueuedResult(BaseModel):
+    sent: int
+    blocked: list[dict]
+    allowance: dict
+
+
 class MessageReject(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 

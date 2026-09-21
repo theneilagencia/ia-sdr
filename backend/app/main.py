@@ -26,6 +26,7 @@ from app.api.v1 import (
     integrations,
     messages,
     prospects,
+    public,
     tenants,
 )
 from app.api.v1 import (
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
         prospects,
         messages,
         settings_router,
+        public,
         agents,
         integrations,
         admin,

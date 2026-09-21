@@ -40,13 +40,24 @@ try {
   );
 
   await page.goto(`${WEB}/drafts`);
-  const antes = await page.locator("article.card").count();
+  await page.waitForSelector(".cota", { timeout: 10000 });
+  checar(
+    (await page.locator(".cota").innerText()).includes("enviados hoje"),
+    "cota do dia aparece na tela de revisão",
+  );
+  // Contagem por seção: aprovar move o cartão de "revisão" para "aprovados",
+  // então contar a página inteira daria o mesmo número e o teste passaria à toa.
+  const emRevisao = () => page.locator('[data-secao="revisao"]').count();
+  const antes = await emRevisao();
   checar(antes > 0, `fila de revisão tem rascunho (${antes})`);
 
   await page.locator('button:has-text("Aprovar")').first().click();
   await page.waitForTimeout(2000);
-  const depois = await page.locator("article.card").count();
-  checar(depois === antes - 1, "aprovar tira o rascunho da fila");
+  checar((await emRevisao()) === antes - 1, "aprovar tira o rascunho da revisão");
+  checar(
+    (await page.locator('[data-secao="aprovados"]').count()) > 0,
+    "o aprovado aparece na fila de envio",
+  );
 
   await page.goto(`${WEB}/prospects`);
   checar((await page.locator("h1").innerText()) === "Prospects", "prospects carrega");

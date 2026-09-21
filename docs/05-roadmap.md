@@ -63,10 +63,20 @@ A fazer:
 - Upload de CSV (hoje o import é JSON em lote)
 - Editor do Company Brain no web app
 
-## Sprint 3 — AI SDR
+## Sprint 3 — AI SDR (em andamento)
 
-- **Envio de verdade**: o passo que pega o rascunho aprovado e manda pela conta
-  já configurada, respeitando o limite diário e o aquecimento
+Feito:
+
+- **Envio de verdade** (`app/services/email_sender.py`): o rascunho aprovado sai
+  pela conta configurada da empresa, com limite diário, aquecimento de domínio e
+  horário comercial aplicados antes de cada mensagem
+- **Descadastro** (`app/services/unsubscribe.py`): link assinado em todo email,
+  no corpo e no cabeçalho `List-Unsubscribe`, com página pública de um clique
+- **Fila de envio na tela**: cota do dia com o motivo, envio individual ou em
+  lote, e uma seção para o que falhou, com o erro em português e "tentar de novo"
+
+A fazer:
+
 - **Recebimento**: ler as respostas (IMAP ou webhook) e acionar o Conversation
   Agent sozinho
 - Fila e workers consumindo `JobEnvelope` (o payload já é o contrato)

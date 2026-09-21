@@ -137,3 +137,30 @@ def test_viewer_nao_aprova(client, make_tenant, auth_headers):
     assert client.get("/api/v1/messages", headers=headers).status_code == 200
     recusado = client.post(f"/api/v1/messages/{message_id}/approve", headers=headers)
     assert recusado.status_code == 403
+
+
+def test_mensagem_que_falhou_volta_para_a_fila(client, make_tenant, auth_headers):
+    """Falha de rede não deveria exigir SQL para se recuperar."""
+    t = make_tenant()
+    message_id = _cenario(t["tenant_id"])
+    headers = auth_headers(t["email"], t["password"])
+
+    with tenant_session(t["tenant_id"]) as session:
+        mensagem = session.get(Message, message_id)
+        mensagem.status = "failed"
+        mensagem.metrics = {"send_error": "TimeoutError: timed out"}
+
+    r = client.post(f"/api/v1/messages/{message_id}/requeue", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "queued"
+    # O erro anterior fica guardado: some da vista, não do histórico.
+    assert "timed out" in r.json()["metrics"]["previous_error"]
+
+
+def test_so_o_que_falhou_volta_para_a_fila(client, make_tenant, auth_headers):
+    t = make_tenant()
+    message_id = _cenario(t["tenant_id"])
+    headers = auth_headers(t["email"], t["password"])
+
+    recusado = client.post(f"/api/v1/messages/{message_id}/requeue", headers=headers)
+    assert recusado.status_code == 409

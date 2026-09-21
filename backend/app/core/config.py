@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 300
     rate_limit_window_seconds: int = 60
 
+    #: Onde a API responde para o mundo. É a base do link de descadastro que
+    #: vai em todo email: se estiver errada, o link não abre.
+    public_base_url: str = "http://localhost:8000"
+
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
 
     @property
