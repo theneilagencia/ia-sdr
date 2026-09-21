@@ -42,5 +42,15 @@ services:
       && python -m scripts.bootstrap_roles
       && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
+  web:
+    build: ./web
+    environment:
+      # O browser nunca fala com a API direto: quem chama é o servidor do Next.
+      API_URL: http://api:8000
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+
 volumes:
   pgdata:

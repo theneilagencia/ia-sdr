@@ -317,6 +317,10 @@ class QualificationResponse(ORMModel):
     created_at: datetime
 
 
+class MessageReject(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
 class FunnelResponse(BaseModel):
     """Os números da tela inicial: quantos entraram e até onde chegaram."""
 

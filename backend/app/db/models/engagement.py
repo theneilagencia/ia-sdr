@@ -21,6 +21,9 @@ class MessageDirection(StrEnum):
 
 class MessageStatus(StrEnum):
     DRAFT = "draft"
+    #: Recusado por quem revisou. Fica no histórico: saber o que a IA escreveu
+    #: e foi barrado vale tanto quanto saber o que saiu.
+    REJECTED = "rejected"
     QUEUED = "queued"
     SENT = "sent"
     DELIVERED = "delivered"

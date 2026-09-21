@@ -48,6 +48,11 @@ Feito:
   avalia critério a critério contra a campanha. Critério cumprido sem
   evidência é rebaixado pelo código, e confiança baixa não vira "qualificado"
 - **Reunião** (`POST /api/v1/prospects/{id}/meetings`): fecha o funil
+- **Fila de revisão**: rascunho só vira mensagem enviável depois que uma
+  pessoa aprova; a recusa guarda o motivo
+- **Web app** (`web/`, Next.js): funil, fila de revisão com aprovar/recusar,
+  prospects e campanhas. Token em cookie httpOnly, chamadas à API feitas pelo
+  servidor — nada de credencial no browser
 
 A fazer:
 
@@ -74,7 +79,8 @@ A fazer:
 
 ## Transversal (quando a operação exigir)
 
-- Web app em Next.js — hoje só existe a API
+- Telas que faltam no web app: Company Brain, conversas, importação de lista
+- Teste de ponta a ponta do web app no CI (hoje validado manualmente com browser)
 - Secrets manager externo
 - Rate limiting distribuído (Redis)
 - Política de retenção e exportação de dados por tenant

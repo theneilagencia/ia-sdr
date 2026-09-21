@@ -15,8 +15,8 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 **Sprint 1 (Foundation) implementado e testado**: autenticação, tenants,
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
-criptografia de credenciais e painel de plataforma. 42 endpoints, 22 tabelas,
-94 testes contra PostgreSQL de verdade.
+criptografia de credenciais e painel de plataforma. 45 endpoints, 22 tabelas,
+100 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
@@ -33,7 +33,10 @@ a critério contra a campanha — com dois freios no código, não no prompt:
 critério cumprido sem evidência é rebaixado, e confiança baixa não vira
 "qualificado". Os quatro agentes do MVP estão ligados.
 
-Não há web app ainda: só a API.
+O **web app** (`web/`, Next.js) já mostra o funil, a fila de revisão com
+aprovar e recusar, os prospects e as campanhas. O token fica num cookie
+httpOnly e todas as chamadas à API saem do servidor do Next: nenhuma
+credencial chega ao browser.
 
 Veja [`docs/05-roadmap.md`](docs/05-roadmap.md) para o que vem a seguir.
 
@@ -143,6 +146,7 @@ O que está coberto:
 ## Estrutura
 
 ```
+web/                  Next.js: funil, fila de revisão, prospects, campanhas
 backend/
   app/
     api/            rotas HTTP, dependências, middleware

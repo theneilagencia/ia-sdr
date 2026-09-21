@@ -24,6 +24,7 @@ from app.api.v1 import (
     company_brain,
     health,
     integrations,
+    messages,
     prospects,
     tenants,
 )
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
         companies,
         company_brain,
         prospects,
+        messages,
         agents,
         integrations,
         admin,
