@@ -1,8 +1,26 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useState } from "react";
 
 import { buscarRespostas, enviarFila, enviarMensagem, reenviar } from "../actions";
+
+/**
+ * Marca no DOM que o React assumiu a página.
+ *
+ * Existe por causa de uma falha de verdade: a fumaça esperava por um elemento
+ * renderizado no servidor e clicava em "Aprovar" logo depois. Numa máquina
+ * rápida a hidratação já tinha terminado; num runner frio, não — e o clique
+ * era engolido, o que aparecia como "aprovar não tira o rascunho da revisão"
+ * de forma intermitente, sempre estourando o tempo de espera.
+ *
+ * O atributo não muda nada visualmente. Ele dá ao teste (e a quem depurar) uma
+ * forma de saber que os formulários desta tela já respondem, em vez de supor.
+ */
+function useMarcaDeHidratacao() {
+  const [hidratado, setHidratado] = useState(false);
+  useEffect(() => setHidratado(true), []);
+  return hidratado ? "1" : undefined;
+}
 
 /**
  * Botões de envio com resposta visível.
@@ -69,10 +87,11 @@ export function Requeue({ id }: { id: string }) {
 
 export function FetchInbox() {
   const [resultado, acao, buscando] = useActionState(buscarRespostas, null);
+  const hidratado = useMarcaDeHidratacao();
 
   return (
     <>
-      <form action={acao} className="inline">
+      <form action={acao} className="inline" data-hidratado={hidratado}>
         <button className="ghost" type="submit" disabled={buscando}>
           {buscando ? "Lendo a caixa…" : "Buscar respostas"}
         </button>
