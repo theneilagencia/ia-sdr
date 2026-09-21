@@ -29,6 +29,14 @@ function checar(condicao, descricao) {
  * Um teste que falha por tempo ensina a ignorar teste vermelho, que é o pior
  * hábito que uma suíte pode criar.
  */
+/** O marcador é um elemento oculto, então a espera é por presença no DOM. */
+async function hidratada() {
+  await page.waitForSelector('[data-hidratado="1"]', {
+    state: "attached",
+    timeout: 20000,
+  });
+}
+
 async function ate(condicao, { limite = 20000, passo = 250 } = {}) {
   const fim = Date.now() + limite;
   for (;;) {
@@ -100,7 +108,7 @@ try {
   // assumiu a página. Clicar antes da hidratação engole o clique, e foi
   // exatamente isso que fez esta fumaça falhar de forma intermitente no CI:
   // passava na máquina rápida, estourava os 20 segundos no runner frio.
-  await page.waitForSelector('[data-hidratado="1"]', { timeout: 20000 });
+  await hidratada();
   checar(
     (await page.locator(".cota").innerText()).includes("enviados hoje"),
     "cota do dia aparece na tela de revisão",
@@ -138,6 +146,50 @@ try {
   checar(
     (await page.locator('input[name="host"]').count()) === 1,
     "escolher servidor próprio revela host e porta",
+  );
+
+  // As três telas do backoffice: o caminho crítico de cada uma, não o CRUD
+  // inteiro — esse está coberto pelos testes de backend.
+  await page.goto(`${WEB}/brain`);
+  await hidratada();
+  const marca = `posicionamento ${Date.now()}`;
+  await page.fill('textarea[name="positioning"]', marca);
+  await page.locator('button:has-text("Salvar")').click();
+  checar(
+    await ate(async () => (await page.locator("p.ok").count()) > 0),
+    "cérebro salva",
+  );
+  await page.reload();
+  await hidratada();
+  checar(
+    (await page.locator('textarea[name="positioning"]').inputValue()) === marca,
+    "o que foi salvo no cérebro volta na recarga",
+  );
+
+  await page.goto(`${WEB}/knowledge`);
+  await hidratada();
+  const documentosAntes = await page.locator("tbody tr").count();
+  const colar = page.locator("section.card", { hasText: "Colar texto" });
+  await colar.locator('input[name="title"]').fill(`Base ${Date.now()}`);
+  await colar.locator('textarea[name="content"]').fill("O reembolso integral vale por trinta dias.");
+  await colar.locator('button[type="submit"]').click();
+  checar(
+    await ate(async () => (await page.locator("p.ok").count()) > 0),
+    "documento colado é indexado",
+  );
+  await page.reload();
+  await hidratada();
+  checar(
+    (await page.locator("tbody tr").count()) === documentosAntes + 1,
+    "o documento aparece na base",
+  );
+
+  await page.goto(`${WEB}/team`);
+  await hidratada();
+  checar((await page.locator("tbody tr").count()) >= 1, "equipe lista os membros");
+  checar(
+    (await page.locator("tbody tr", { hasText: EMAIL }).locator("select").count()) === 0,
+    "o próprio usuário não tem seletor de papel",
   );
 } catch (erro) {
   falhas.push(`exceção: ${erro.message}`);

@@ -32,13 +32,18 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
   const token = await getToken();
   if (requireAuth && !token) redirect("/login");
 
+  // Upload de arquivo vai como multipart. O `content-type` precisa ficar de
+  // fora: é o fetch que monta o boundary, e fixá-lo aqui quebraria o parse do
+  // outro lado.
+  const multipart = body instanceof FormData;
+
   const response = await fetch(`${API_URL}${path}`, {
     method,
     headers: {
-      "content-type": "application/json",
+      ...(multipart ? {} : { "content-type": "application/json" }),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
     cache: "no-store",
   });
 
@@ -128,10 +133,13 @@ export type Usage = {
 };
 
 export type Me = {
+  user_id: string;
   email: string;
   full_name: string;
   role: string;
   tenant_id: string;
+  //: Quem opera a plataforma enxerga o painel; quem não, não vê o link.
+  is_platform_admin: boolean;
   memberships: { tenant_id: string; tenant_name: string; role: string }[];
 };
 
@@ -183,4 +191,45 @@ export type Allowance = {
   reason: string;
   warmup_day: number | null;
   within_business_hours: boolean;
+};
+
+/**
+ * O Company Brain, com os campos que os agentes de fato leem.
+ *
+ * A API guarda quinze campos; sete chegam ao contexto de algum agente. Os
+ * outros existem no modelo e não são servidos por nenhuma tela — campo que
+ * nada consome ensina a pessoa que preencher importa quando não importa.
+ */
+export type CompanyBrain = {
+  legal_name: string | null;
+  website: string | null;
+  positioning: string | null;
+  products: { nome?: string; descricao?: string }[];
+  cases: { cliente?: string; resultado?: string }[];
+  objections: { objecao?: string; resposta?: string }[];
+  brand_voice: { tom?: string; idioma?: string; evitar?: string };
+  sales_playbook: { abertura?: string; proxima_etapa?: string };
+  ai_policies: { nunca_prometer?: string; escalar_quando?: string };
+  updated_at: string;
+};
+
+export type KnowledgeDocument = {
+  id: string;
+  title: string;
+  source_type: string;
+  source_uri: string | null;
+  status: string;
+  campaign_ids: string[];
+  char_count: number;
+  chunk_count: number;
+  error: string | null;
+  created_at: string;
+};
+
+export type Member = {
+  user_id: string;
+  email: string;
+  full_name: string;
+  role: "owner" | "admin" | "operator" | "viewer";
+  is_active: boolean;
 };

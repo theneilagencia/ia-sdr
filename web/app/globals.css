@@ -106,6 +106,10 @@ tbody tr { background: var(--surface); }
 
 form.inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 form.inline input[name="reason"] { flex: 1 1 320px; min-width: 240px; }
+select { font: inherit; border-radius: 8px; border: 1px solid var(--border); padding: 8px 12px; background: var(--surface); color: var(--text); }
+select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+input[type="file"] { padding: 6px; }
+
 input, button, textarea {
   font: inherit;
   border-radius: 8px;
@@ -132,4 +136,15 @@ button.ghost { color: var(--muted); }
   thead { display: none; }
   td { border-top: none; }
   tbody tr { border-top: 1px solid var(--border); padding: 8px 0; }
+}
+
+/* Linha repetida de formulário: o rótulo aparece uma vez e as demais linhas o
+   escondem visualmente, sem deixar de existir para quem usa leitor de tela. */
+.repetido { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.dupla label { min-width: 0; }
+table .inline { display: inline-flex; margin-right: 8px; }
+table .ajuda { margin: 4px 0 0; font-size: 12px; }
+@media (max-width: 720px) {
+  .dupla { grid-template-columns: 1fr; }
+  header.top nav { flex-wrap: wrap; }
 }

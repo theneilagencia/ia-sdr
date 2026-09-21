@@ -153,10 +153,18 @@ verdade é código que ainda não existe.
 
 ## Transversal (quando a operação exigir)
 
-- **Telas que faltam no web app**: Company Brain, base de conhecimento,
-  conversas, importação de lista, cadências, membros, CRM, detalhe do prospect e
-  Platform Admin. Toda a API por trás delas existe — hoje 22 das 97 operações
-  da API têm tela
+- **Telas que faltam no web app**: conversas, importação de lista, cadências,
+  CRM, detalhe do prospect e Platform Admin. Company Brain, base de
+  conhecimento e equipe ✅. Toda a API por trás das que faltam existe
+
+  Do Company Brain, a tela serve os **sete campos que algum agente lê** —
+  posicionamento, produtos, casos, objeções, tom de voz, playbook e políticas de
+  IA. Os outros oito (razão social e site à parte) existem no modelo e nenhum
+  agente os consome: `services`, `personas`, `pricing`, `faqs` e `competitors`
+  ficam fora da tela de propósito, porque campo que nada consome ensina a pessoa
+  que preencher importa quando não importa. `pricing` e `faqs` são o caso mais
+  interessante: o agente de conversa **escala preço para humano por desenho**,
+  então preenchê-los mudaria o comportamento dele, não a tela
 - Secrets manager externo (hoje a chave Fernet vive no `.env` do servidor)
 - Rate limiting distribuído (Redis) — hoje é por processo, o que basta para uma
   réplica só
