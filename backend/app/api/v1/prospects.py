@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db, require
 from app.api.v1 import schemas
 from app.core.errors import LimitExceeded, NotFound
-from app.db.models.engagement import Meeting
+from app.db.models.engagement import Conversation, Meeting, Message
 from app.db.models.sales import Campaign, Company, Contact, Prospect, ProspectStatus, Score
 from app.rbac.roles import Permission
 from app.services import audit
@@ -180,6 +180,25 @@ def list_scores(
             select(Score)
             .where(Score.prospect_id == prospect_id)
             .order_by(Score.created_at.desc())
+        ).scalars()
+    )
+
+
+@router.get("/{prospect_id}/messages", response_model=list[schemas.MessageResponse])
+def list_messages(
+    prospect_id: uuid.UUID,
+    ctx: TenantContext = Depends(require(Permission.CONVERSATION_READ)),
+    db: Session = Depends(get_db),
+):
+    """Rascunhos e mensagens deste prospect, mais novos primeiro."""
+    if db.get(Prospect, prospect_id) is None:
+        raise NotFound("Prospect não encontrado")
+    return list(
+        db.execute(
+            select(Message)
+            .join(Conversation, Message.conversation_id == Conversation.id)
+            .where(Conversation.prospect_id == prospect_id)
+            .order_by(Message.created_at.desc())
         ).scalars()
     )
 

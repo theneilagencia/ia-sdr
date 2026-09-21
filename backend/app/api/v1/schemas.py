@@ -258,6 +258,21 @@ class ProspectResponse(ORMModel):
     created_at: datetime
 
 
+class MessageResponse(ORMModel):
+    """Rascunho ou mensagem trocada. `metrics` guarda os ganchos usados."""
+
+    id: uuid.UUID
+    conversation_id: uuid.UUID
+    direction: str
+    status: str
+    channel: str
+    subject: str | None
+    body: str
+    sent_at: datetime | None
+    metrics: dict
+    created_at: datetime
+
+
 class FunnelResponse(BaseModel):
     """Os números da tela inicial: quantos entraram e até onde chegaram."""
 

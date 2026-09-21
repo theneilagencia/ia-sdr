@@ -37,6 +37,9 @@ Feito:
   vez de uma segunda chamada de modelo, com o cálculo aberto para auditoria
 - **Funil** (`GET /api/v1/prospects/funnel`): os números da tela inicial,
   cumulativos por estágio
+- **Outreach Agent** (`app/orchestrator/executors/outreach.py`): primeira
+  abordagem ancorada na pesquisa, gravada como **rascunho**. Recusa escrever
+  sem pesquisa da conta, respeita descadastro, campanha pausada e teto diário
 
 A fazer:
 
@@ -46,12 +49,14 @@ A fazer:
 
 ## Sprint 3 — AI SDR
 
-- Executor real dos agentes (`register_executor`) com chamada de modelo
+- **Envio de verdade**: integração de email (OAuth Gmail/Outlook e SMTP) e o
+  passo que transforma rascunho em mensagem enviada — hoje o Outreach Agent
+  para no rascunho, de propósito
+- Conversation Agent: responder com base na base de conhecimento
 - Fila e workers consumindo `JobEnvelope` (o payload já é o contrato)
 - Ingestão da Knowledge Base: chunking, embeddings, busca (migrar
   `knowledge_chunks.embedding` para `pgvector`)
-- Integração de email (OAuth Gmail/Outlook e SMTP), envio e recebimento
-- Sequências e limites diários por campanha
+- Sequências (cadência multi-passo); o teto diário por campanha já existe
 
 ## Sprint 4 — Conversion
 

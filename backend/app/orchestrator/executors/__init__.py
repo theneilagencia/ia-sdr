@@ -12,6 +12,7 @@ from app.ai.client import is_configured
 from app.db.models.ai import AgentKind
 from app.orchestrator.executors.base import AgentExecutor, ExecutionResult
 from app.orchestrator.executors.echo import echo_executor
+from app.orchestrator.executors.outreach import OutreachExecutor
 from app.orchestrator.executors.research import ResearchExecutor
 
 logger = logging.getLogger("ia_sdr.agents")
@@ -29,12 +30,14 @@ def register_default_executors() -> None:
         return
 
     register_executor(AgentKind.RESEARCH.value, ResearchExecutor())
-    logger.info("Research Agent registrado com execução real")
+    register_executor(AgentKind.OUTREACH.value, OutreachExecutor())
+    logger.info("Research e Outreach registrados com execução real")
 
 
 __all__ = [
     "AgentExecutor",
     "ExecutionResult",
+    "OutreachExecutor",
     "ResearchExecutor",
     "echo_executor",
     "register_default_executors",
