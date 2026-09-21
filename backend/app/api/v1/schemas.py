@@ -258,6 +258,18 @@ class ProspectResponse(ORMModel):
     created_at: datetime
 
 
+class InboundMessageCreate(BaseModel):
+    """Resposta recebida do lead.
+
+    Hoje entra por aqui; no Sprint 3 entra pelo webhook do provedor de email,
+    que chama exatamente este caminho.
+    """
+
+    body: str = Field(min_length=1)
+    subject: str | None = None
+    external_message_id: str | None = None
+
+
 class MessageResponse(ORMModel):
     """Rascunho ou mensagem trocada. `metrics` guarda os ganchos usados."""
 

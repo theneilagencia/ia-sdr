@@ -40,6 +40,10 @@ Feito:
 - **Outreach Agent** (`app/orchestrator/executors/outreach.py`): primeira
   abordagem ancorada na pesquisa, gravada como **rascunho**. Recusa escrever
   sem pesquisa da conta, respeita descadastro, campanha pausada e teto diário
+- **Conversation Agent** (`app/orchestrator/executors/conversation.py`):
+  responde a partir da base de conhecimento do tenant e escala para humano
+  quando a resposta não está lá, quando o assunto é preço/jurídico/prazo ou
+  quando o modelo recusa. Descadastro é obedecido no ato
 
 A fazer:
 
@@ -52,7 +56,6 @@ A fazer:
 - **Envio de verdade**: integração de email (OAuth Gmail/Outlook e SMTP) e o
   passo que transforma rascunho em mensagem enviada — hoje o Outreach Agent
   para no rascunho, de propósito
-- Conversation Agent: responder com base na base de conhecimento
 - Fila e workers consumindo `JobEnvelope` (o payload já é o contrato)
 - Ingestão da Knowledge Base: chunking, embeddings, busca (migrar
   `knowledge_chunks.embedding` para `pgvector`)

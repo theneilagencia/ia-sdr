@@ -15,8 +15,8 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 **Sprint 1 (Foundation) implementado e testado**: autenticação, tenants,
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
-criptografia de credenciais e painel de plataforma. 38 endpoints, 22 tabelas,
-76 testes contra PostgreSQL de verdade.
+criptografia de credenciais e painel de plataforma. 39 endpoints, 22 tabelas,
+84 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
@@ -25,8 +25,11 @@ o funil já funciona: contas-alvo, import de prospects com deduplicação e cota
 pontuação contra o ICP com o cálculo aberto, e os números da tela inicial em
 `GET /api/v1/prospects/funnel`. O **Outreach Agent** escreve a primeira
 abordagem ancorada na pesquisa — e para no rascunho: disparar email escrito
-por IA sem ninguém ter lido o primeiro é como se queima um domínio. Os agentes
-de conversa e qualificação seguem no executor de eco até terem sua vez.
+por IA sem ninguém ter lido o primeiro é como se queima um domínio. O
+**Conversation Agent** responde quando o lead responde — e escala para humano
+quando a resposta não está na base, quando o assunto é preço ou jurídico, ou
+quando ele próprio recusa. O agente de qualificação segue no executor de eco
+até ter sua vez.
 
 Não há web app ainda: só a API.
 
@@ -130,6 +133,8 @@ O que está coberto:
 - `test_outreach_agent.py` — o rascunho que nasce rascunho, e os quatro
   motivos para não escrever: sem pesquisa, descadastro, campanha pausada,
   teto diário
+- `test_conversation_agent.py` — escalonamento para humano, descadastro
+  obedecido no ato e recusa do modelo tratada como sinal, não como erro
 
 ## Estrutura
 

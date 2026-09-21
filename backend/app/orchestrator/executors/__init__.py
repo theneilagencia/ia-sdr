@@ -11,6 +11,7 @@ import logging
 from app.ai.client import is_configured
 from app.db.models.ai import AgentKind
 from app.orchestrator.executors.base import AgentExecutor, ExecutionResult
+from app.orchestrator.executors.conversation import ConversationExecutor
 from app.orchestrator.executors.echo import echo_executor
 from app.orchestrator.executors.outreach import OutreachExecutor
 from app.orchestrator.executors.research import ResearchExecutor
@@ -31,12 +32,14 @@ def register_default_executors() -> None:
 
     register_executor(AgentKind.RESEARCH.value, ResearchExecutor())
     register_executor(AgentKind.OUTREACH.value, OutreachExecutor())
-    logger.info("Research e Outreach registrados com execução real")
+    register_executor(AgentKind.CONVERSATION.value, ConversationExecutor())
+    logger.info("Research, Outreach e Conversation registrados com execução real")
 
 
 __all__ = [
     "AgentExecutor",
     "ExecutionResult",
+    "ConversationExecutor",
     "OutreachExecutor",
     "ResearchExecutor",
     "echo_executor",

@@ -11,7 +11,13 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db, require
 from app.api.v1 import schemas
 from app.core.errors import LimitExceeded, NotFound
-from app.db.models.engagement import Conversation, Meeting, Message
+from app.db.models.engagement import (
+    Conversation,
+    Meeting,
+    Message,
+    MessageDirection,
+    MessageStatus,
+)
 from app.db.models.sales import Campaign, Company, Contact, Prospect, ProspectStatus, Score
 from app.rbac.roles import Permission
 from app.services import audit
@@ -182,6 +188,71 @@ def list_scores(
             .order_by(Score.created_at.desc())
         ).scalars()
     )
+
+
+@router.post(
+    "/{prospect_id}/messages/inbound",
+    response_model=schemas.MessageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_inbound(
+    prospect_id: uuid.UUID,
+    payload: schemas.InboundMessageCreate,
+    ctx: TenantContext = Depends(require(Permission.CONVERSATION_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """Registra a resposta do lead e move o prospect para engajado.
+
+    Quem responde está engajado, independentemente do que o agente vai fazer
+    com a mensagem depois.
+    """
+    prospect = db.get(Prospect, prospect_id)
+    if prospect is None:
+        raise NotFound("Prospect não encontrado")
+
+    conversa = db.execute(
+        select(Conversation).where(Conversation.prospect_id == prospect_id).limit(1)
+    ).scalar_one_or_none()
+    if conversa is None:
+        conversa = Conversation(
+            tenant_id=ctx.tenant_id,
+            prospect_id=prospect_id,
+            campaign_id=prospect.campaign_id,
+            channel="email",
+            subject=payload.subject,
+        )
+        db.add(conversa)
+        db.flush()
+
+    mensagem = Message(
+        tenant_id=ctx.tenant_id,
+        conversation_id=conversa.id,
+        direction=MessageDirection.INBOUND.value,
+        status=MessageStatus.REPLIED.value,
+        channel=conversa.channel,
+        subject=payload.subject or conversa.subject,
+        body=payload.body,
+        external_message_id=payload.external_message_id,
+    )
+    db.add(mensagem)
+    conversa.last_message_at = mensagem.created_at
+    if prospect.status not in (
+        ProspectStatus.QUALIFIED.value,
+        ProspectStatus.MEETING_BOOKED.value,
+        ProspectStatus.DISQUALIFIED.value,
+    ):
+        prospect.status = ProspectStatus.ENGAGED.value
+    db.flush()
+
+    audit.record(
+        db,
+        action="conversation.inbound_received",
+        resource_type="conversation",
+        resource_id=conversa.id,
+        payload={"prospect_id": str(prospect_id)},
+        context=ctx,
+    )
+    return mensagem
 
 
 @router.get("/{prospect_id}/messages", response_model=list[schemas.MessageResponse])
