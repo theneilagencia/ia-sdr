@@ -29,6 +29,8 @@ class JobKind(StrEnum):
     #: Avança as cadências cuja hora chegou. Não manda email: gera o rascunho
     #: do próximo toque, que segue para a fila de revisão como qualquer outro.
     SEQUENCE_TICK = "sequence_tick"
+    #: Empurra para o RAVI os prospects que mudaram. O CRM é lá; aqui é o motor.
+    RAVI_SYNC = "ravi_sync"
 
 
 class JobStatus(StrEnum):

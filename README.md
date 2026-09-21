@@ -182,6 +182,10 @@ O que está coberto:
   a cadência: resposta, descadastro, reunião, qualificação
 - `test_bounce_csv_export.py` — bounce permanente versus temporário, planilha do
   Excel em português e a exportação que não leva segredo junto
+- `test_ravi.py` — a integração com o CRM contra um RAVI de mentira em
+  `MockTransport`: o token que nunca volta na resposta, o prospect sem nota que
+  não sobe, o reenvio que não duplica, e um teste que usa o modelo do próprio
+  Qualification Agent para a forma dos critérios não poder divergir em silêncio
 - `web/e2e/smoke.mjs` — browser de verdade: login, funil e aprovação. Pega o
   que build e typecheck não pegam, como Server Action que compila e falha ao
   executar
@@ -216,6 +220,20 @@ docs/               arquitetura e decisões
 - [AI Orchestrator e Company Brain](docs/04-ai-orchestrator.md)
 - [Roadmap](docs/05-roadmap.md)
 - [Publicar a aplicação](docs/06-publicar.md)
+
+## O CRM é o RAVI
+
+Esta plataforma não tem CRM e não vai ter. O lead nasce e vive no
+[RAVI](https://github.com/ApyMine/ravi); aqui é o motor que pesquisa, pontua,
+aborda e qualifica — e empurra o resultado para lá, por `POST /leads`, com
+upsert por email ou telefone do lado do RAVI.
+
+A conexão é por empresa, em **Configurações → CRM**: URL, token de agente e o
+identificador da empresa no RAVI. Testada antes de salvar, cifrada, nunca
+devolvida à tela.
+
+Prospect sem pontuação não sobe: o `score` é obrigatório no RAVI, e lead sem
+nota nem pesquisa é linha que ninguém sabe de onde veio.
 
 ## Duas regras que não se negociam
 

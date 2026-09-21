@@ -518,6 +518,32 @@ class AllowanceResponse(BaseModel):
     within_business_hours: bool
 
 
+class CrmSettingsResponse(BaseModel):
+    """O que a tela mostra da conexão com o RAVI. Sem o token, nunca."""
+
+    configured: bool
+    base_url: str | None
+    ravi_tenant_id: str | None
+    token_hint: str | None
+    status: str
+    last_error: str | None
+
+
+class CrmSettingsUpdate(BaseModel):
+    base_url: str = Field(min_length=1, max_length=500)
+    token: str = Field(min_length=1, max_length=2000)
+    #: Vai no cabeçalho `x-tenant-id`: é como o RAVI sabe de quem é o lead.
+    ravi_tenant_id: str = Field(min_length=1, max_length=200)
+    #: Estágio inicial do funil do RAVI. Vazio deixa o RAVI decidir.
+    default_stage: str | None = Field(default=None, max_length=200)
+
+
+class CrmSyncResult(BaseModel):
+    status: str
+    lead_id: str | None = None
+    reason: str | None = None
+
+
 class FetchInboxResult(BaseModel):
     fetched: int
     recorded: int

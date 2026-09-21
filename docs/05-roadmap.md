@@ -123,17 +123,30 @@ verdade é código que ainda não existe.
 
 - Integração de calendário — Google ou Microsoft (o agendamento manual já
   existe e é o mesmo caminho)
-- **Integração com o RAVI**, o CRM que já existe. Esta plataforma não tem CRM
-  próprio e não vai ter: o lead nasce e vive no RAVI, e o que o AI SDR faz é
-  pesquisar, pontuar, abordar e qualificar — devolvendo estágio e atividade
-  para lá. Duas bases com o mesmo lead divergem em uma semana.
+- **Integração com o RAVI** ✅ (`app/services/ravi.py`). Esta plataforma não tem
+  CRM próprio e não vai ter: o lead vive no RAVI, e o que o AI SDR faz é
+  pesquisar, pontuar, abordar e qualificar — empurrando isso para lá. Duas bases
+  com o mesmo lead divergem em uma semana.
 
-  O que a API do RAVI oferece hoje (lida em `theneilagencia/ravi`, serviço
-  `back-end/api`): autenticação de máquina por `Authorization` + `x-tenant-id`,
-  `GET /funnel/leads`, `PATCH /funnel/leads/:id/stage`, `GET/POST /funnel/stages`
-  e webhooks configuráveis por tenant. **Não há endpoint de criação de lead** —
-  o lead nasce no chat —, então prospect que o AI SDR encontra frio precisa de
-  um caminho novo do lado do RAVI.
+  Sentido: **AI SDR → RAVI**. `POST /leads` do serviço de chat, autenticado por
+  `Authorization` + `x-tenant-id`, que do lado do RAVI faz upsert por email ou
+  telefone — é essa propriedade que permite o envio viver na fila com backoff.
+  A conexão é por empresa, testada antes de salvar, cifrada e nunca devolvida à
+  tela; o token aparece como `…1234`.
+
+  Três coisas para alinhar com quem cuida do RAVI:
+
+  1. **`source` não tem valor para prospecção outbound.** Os aceitos são
+     `widget`, `whatsapp`, `email`, `form` e `manual`; vai `manual`, que é o
+     menos errado. Um valor próprio separaria o lead que chegou pelo chat do
+     lead que este motor foi buscar.
+  2. **`stage` é texto no Lead do chat e `stage_id` no funil do dashboard.** O
+     que se configura aqui é enviado como texto, sem tradução.
+  3. **O contrato foi lido no repositório público** (`theneilagencia/ravi`). A
+     fonte da verdade é `ApyMine/ravi`, privado, que a sessão não conseguiu
+     abrir. Se divergir, o que quebra é o teste de conexão e o envio — em voz
+     alta, com o corpo da resposta do RAVI no erro.
+
 - Billing: assinatura, cobrança por uso e faturas — exige gateway (Stripe)
 - Dashboard do funil e de consumo: a API existe (`/prospects/funnel`,
   `/tenants/me/usage`); falta a tela

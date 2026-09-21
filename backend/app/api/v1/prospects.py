@@ -21,7 +21,7 @@ from app.db.models.engagement import (
 )
 from app.db.models.sales import Campaign, Company, Contact, Prospect, ProspectStatus, Score
 from app.rbac.roles import Permission
-from app.services import audit, csv_import
+from app.services import audit, csv_import, ravi
 from app.services.csv_import import CsvInvalido
 from app.services.usage import UsageKind, count_this_month, effective_limits, record_usage
 from app.tenancy.context import TenantContext
@@ -389,6 +389,35 @@ def list_meetings(
             .order_by(Meeting.scheduled_at.desc())
         ).scalars()
     )
+
+
+@router.post("/{prospect_id}/sync-crm", response_model=schemas.CrmSyncResult)
+def sync_prospect_to_crm(
+    prospect_id: uuid.UUID,
+    force: bool = Query(default=False),
+    ctx: TenantContext = Depends(require(Permission.PROSPECT_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """Empurra este prospect para o RAVI agora.
+
+    O worker faz isso sozinho a cada ciclo. O endpoint existe para não ser
+    preciso esperar o relógio — e para ter onde olhar quando alguém pergunta por
+    que o lead não apareceu no CRM: a resposta diz `skipped` com o motivo.
+    """
+    prospect = db.get(Prospect, prospect_id)
+    if prospect is None:
+        raise NotFound("Prospect não encontrado nesta empresa")
+    resultado = ravi.push_prospect(db, ctx.tenant_id, prospect, force=force)
+    if resultado["status"] in ("created", "updated"):
+        audit.record(
+            db,
+            action="crm.lead_pushed",
+            resource_type="prospect",
+            resource_id=prospect_id,
+            payload={"lead_id": resultado.get("lead_id"), "status": resultado["status"]},
+            context=ctx,
+        )
+    return schemas.CrmSyncResult(**resultado)
 
 
 @router.get("/funnel", response_model=schemas.FunnelResponse)

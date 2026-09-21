@@ -16,7 +16,7 @@ from app.api.deps import get_db, require
 from app.api.v1 import schemas
 from app.db.models.platform import Tenant
 from app.rbac.roles import Permission
-from app.services import ai_credentials, audit, email_accounts
+from app.services import ai_credentials, audit, email_accounts, ravi
 from app.tenancy.context import TenantContext
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -94,6 +94,82 @@ def delete_ai_key(
 
 
 # ------------------------------------------------------------------ email
+# ------------------------------------------------------------------ CRM (RAVI)
+@router.get("/crm", response_model=schemas.CrmSettingsResponse)
+def get_crm_settings(
+    ctx: TenantContext = Depends(require(Permission.INTEGRATION_READ)),
+    db: Session = Depends(get_db),
+):
+    return ravi.describe(db, ctx.tenant_id)
+
+
+@router.post("/crm/test", response_model=schemas.ConnectionTestResult)
+def test_crm(
+    payload: schemas.CrmSettingsUpdate,
+    ctx: TenantContext = Depends(require(Permission.INTEGRATION_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """Bate no RAVI com os dados da tela, sem salvar e sem escrever nada lá."""
+    ok, mensagem = ravi.test_connection(
+        base_url=payload.base_url,
+        token=payload.token,
+        ravi_tenant_id=payload.ravi_tenant_id,
+    )
+    return schemas.ConnectionTestResult(ok=ok, message=mensagem)
+
+
+@router.put("/crm", response_model=schemas.CrmSettingsResponse)
+def set_crm_settings(
+    payload: schemas.CrmSettingsUpdate,
+    ctx: TenantContext = Depends(require(Permission.INTEGRATION_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """Salva a conexão com o RAVI, testando antes.
+
+    Salvar sem testar deixaria a empresa achando que o CRM está ligado enquanto
+    a fila acumula falha em silêncio.
+    """
+    ok, mensagem = ravi.test_connection(
+        base_url=payload.base_url,
+        token=payload.token,
+        ravi_tenant_id=payload.ravi_tenant_id,
+    )
+    if not ok:
+        raise ravi.RaviConfigInvalid(mensagem)
+
+    integracao = ravi.store(
+        db,
+        ctx.tenant_id,
+        base_url=payload.base_url,
+        token=payload.token,
+        ravi_tenant_id=payload.ravi_tenant_id,
+        default_stage=payload.default_stage,
+        created_by=ctx.user_id,
+    )
+    audit.record(
+        db,
+        action="crm.configured",
+        resource_type="integration",
+        resource_id=integracao.id,
+        # A dica do token, nunca o token.
+        payload={"token_hint": integracao.config.get("token_hint")},
+        context=ctx,
+    )
+    return ravi.describe(db, ctx.tenant_id)
+
+
+@router.delete("/crm", response_model=schemas.CrmSettingsResponse)
+def delete_crm_settings(
+    ctx: TenantContext = Depends(require(Permission.INTEGRATION_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """Desliga a integração. Devolve o estado vazio, como os outros deletes
+    desta tela, para a tela redesenhar sem uma segunda chamada."""
+    ravi.remove(db, ctx.tenant_id)
+    audit.record(db, action="crm.removed", resource_type="integration", context=ctx)
+    return ravi.describe(db, ctx.tenant_id)
+
+
 @router.get("/email/presets", response_model=list[schemas.EmailPreset])
 def email_presets(ctx: TenantContext = Depends(require(Permission.INTEGRATION_READ))):
     """Os provedores que a tela oferece, com host, porta e o que fazer antes."""
