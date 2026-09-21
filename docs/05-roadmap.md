@@ -64,7 +64,6 @@ Feito:
 A fazer:
 
 - Enriquecimento de prospects por provedores externos (exige fornecedor)
-- Editor do Company Brain no web app (a API existe)
 
 ## Sprint 3 — AI SDR ✅
 
@@ -148,8 +147,9 @@ verdade é código que ainda não existe.
      alta, com o corpo da resposta do RAVI no erro.
 
 - Billing: assinatura, cobrança por uso e faturas — exige gateway (Stripe)
-- Dashboard do funil e de consumo: a API existe (`/prospects/funnel`,
-  `/tenants/me/usage`); falta a tela
+- Dashboard do funil e de consumo ✅: é a tela inicial do web app — estágios
+  cumulativos, aderência ao ICP por banda e o consumo do mês contra o limite do
+  plano
 
 ## Transversal (quando a operação exigir)
 
