@@ -182,6 +182,9 @@ O que está coberto:
   a cadência: resposta, descadastro, reunião, qualificação
 - `test_bounce_csv_export.py` — bounce permanente versus temporário, planilha do
   Excel em português e a exportação que não leva segredo junto
+- `test_platform_admin.py` — a marca que destranca o painel da plataforma, e o
+  que ela **não** concede: ver a conta de um cliente e ler as conversas dele são
+  coisas diferentes, e há teste para provar que só a primeira está lá
 - `test_ravi.py` — a integração com o CRM contra um RAVI de mentira em
   `MockTransport`: o token que nunca volta na resposta, o prospect sem nota que
   não sobe, o reenvio que não duplica, e um teste que usa o modelo do próprio
@@ -206,7 +209,7 @@ backend/
     tenancy/        contexto de tenant
     workers/        o worker que faz o ciclo rodar sem ninguém olhando
   alembic/          migrations (inclui as políticas de RLS)
-  scripts/          bootstrap de roles, provisionamento e seed de demonstração
+  scripts/          bootstrap de roles, provisionamento, promoção de admin e seed
   tests/
 deploy/             compose de produção, proxy com HTTPS e script de publicação
 docs/               arquitetura e decisões
@@ -220,6 +223,24 @@ docs/               arquitetura e decisões
 - [AI Orchestrator e Company Brain](docs/04-ai-orchestrator.md)
 - [Roadmap](docs/05-roadmap.md)
 - [Publicar a aplicação](docs/06-publicar.md)
+
+## Painel da plataforma
+
+Quem opera a plataforma enxerga as empresas, o consumo e a saúde do sistema, e
+mexe em plano e limites — por `/api/v1/admin/*`. A marca que destranca isso não
+nasce de uma rota, porque o primeiro administrador não pode se autenticar em si
+mesmo:
+
+```bash
+python -m scripts.promover_admin --listar
+python -m scripts.promover_admin --email voce@suaempresa.com
+```
+
+Vale para o token que já está na mão, e revogar vale no ato. O que a marca **não**
+concede é acesso ao dado comercial de uma empresa da qual a pessoa não é membro:
+as rotas normais continuam exigindo vínculo e o Row Level Security continua
+filtrando. Ver a conta de um cliente e ler as conversas dele são coisas
+diferentes.
 
 ## O CRM é o RAVI
 

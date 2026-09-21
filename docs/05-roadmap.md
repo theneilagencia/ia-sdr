@@ -10,7 +10,7 @@
 | PostgreSQL + RLS                       | `alembic/versions/0002_row_level_security.py` |
 | Role de aplicação sem bypass de RLS    | `scripts/bootstrap_roles.py`, `app/db/session.py` |
 | Contexto de tenant por requisição/job  | `app/tenancy/context.py`, `app/api/deps.py` |
-| Platform Admin                         | `app/api/v1/admin.py`                     |
+| Platform Admin                         | `app/api/v1/admin.py`, `scripts/promover_admin.py` |
 | Audit log                              | `app/services/audit.py`                   |
 | Planos, limites e medição de consumo   | `app/billing/plans.py`, `app/services/usage.py` |
 | Credenciais cifradas                   | `app/core/crypto.py`                      |
@@ -154,8 +154,9 @@ verdade é código que ainda não existe.
 ## Transversal (quando a operação exigir)
 
 - **Telas que faltam no web app**: Company Brain, base de conhecimento,
-  conversas, importação de lista, cadências, membros, detalhe do prospect e
-  Platform Admin. Toda a API por trás delas existe
+  conversas, importação de lista, cadências, membros, CRM, detalhe do prospect e
+  Platform Admin. Toda a API por trás delas existe — hoje 22 das 97 operações
+  da API têm tela
 - Secrets manager externo (hoje a chave Fernet vive no `.env` do servidor)
 - Rate limiting distribuído (Redis) — hoje é por processo, o que basta para uma
   réplica só
