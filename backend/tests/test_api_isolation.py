@@ -93,6 +93,27 @@ def test_credencial_de_integracao_nunca_volta_na_resposta(client):
     assert "super-secreta" not in listed.text
 
 
+def test_conta_alvo_e_pesquisa_ficam_no_tenant(client):
+    a = _register(client, "Empresa Alfa", "alfa@example.com")
+    b = _register(client, "Empresa Beta", "beta@example.com")
+
+    criada = client.post(
+        "/api/v1/companies",
+        headers=_headers(a),
+        json={"name": "Northern Ore", "domain": "northernore.ca", "country": "CA"},
+    )
+    assert criada.status_code == 201, criada.text
+    company_id = criada.json()["id"]
+
+    assert client.get("/api/v1/companies", headers=_headers(a)).json()[0]["id"] == company_id
+    assert client.get("/api/v1/companies", headers=_headers(b)).json() == []
+    assert (
+        client.get(f"/api/v1/companies/{company_id}", headers=_headers(b)).status_code == 404
+    )
+    # Sem pesquisa ainda, mas a rota existe e respeita a fronteira.
+    assert client.get(f"/api/v1/companies/{company_id}/research", headers=_headers(a)).json() == []
+
+
 def test_auditoria_registra_quem_fez_o_que(client):
     a = _register(client, "Empresa Auditada", "audit@example.com")
     client.post(

@@ -20,6 +20,7 @@ from app.api.v1 import (
     agents,
     auth,
     campaigns,
+    companies,
     company_brain,
     health,
     integrations,
@@ -68,7 +69,16 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
 
     v1 = APIRouter(prefix="/api/v1")
-    for module in (auth, tenants, campaigns, company_brain, agents, integrations, admin):
+    for module in (
+        auth,
+        tenants,
+        campaigns,
+        companies,
+        company_brain,
+        agents,
+        integrations,
+        admin,
+    ):
         v1.include_router(module.router)
     app.include_router(v1)
 

@@ -144,6 +144,47 @@ class CampaignResponse(ORMModel):
     created_at: datetime
 
 
+# ---------------------------------------------------------------- contas-alvo
+class CompanyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=300)
+    domain: str | None = Field(default=None, max_length=255)
+    industry: str | None = None
+    country: str | None = None
+    region: str | None = None
+    employee_count: int | None = Field(default=None, ge=0)
+    revenue_band: str | None = None
+    linkedin_url: str | None = None
+    description: str | None = None
+    attributes: dict = Field(default_factory=dict)
+
+
+class CompanyResponse(ORMModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    name: str
+    domain: str | None
+    industry: str | None
+    country: str | None
+    region: str | None
+    employee_count: int | None
+    revenue_band: str | None
+    description: str | None
+    attributes: dict
+    created_at: datetime
+
+
+class ResearchResponse(ORMModel):
+    id: uuid.UUID
+    entity_type: str
+    entity_id: uuid.UUID
+    campaign_id: uuid.UUID | None
+    depth: str
+    summary: str | None
+    findings: dict
+    sources: list
+    created_at: datetime
+
+
 # ---------------------------------------------------------------- company brain
 class CompanyBrainUpdate(BaseModel):
     legal_name: str | None = None
