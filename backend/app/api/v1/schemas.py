@@ -185,6 +185,93 @@ class ResearchResponse(ORMModel):
     created_at: datetime
 
 
+# ---------------------------------------------------------------- pessoas e funil
+class ContactCreate(BaseModel):
+    full_name: str = Field(min_length=1, max_length=200)
+    company_id: uuid.UUID | None = None
+    email: EmailStr | None = None
+    phone: str | None = None
+    title: str | None = None
+    seniority: str | None = None
+    persona: str | None = None
+    linkedin_url: str | None = None
+    timezone: str | None = None
+    attributes: dict = Field(default_factory=dict)
+
+
+class ContactResponse(ORMModel):
+    id: uuid.UUID
+    company_id: uuid.UUID | None
+    full_name: str
+    email: str | None
+    title: str | None
+    persona: str | None
+    opted_out: bool
+    created_at: datetime
+
+
+class ProspectImportItem(BaseModel):
+    """Uma linha do import: empresa e pessoa juntas, como vem de uma lista."""
+
+    company_name: str = Field(min_length=1, max_length=300)
+    company_domain: str | None = None
+    industry: str | None = None
+    country: str | None = None
+    employee_count: int | None = Field(default=None, ge=0)
+    full_name: str = Field(min_length=1, max_length=200)
+    email: EmailStr | None = None
+    title: str | None = None
+    persona: str | None = None
+    linkedin_url: str | None = None
+
+
+class ProspectImportRequest(BaseModel):
+    campaign_id: uuid.UUID
+    items: list[ProspectImportItem] = Field(min_length=1, max_length=500)
+    source: str = "manual"
+
+
+class ProspectImportResult(BaseModel):
+    imported: int
+    duplicates: int
+    prospect_ids: list[uuid.UUID]
+
+
+class ScoreResponse(ORMModel):
+    id: uuid.UUID
+    prospect_id: uuid.UUID
+    value: float
+    band: str | None
+    rationale: str | None
+    signals: dict
+    created_at: datetime
+
+
+class ProspectResponse(ORMModel):
+    id: uuid.UUID
+    campaign_id: uuid.UUID
+    contact_id: uuid.UUID
+    company_id: uuid.UUID | None
+    status: str
+    source: str | None
+    last_activity_at: datetime | None
+    created_at: datetime
+
+
+class FunnelResponse(BaseModel):
+    """Os números da tela inicial: quantos entraram e até onde chegaram."""
+
+    campaign_id: uuid.UUID | None
+    prospects: int
+    researched: int
+    scored: int
+    contacted: int
+    engaged: int
+    qualified: int
+    meetings: int
+    by_band: dict[str, int]
+
+
 # ---------------------------------------------------------------- company brain
 class CompanyBrainUpdate(BaseModel):
     legal_name: str | None = None

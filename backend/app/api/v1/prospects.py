@@ -1,0 +1,221 @@
+"""Prospects: quem entra na campanha e onde cada um está no funil."""
+
+from __future__ import annotations
+
+import uuid
+
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_db, require
+from app.api.v1 import schemas
+from app.core.errors import LimitExceeded, NotFound
+from app.db.models.engagement import Meeting
+from app.db.models.sales import Campaign, Company, Contact, Prospect, ProspectStatus, Score
+from app.rbac.roles import Permission
+from app.services import audit
+from app.services.usage import UsageKind, count_this_month, effective_limits, record_usage
+from app.tenancy.context import TenantContext
+
+router = APIRouter(prefix="/prospects", tags=["prospects"])
+
+UNLIMITED = -1
+
+#: Estágios já alcançados contam para trás no funil: quem foi qualificado
+#: também foi contatado. Sem isso, o funil só mostraria o estágio atual e
+#: pareceria que os números somem conforme as pessoas avançam.
+_REACHED = {
+    "researched": {"researched", "scored", "contacted", "engaged", "qualified", "meeting_booked"},
+    "scored": {"scored", "contacted", "engaged", "qualified", "meeting_booked"},
+    "contacted": {"contacted", "engaged", "qualified", "meeting_booked"},
+    "engaged": {"engaged", "qualified", "meeting_booked"},
+    "qualified": {"qualified", "meeting_booked"},
+}
+
+
+def _check_import_budget(session: Session, tenant_id: uuid.UUID, quantidade: int) -> None:
+    limite = effective_limits(session, tenant_id)["prospects_per_month"]
+    if limite == UNLIMITED:
+        return
+    usados = count_this_month(session, tenant_id, UsageKind.PROSPECT_IMPORTED)
+    if usados + quantidade > limite:
+        raise LimitExceeded(
+            "Cota mensal de prospects esgotada para este tenant",
+            details={"limit": limite, "used": usados, "requested": quantidade},
+        )
+
+
+@router.post(
+    "/import", response_model=schemas.ProspectImportResult, status_code=status.HTTP_201_CREATED
+)
+def import_prospects(
+    payload: schemas.ProspectImportRequest,
+    ctx: TenantContext = Depends(require(Permission.PROSPECT_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """Entrada em lote de contas e pessoas numa campanha.
+
+    Reaproveita empresa por domínio e pessoa por email dentro do tenant: subir
+    a mesma lista duas vezes não duplica a base nem consome cota de novo.
+    """
+    campaign = db.get(Campaign, payload.campaign_id)
+    if campaign is None:
+        raise NotFound("Campanha não encontrada")
+
+    _check_import_budget(db, ctx.tenant_id, len(payload.items))
+
+    criados: list[uuid.UUID] = []
+    duplicados = 0
+
+    for item in payload.items:
+        company = None
+        if item.company_domain:
+            company = db.execute(
+                select(Company).where(Company.domain == item.company_domain)
+            ).scalar_one_or_none()
+        if company is None:
+            company = db.execute(
+                select(Company).where(Company.name == item.company_name)
+            ).scalar_one_or_none()
+        if company is None:
+            company = Company(
+                tenant_id=ctx.tenant_id,
+                name=item.company_name,
+                domain=item.company_domain,
+                industry=item.industry,
+                country=item.country,
+                employee_count=item.employee_count,
+            )
+            db.add(company)
+            db.flush()
+
+        contact = None
+        if item.email:
+            contact = db.execute(
+                select(Contact).where(Contact.email == str(item.email))
+            ).scalar_one_or_none()
+        if contact is None:
+            contact = Contact(
+                tenant_id=ctx.tenant_id,
+                company_id=company.id,
+                full_name=item.full_name,
+                email=str(item.email) if item.email else None,
+                title=item.title,
+                persona=item.persona,
+                linkedin_url=item.linkedin_url,
+            )
+            db.add(contact)
+            db.flush()
+
+        existente = db.execute(
+            select(Prospect)
+            .where(Prospect.campaign_id == campaign.id)
+            .where(Prospect.contact_id == contact.id)
+        ).scalar_one_or_none()
+        if existente is not None:
+            duplicados += 1
+            continue
+
+        prospect = Prospect(
+            tenant_id=ctx.tenant_id,
+            campaign_id=campaign.id,
+            contact_id=contact.id,
+            company_id=company.id,
+            status=ProspectStatus.NEW.value,
+            source=payload.source,
+        )
+        db.add(prospect)
+        db.flush()
+        criados.append(prospect.id)
+
+    if criados:
+        record_usage(
+            db,
+            tenant_id=ctx.tenant_id,
+            kind=UsageKind.PROSPECT_IMPORTED,
+            quantity=len(criados),
+            campaign_id=campaign.id,
+            user_id=ctx.user_id,
+        )
+    audit.record(
+        db,
+        action="prospects.imported",
+        resource_type="campaign",
+        resource_id=campaign.id,
+        payload={"imported": len(criados), "duplicates": duplicados, "source": payload.source},
+        context=ctx,
+    )
+    return schemas.ProspectImportResult(
+        imported=len(criados), duplicates=duplicados, prospect_ids=criados
+    )
+
+
+@router.get("", response_model=list[schemas.ProspectResponse])
+def list_prospects(
+    campaign_id: uuid.UUID | None = None,
+    status_filter: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=100, le=500),
+    ctx: TenantContext = Depends(require(Permission.PROSPECT_READ)),
+    db: Session = Depends(get_db),
+):
+    stmt = select(Prospect).order_by(Prospect.created_at.desc()).limit(limit)
+    if campaign_id:
+        stmt = stmt.where(Prospect.campaign_id == campaign_id)
+    if status_filter:
+        stmt = stmt.where(Prospect.status == status_filter)
+    return list(db.execute(stmt).scalars())
+
+
+@router.get("/{prospect_id}/scores", response_model=list[schemas.ScoreResponse])
+def list_scores(
+    prospect_id: uuid.UUID,
+    ctx: TenantContext = Depends(require(Permission.PROSPECT_READ)),
+    db: Session = Depends(get_db),
+):
+    if db.get(Prospect, prospect_id) is None:
+        raise NotFound("Prospect não encontrado")
+    return list(
+        db.execute(
+            select(Score)
+            .where(Score.prospect_id == prospect_id)
+            .order_by(Score.created_at.desc())
+        ).scalars()
+    )
+
+
+@router.get("/funnel", response_model=schemas.FunnelResponse)
+def funnel(
+    campaign_id: uuid.UUID | None = None,
+    ctx: TenantContext = Depends(require(Permission.PROSPECT_READ)),
+    db: Session = Depends(get_db),
+):
+    """Os números da tela inicial, para o tenant ou para uma campanha."""
+
+    def _count(estagio: str | None = None) -> int:
+        stmt = select(func.count(Prospect.id))
+        if campaign_id:
+            stmt = stmt.where(Prospect.campaign_id == campaign_id)
+        if estagio:
+            stmt = stmt.where(Prospect.status.in_(_REACHED[estagio]))
+        return int(db.execute(stmt).scalar_one())
+
+    reunioes = select(func.count(Meeting.id))
+    if campaign_id:
+        reunioes = reunioes.where(Meeting.campaign_id == campaign_id)
+
+    bandas = select(Score.band, func.count(func.distinct(Score.prospect_id))).group_by(Score.band)
+    if campaign_id:
+        bandas = bandas.where(Score.campaign_id == campaign_id)
+
+    return schemas.FunnelResponse(
+        campaign_id=campaign_id,
+        prospects=_count(),
+        researched=_count("researched"),
+        scored=_count("scored"),
+        contacted=_count("contacted"),
+        engaged=_count("engaged"),
+        qualified=_count("qualified"),
+        meetings=int(db.execute(reunioes).scalar_one()),
+        by_band={b: int(n) for b, n in db.execute(bandas).all() if b},
+    )

@@ -35,6 +35,7 @@ from app.db.models.sales import Company, Contact, Research
 from app.orchestrator.context_builder import AgentContext, assert_same_tenant
 from app.orchestrator.envelope import JobEnvelope
 from app.orchestrator.executors.base import ExecutionResult
+from app.services import scoring
 
 logger = logging.getLogger("ia_sdr.agents.research")
 
@@ -172,15 +173,27 @@ class ResearchExecutor:
             )
 
         resultado = _extract(response)
-        self._persist(session, context, envelope, company, resultado)
+        pesquisa = self._persist(session, context, envelope, company, resultado)
+
+        # A pesquisa vale para todos os prospects daquela conta na campanha:
+        # pesquisar a mesma empresa uma vez por pessoa seria pagar várias
+        # vezes pelo mesmo trabalho.
+        notas = scoring.apply_to_prospects(
+            session, tenant_id=envelope.tenant_id, research=pesquisa
+        )
 
         return ExecutionResult(
-            output=resultado.model_dump(),
+            output={**resultado.model_dump(), "scored_prospects": len(notas)},
             model=model,
             input_tokens=usage["input_tokens"],
             output_tokens=usage["output_tokens"],
             cost_micro_usd=custo,
-            metadata={"web_search": settings.ai_web_search},
+            metadata={
+                "web_search": settings.ai_web_search,
+                "research_id": str(pesquisa.id),
+                "scored_prospects": len(notas),
+                "band": notas[0].band if notas else None,
+            },
         )
 
     # ---------------------------------------------------------------- entidades
@@ -273,27 +286,27 @@ class ResearchExecutor:
         envelope: JobEnvelope,
         company: Company,
         resultado: ResearchOutput,
-    ) -> None:
-        session.add(
-            Research(
-                tenant_id=envelope.tenant_id,
-                entity_type="company",
-                entity_id=company.id,
-                campaign_id=envelope.campaign_id,
-                depth="standard",
-                summary=resultado.summary,
-                findings={
-                    "icp_fit": resultado.icp_fit,
-                    "icp_rationale": resultado.icp_rationale,
-                    "findings": [f.model_dump() for f in resultado.findings],
-                    "signals": resultado.signals,
-                    "unknowns": resultado.unknowns,
-                    "recommended_angle": resultado.recommended_angle,
-                },
-                sources=[f.source_url for f in resultado.findings if f.source_url],
-            )
+    ) -> Research:
+        pesquisa = Research(
+            tenant_id=envelope.tenant_id,
+            entity_type="company",
+            entity_id=company.id,
+            campaign_id=envelope.campaign_id,
+            depth="standard",
+            summary=resultado.summary,
+            findings={
+                "icp_fit": resultado.icp_fit,
+                "icp_rationale": resultado.icp_rationale,
+                "findings": [f.model_dump() for f in resultado.findings],
+                "signals": resultado.signals,
+                "unknowns": resultado.unknowns,
+                "recommended_angle": resultado.recommended_angle,
+            },
+            sources=[f.source_url for f in resultado.findings if f.source_url],
         )
+        session.add(pesquisa)
         session.flush()
+        return pesquisa
 
 
 def _accumulate(usage: dict, source) -> None:

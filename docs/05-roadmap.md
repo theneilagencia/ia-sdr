@@ -31,13 +31,18 @@ Feito:
   `research`
 - Custo por token, por modelo (`app/ai/pricing.py`), gravado em cada
   `usage_event` — unidades são o que se cobra, micro-dólares são o que se paga
+- **Contas-alvo e prospects**: cadastro, import em lote com deduplicação por
+  domínio e email, cota mensal do plano aplicada na entrada
+- **Scoring contra o ICP** (`app/services/scoring.py`), derivado da pesquisa em
+  vez de uma segunda chamada de modelo, com o cálculo aberto para auditoria
+- **Funil** (`GET /api/v1/prospects/funnel`): os números da tela inicial,
+  cumulativos por estágio
 
 A fazer:
 
-- Importação e enriquecimento de prospects (CSV e provedores)
-- Scoring contra o ICP da campanha, com justificativa
+- Enriquecimento de prospects por provedores externos
+- Upload de CSV (hoje o import é JSON em lote)
 - Editor do Company Brain no web app
-- Limite de prospects/mês ligado ao `usage_events`
 
 ## Sprint 3 — AI SDR
 

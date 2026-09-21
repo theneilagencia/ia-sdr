@@ -24,6 +24,7 @@ from app.api.v1 import (
     company_brain,
     health,
     integrations,
+    prospects,
     tenants,
 )
 from app.core.config import settings
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
         campaigns,
         companies,
         company_brain,
+        prospects,
         agents,
         integrations,
         admin,

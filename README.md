@@ -15,13 +15,16 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 **Sprint 1 (Foundation) implementado e testado**: autenticação, tenants,
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
-criptografia de credenciais e painel de plataforma. 24 endpoints, 22 tabelas,
-57 testes contra PostgreSQL de verdade.
+criptografia de credenciais e painel de plataforma. 32 endpoints, 22 tabelas,
+68 testes contra PostgreSQL de verdade.
 
-**Sprint 2 começou**: o Research Agent chama o modelo de verdade — saída
+**Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
-por execução e custo real por token gravado em cada evento de consumo. Os
-outros três agentes seguem no executor de eco até terem sua vez.
+por execução e custo real por token em cada evento de consumo. Em volta dele,
+o funil já funciona: contas-alvo, import de prospects com deduplicação e cota,
+pontuação contra o ICP com o cálculo aberto, e os números da tela inicial em
+`GET /api/v1/prospects/funnel`. Os outros três agentes seguem no executor de
+eco até terem sua vez.
 
 Não há web app ainda: só a API.
 
@@ -120,6 +123,8 @@ O que está coberto:
 - `test_research_agent.py` — o agente real com cliente falso: retomada de turno
   pausado, teto de custo, persistência, custo por token e recusa de alvo de
   outro tenant
+- `test_prospects_and_scoring.py` — import com deduplicação e cota, pontuação,
+  e o funil que não empurra ninguém para trás
 
 ## Estrutura
 
