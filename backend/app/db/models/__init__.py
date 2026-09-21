@@ -15,12 +15,14 @@ from app.db.models.ai import (
 )
 from app.db.models.engagement import (
     Conversation,
+    EnrollmentStatus,
     Meeting,
     Message,
     MessageDirection,
     MessageStatus,
     Qualification,
     Sequence,
+    SequenceEnrollment,
 )
 from app.db.models.jobs import Job, JobKind, JobStatus
 from app.db.models.knowledge import (
@@ -60,6 +62,7 @@ TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "research",
     "scores",
     "sequences",
+    "sequence_enrollments",
     "conversations",
     "messages",
     "qualifications",
@@ -107,6 +110,8 @@ __all__ = [
     "RunStatus",
     "Score",
     "Sequence",
+    "SequenceEnrollment",
+    "EnrollmentStatus",
     "SubscriptionStatus",
     "Tenant",
     "UsageEvent",

@@ -248,3 +248,50 @@ def test_prospect_de_outro_tenant_nao_e_abordado(prospect_pesquisado, make_tenan
             run_job(session, envelope)
     assert exc.value.code in {"not_found", "cross_tenant_access"}
     assert cliente.messages.chamadas == []
+
+
+def test_follow_up_ve_o_que_ja_foi_mandado(prospect_pesquisado):
+    """O segundo toque não pode sair igual ao primeiro.
+
+    Um follow-up que repete a abordagem é pior do que não mandar nada: prova
+    que do outro lado não tem ninguém lendo. O prompt do toque seguinte carrega
+    o texto já enviado e a instrução daquele passo.
+    """
+    cliente = _registrar(
+        [
+            FakeResponse(parsed_output=OutreachDraft.model_validate(RASCUNHO)),
+            FakeResponse(parsed_output=OutreachDraft.model_validate(RASCUNHO)),
+        ]
+    )
+    with tenant_session(prospect_pesquisado["tenant_id"]) as session:
+        run_job(session, _job(prospect_pesquisado))  # toque 1
+
+    segundo = new_job(
+        tenant_id=prospect_pesquisado["tenant_id"],
+        agent="outreach",
+        campaign_id=prospect_pesquisado["campaign_id"],
+        entity_type="prospect",
+        entity_id=prospect_pesquisado["prospect_id"],
+        params={
+            "sequence_step": {
+                "order": 2,
+                "instruction": "Lembrete curto citando um caso parecido",
+                "total_steps": 3,
+            }
+        },
+    )
+    with tenant_session(prospect_pesquisado["tenant_id"]) as session:
+        run = run_job(session, segundo)
+    assert run.status == "succeeded"
+
+    prompt = cliente.messages.chamadas[-1]["messages"][0]["content"]
+    assert "toque 2 de 3" in prompt
+    assert "Lembrete curto citando um caso parecido" in prompt
+    assert "não repete o argumento já usado" in prompt
+    # O corpo da primeira mensagem está no prompt do segundo toque.
+    assert "Vi as duas vagas de gerente de operações" in prompt
+
+    # O primeiro toque não tinha nada disso.
+    primeiro_prompt = cliente.messages.chamadas[0]["messages"][0]["content"]
+    assert "toque" not in primeiro_prompt
+    assert "Escreva a primeira abordagem" in primeiro_prompt

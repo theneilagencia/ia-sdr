@@ -30,6 +30,7 @@ from app.api.v1 import (
     messages,
     prospects,
     public,
+    sequences,
     tenants,
 )
 from app.api.v1 import (
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
         contacts,
         conversations,
         prospects,
+        sequences,
         messages,
         settings_router,
         public,

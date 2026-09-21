@@ -404,6 +404,70 @@ class ConversationReplyCreate(BaseModel):
     subject: str | None = Field(default=None, max_length=500)
 
 
+# ----------------------------------------------------------------- cadência
+class SequenceStep(BaseModel):
+    """Um toque. `wait_days` conta a partir do toque anterior."""
+
+    instruction: str = Field(min_length=1, max_length=2000)
+    wait_days: int = Field(default=3, ge=0, le=90)
+    order: int | None = None
+
+
+class SequenceCreate(BaseModel):
+    campaign_id: uuid.UUID
+    name: str = Field(min_length=1, max_length=200)
+    steps: list[SequenceStep] = Field(min_length=1)
+    is_active: bool = True
+
+
+class SequenceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    steps: list[SequenceStep] | None = None
+    is_active: bool | None = None
+
+
+class SequenceResponse(BaseModel):
+    id: uuid.UUID
+    campaign_id: uuid.UUID
+    name: str
+    steps: list[dict]
+    is_active: bool
+    created_at: datetime
+    active_enrollments: int = 0
+
+
+class EnrollRequest(BaseModel):
+    prospect_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+
+
+class EnrollmentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    sequence_id: uuid.UUID
+    prospect_id: uuid.UUID
+    status: str
+    current_step: int
+    next_run_at: datetime | None
+    last_step_at: datetime | None
+    stop_reason: str | None
+    created_at: datetime
+
+
+class EnrollResult(BaseModel):
+    enrolled: list[EnrollmentResponse]
+    #: Quem não entrou e por quê. Selecionar cem leads e perder a operação
+    #: inteira porque três já estavam na cadência seria hostil.
+    skipped: list[dict]
+
+
+class SequenceTickResult(BaseModel):
+    gerados: int
+    parados: int
+    concluidos: int
+    adiados: int
+
+
 class MeetingCreate(BaseModel):
     scheduled_at: datetime
     duration_minutes: int = Field(default=30, ge=5, le=480)

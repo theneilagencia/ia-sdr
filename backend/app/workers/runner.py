@@ -31,7 +31,7 @@ from app.db.session import tenant_session, unscoped_session, verify_database_rol
 from app.orchestrator.envelope import JobEnvelope
 from app.orchestrator.executors import register_default_executors
 from app.orchestrator.runner import run_job
-from app.services import email_receiver, email_sender, jobs
+from app.services import email_receiver, email_sender, jobs, sequences
 from app.tenancy.context import system_context, use_context
 
 logger = logging.getLogger("ia_sdr.worker")
@@ -56,6 +56,8 @@ def executar(tenant_id: uuid.UUID, kind: str, payload: dict) -> None:
             _despachar_conversas(session, tenant_id, resultado)
         elif kind == JobKind.SEND_QUEUED.value:
             email_sender.send_queued(session, tenant_id=tenant_id, context=ctx)
+        elif kind == JobKind.SEQUENCE_TICK.value:
+            sequences.tick(session, tenant_id)
         else:
             raise ValueError(f"Tipo de job desconhecido: {kind}")
 
@@ -109,7 +111,7 @@ def agendar_periodicos(agora: datetime | None = None) -> int:
     for tenant_id in tenants:
         ctx = system_context(tenant_id, source="worker")
         with use_context(ctx), tenant_session(tenant_id) as session:
-            for kind in (JobKind.FETCH_INBOX, JobKind.SEND_QUEUED):
+            for kind in (JobKind.FETCH_INBOX, JobKind.SEND_QUEUED, JobKind.SEQUENCE_TICK):
                 if jobs.enqueue(
                     session,
                     tenant_id=tenant_id,

@@ -96,9 +96,10 @@ class OutreachExecutor:
         prospect, contact, company, campaign = self._load(session, envelope)
         self._check_guardrails(session, envelope, prospect, contact, campaign)
         pesquisa, nota = self._load_intel(session, envelope, prospect)
+        passo, anteriores = self._passo_da_cadencia(session, envelope, prospect)
 
         model = context.agent.get("model") or settings.ai_model_default
-        prompt = self._build_prompt(context, contact, company, pesquisa, nota)
+        prompt = self._build_prompt(context, contact, company, pesquisa, nota, passo, anteriores)
         rascunho, usage = self._write(session, envelope, model, context, prompt)
 
         custo = cost_micro_usd(
@@ -142,6 +143,32 @@ class OutreachExecutor:
         company = session.get(Company, prospect.company_id) if prospect.company_id else None
         campaign = session.get(Campaign, prospect.campaign_id)
         return prospect, contact, company, campaign
+
+    def _passo_da_cadencia(
+        self, session: Session, envelope: JobEnvelope, prospect: Prospect
+    ) -> tuple[dict | None, list[Message]]:
+        """Qual toque da cadência é este, e o que já foi dito antes.
+
+        Sem as mensagens anteriores, o segundo toque sai igual ao primeiro —
+        e um follow-up que repete a abordagem é pior do que não mandar nada:
+        prova que do outro lado não tem ninguém lendo.
+        """
+        passo = envelope.params.get("sequence_step")
+        if not isinstance(passo, dict):
+            return None, []
+
+        anteriores = list(
+            session.execute(
+                select(Message)
+                .join(Conversation, Message.conversation_id == Conversation.id)
+                .where(Conversation.prospect_id == prospect.id)
+                .where(Message.direction == MessageDirection.OUTBOUND.value)
+                .order_by(Message.created_at)
+            ).scalars()
+        )
+        for mensagem in anteriores:
+            assert_same_tenant(mensagem, envelope.tenant_id)
+        return passo, anteriores
 
     def _check_guardrails(
         self,
@@ -208,6 +235,8 @@ class OutreachExecutor:
         company: Company | None,
         pesquisa: Research,
         nota: Score | None,
+        passo: dict | None = None,
+        anteriores: list[Message] | None = None,
     ) -> str:
         partes = [
             "## Quem está escrevendo",
@@ -242,7 +271,26 @@ class OutreachExecutor:
             ]
         if context.campaign:
             partes += ["\n## Mensagem da campanha", _fmt(context.campaign.get("messaging"))]
-        partes.append("\nEscreva a primeira abordagem no formato pedido.")
+
+        if passo is None:
+            partes.append("\nEscreva a primeira abordagem no formato pedido.")
+            return "\n".join(partes)
+
+        partes += [
+            f"\n## Este é o toque {passo.get('order')} de {passo.get('total_steps')}",
+            _fmt({"instrução_deste_toque": passo.get("instruction")}),
+            "\n## O que você já mandou para esta pessoa (não repita)",
+            _fmt(
+                [{"assunto": m.subject, "texto": m.body} for m in (anteriores or [])],
+                limite=6000,
+            ),
+            (
+                "\nEscreva o próximo toque. Ele é curto — mais curto que o anterior —, "
+                "não repete o argumento já usado, não cobra resposta e não finge que "
+                "vocês já conversaram. Traz um ângulo novo ou uma informação nova, "
+                "seguindo a instrução deste toque."
+            ),
+        ]
         return "\n".join(partes)
 
     def _write(

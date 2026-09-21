@@ -210,17 +210,18 @@ def test_periodicos_agendados_por_empresa_ativa(make_tenant):
 
     criados = runner.agendar_periodicos(AGORA)
 
-    assert criados == 2  # leitura de caixa e envio, só para a empresa ativa
+    # leitura de caixa, envio e avanço das cadências — só para a empresa ativa
+    assert criados == 3
     with tenant_session(a["tenant_id"]) as session:
         tipos = {j.kind for j in session.execute(select(Job)).scalars()}
-    assert tipos == {"fetch_inbox", "send_queued"}
+    assert tipos == {"fetch_inbox", "send_queued", "sequence_tick"}
     with tenant_session(b["tenant_id"]) as session:
         assert session.execute(select(Job)).scalars().all() == []
 
 
 def test_ciclo_seguinte_nao_duplica_periodicos(make_tenant):
     make_tenant()
-    assert runner.agendar_periodicos(AGORA) == 2
+    assert runner.agendar_periodicos(AGORA) == 3
     # Ciclo lento não acumula fila.
     assert runner.agendar_periodicos(AGORA) == 0
 
