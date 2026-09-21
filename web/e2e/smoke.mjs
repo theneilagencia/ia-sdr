@@ -50,6 +50,18 @@ try {
 
   await page.goto(`${WEB}/prospects`);
   checar((await page.locator("h1").innerText()) === "Prospects", "prospects carrega");
+
+  await page.goto(`${WEB}/settings`);
+  await page.waitForSelector('input[name="api_key"]', { timeout: 10000 });
+  checar(
+    (await page.locator("section.card h3").allInnerTexts()).length === 3,
+    "configurações mostra IA, email e volume",
+  );
+  await page.locator('input[value="smtp"]').check();
+  checar(
+    (await page.locator('input[name="host"]').count()) === 1,
+    "escolher servidor próprio revela host e porta",
+  );
 } catch (erro) {
   falhas.push(`exceção: ${erro.message}`);
   console.error(erro);

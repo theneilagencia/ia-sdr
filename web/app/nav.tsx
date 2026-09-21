@@ -18,6 +18,7 @@ export default async function Nav() {
           <Link href="/drafts">Revisão</Link>
           <Link href="/prospects">Prospects</Link>
           <Link href="/campaigns">Campanhas</Link>
+          <Link href="/settings">Configurações</Link>
         </nav>
         <span className="who">
           {tenant} · {me.email} · {me.role}

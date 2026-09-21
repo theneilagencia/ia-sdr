@@ -77,7 +77,7 @@ class FakeClient:
 
 def _registrar(payload: dict) -> FakeClient:
     cliente = FakeClient([FakeResponse(parsed_output=QualificationOutput.model_validate(payload))])
-    register_executor("qualification", QualificationExecutor(client_factory=lambda: cliente))
+    register_executor("qualification", QualificationExecutor(client_factory=lambda *_: cliente))
     return cliente
 
 

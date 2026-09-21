@@ -80,7 +80,7 @@ class FakeClient:
 
 def _executor(respostas: list[FakeResponse]) -> tuple[ResearchExecutor, FakeClient]:
     cliente = FakeClient(respostas)
-    return ResearchExecutor(client_factory=lambda: cliente), cliente
+    return ResearchExecutor(client_factory=lambda *_: cliente), cliente
 
 
 def _resposta_ok(**kwargs) -> FakeResponse:

@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.ai.client import get_client
+from app.ai.client import client_for
 from app.ai.pricing import cost_micro_usd
 from app.core.config import settings
 from app.core.errors import AppError, NotFound
@@ -87,7 +87,7 @@ def _fmt(value: Any, limite: int = 3000) -> str:
 
 
 class OutreachExecutor:
-    def __init__(self, client_factory=get_client):
+    def __init__(self, client_factory=client_for):
         self._client_factory = client_factory
 
     def __call__(
@@ -99,7 +99,7 @@ class OutreachExecutor:
 
         model = context.agent.get("model") or settings.ai_model_default
         prompt = self._build_prompt(context, contact, company, pesquisa, nota)
-        rascunho, usage = self._write(model, context, prompt)
+        rascunho, usage = self._write(session, envelope, model, context, prompt)
 
         custo = cost_micro_usd(
             model,
@@ -245,8 +245,15 @@ class OutreachExecutor:
         partes.append("\nEscreva a primeira abordagem no formato pedido.")
         return "\n".join(partes)
 
-    def _write(self, model: str, context: AgentContext, prompt: str) -> tuple[OutreachDraft, dict]:
-        client = self._client_factory()
+    def _write(
+        self,
+        session: Session,
+        envelope: JobEnvelope,
+        model: str,
+        context: AgentContext,
+        prompt: str,
+    ) -> tuple[OutreachDraft, dict]:
+        client = self._client_factory(session, envelope.tenant_id)
         usage = {
             "input_tokens": 0,
             "output_tokens": 0,

@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.client import get_client
+from app.ai.client import client_for
 from app.ai.pricing import cost_micro_usd
 from app.core.config import settings
 from app.core.errors import NotFound
@@ -126,7 +126,7 @@ def _enforce_evidence(resultado: QualificationOutput) -> tuple[QualificationOutp
 
 
 class QualificationExecutor:
-    def __init__(self, client_factory=get_client):
+    def __init__(self, client_factory=client_for):
         self._client_factory = client_factory
 
     def __call__(
@@ -144,7 +144,7 @@ class QualificationExecutor:
         model = context.agent.get("model") or settings.ai_model_default
         prompt = self._build_prompt(criterios, historico, pesquisa, nota)
 
-        bruto, usage = self._judge(model, context, prompt)
+        bruto, usage = self._judge(session, envelope, model, context, prompt)
         resultado, rebaixados = _enforce_evidence(bruto)
 
         custo = cost_micro_usd(
@@ -255,9 +255,14 @@ class QualificationExecutor:
         return "\n".join(partes)
 
     def _judge(
-        self, model: str, context: AgentContext, prompt: str
+        self,
+        session: Session,
+        envelope: JobEnvelope,
+        model: str,
+        context: AgentContext,
+        prompt: str,
     ) -> tuple[QualificationOutput, dict]:
-        client = self._client_factory()
+        client = self._client_factory(session, envelope.tenant_id)
         usage = {
             "input_tokens": 0,
             "output_tokens": 0,

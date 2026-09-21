@@ -15,8 +15,8 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 **Sprint 1 (Foundation) implementado e testado**: autenticação, tenants,
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
-criptografia de credenciais e painel de plataforma. 45 endpoints, 22 tabelas,
-100 testes contra PostgreSQL de verdade.
+criptografia de credenciais e painel de plataforma. 56 endpoints, 22 tabelas,
+113 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
@@ -62,15 +62,15 @@ cp .env.example .env
 .venv/bin/uvicorn app.main:app --reload
 ```
 
-Para ligar o Research Agent de verdade, ponha sua chave no `backend/.env`:
+Cada empresa configura a própria chave da Anthropic e a própria conta de email
+na tela de **Configurações** — escrita para quem não sabe o que é SMTP nem API
+key. As duas são testadas antes de salvar, ficam cifradas no banco e nunca
+voltam para a tela: a chave aparece como `…1234`, a senha não aparece.
 
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-Sem ela a API sobe igual, e os agentes rodam com o executor de eco — registram
-execução, consumo e auditoria, mas não chamam modelo nenhum. A chave é da
-plataforma, vive só no backend e nunca vai para o frontend.
+Isso significa que o consumo de IA cai na conta da Anthropic de cada cliente.
+Se você preferir operar com uma chave da plataforma e revender tokens, ligue
+`AI_PLATFORM_KEY_FALLBACK=true` no `backend/.env` — o código suporta os dois
+modelos sem mudança.
 
 O `.env` tem **duas** URLs de banco, e a diferença entre elas é o que sustenta
 o isolamento: `DATABASE_ADMIN_URL` (dono das tabelas, com `BYPASSRLS`, usado

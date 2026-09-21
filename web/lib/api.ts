@@ -111,3 +111,42 @@ export type Me = {
   tenant_id: string;
   memberships: { tenant_id: string; tenant_name: string; role: string }[];
 };
+
+export type AISettings = {
+  configured: boolean;
+  key_hint: string | null;
+  status: string;
+  using_platform_key: boolean;
+  updated_at: string | null;
+};
+
+export type EmailPreset = {
+  provider: string;
+  label: string;
+  host: string;
+  port: number;
+  help: string;
+};
+
+export type EmailAccount = {
+  configured: boolean;
+  provider: string | null;
+  from_email: string | null;
+  from_name: string | null;
+  host: string | null;
+  port: number | null;
+  status: string;
+  last_error: string | null;
+};
+
+export type SendingPolicy = {
+  daily_limit: number;
+  warmup_enabled: boolean;
+  warmup_start: number;
+  warmup_daily_increment: number;
+  business_hours_only: boolean;
+  timezone: string;
+};
+
+/** O que as telas de configuração devolvem: deu certo, e o que dizer. */
+export type Resultado = { ok: boolean; message: string } | null;

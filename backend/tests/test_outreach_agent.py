@@ -58,7 +58,7 @@ def _registrar(respostas=None) -> FakeClient:
         FakeResponse(parsed_output=OutreachDraft.model_validate(RASCUNHO))
     ]
     cliente = FakeClient(respostas)
-    register_executor("outreach", OutreachExecutor(client_factory=lambda: cliente))
+    register_executor("outreach", OutreachExecutor(client_factory=lambda *_: cliente))
     return cliente
 
 

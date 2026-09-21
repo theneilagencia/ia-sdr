@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.client import get_client
+from app.ai.client import client_for
 from app.ai.pricing import cost_micro_usd
 from app.core.config import settings
 from app.core.errors import NotFound
@@ -93,7 +93,7 @@ def _fmt(value: Any, limite: int = 3000) -> str:
 
 
 class ConversationExecutor:
-    def __init__(self, client_factory=get_client):
+    def __init__(self, client_factory=client_for):
         self._client_factory = client_factory
 
     def __call__(
@@ -103,7 +103,7 @@ class ConversationExecutor:
 
         model = context.agent.get("model") or settings.ai_model_default
         prompt = self._build_prompt(context, contato, historico)
-        resposta, usage = self._answer(model, context, prompt)
+        resposta, usage = self._answer(session, envelope, model, context, prompt)
 
         custo = cost_micro_usd(
             model,
@@ -194,9 +194,14 @@ class ConversationExecutor:
         return "\n".join(partes)
 
     def _answer(
-        self, model: str, context: AgentContext, prompt: str
+        self,
+        session: Session,
+        envelope: JobEnvelope,
+        model: str,
+        context: AgentContext,
+        prompt: str,
     ) -> tuple[ConversationReply, dict]:
-        client = self._client_factory()
+        client = self._client_factory(session, envelope.tenant_id)
         usage = {
             "input_tokens": 0,
             "output_tokens": 0,

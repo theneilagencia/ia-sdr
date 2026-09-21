@@ -27,7 +27,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.ai.client import AIUnavailable, get_client
+from app.ai.client import client_for
 from app.ai.pricing import cost_micro_usd
 from app.core.config import settings
 from app.core.errors import AppError, NotFound
@@ -148,7 +148,7 @@ class ResearchExecutor:
     persistência — sem rede e sem gastar token.
     """
 
-    def __init__(self, client_factory=get_client):
+    def __init__(self, client_factory=client_for):
         self._client_factory = client_factory
 
     def __call__(
@@ -158,7 +158,7 @@ class ResearchExecutor:
         model = context.agent.get("model") or settings.ai_model_default
         prompt = _build_prompt(context, company, contact)
 
-        response, usage = self._converse(model, context, prompt)
+        response, usage = self._converse(session, envelope, model, context, prompt)
         custo = cost_micro_usd(
             model,
             input_tokens=usage["input_tokens"],
@@ -241,8 +241,15 @@ class ResearchExecutor:
             ]
         return params
 
-    def _converse(self, model: str, context: AgentContext, prompt: str) -> tuple[Any, dict]:
-        client = self._client_factory()
+    def _converse(
+        self,
+        session: Session,
+        envelope: JobEnvelope,
+        model: str,
+        context: AgentContext,
+        prompt: str,
+    ) -> tuple[Any, dict]:
+        client = self._client_factory(session, envelope.tenant_id)
         messages: list[dict] = [{"role": "user", "content": prompt}]
         usage = {
             "input_tokens": 0,
@@ -343,7 +350,6 @@ def _extract(response) -> ResearchOutput:
 
 
 __all__ = [
-    "AIUnavailable",
     "CostCeilingExceeded",
     "Finding",
     "ResearchExecutor",

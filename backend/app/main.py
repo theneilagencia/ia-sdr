@@ -28,6 +28,9 @@ from app.api.v1 import (
     prospects,
     tenants,
 )
+from app.api.v1 import (
+    settings as settings_router,
+)
 from app.core.config import settings
 from app.db.session import verify_database_roles
 from app.orchestrator.executors import register_default_executors
@@ -79,6 +82,7 @@ def create_app() -> FastAPI:
         company_brain,
         prospects,
         messages,
+        settings_router,
         agents,
         integrations,
         admin,

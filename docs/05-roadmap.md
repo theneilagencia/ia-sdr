@@ -51,8 +51,11 @@ Feito:
 - **Fila de revisão**: rascunho só vira mensagem enviável depois que uma
   pessoa aprova; a recusa guarda o motivo
 - **Web app** (`web/`, Next.js): funil, fila de revisão com aprovar/recusar,
-  prospects e campanhas. Token em cookie httpOnly, chamadas à API feitas pelo
-  servidor — nada de credencial no browser
+  prospects, campanhas e configurações. Token em cookie httpOnly, chamadas à
+  API feitas pelo servidor — nada de credencial no browser
+- **Configuração por empresa, para leigos**: chave da Anthropic e conta de
+  email (Gmail, Outlook ou SMTP próprio), ambas testadas antes de salvar,
+  cifradas e nunca devolvidas; limites de volume com aquecimento de domínio
 
 A fazer:
 
@@ -62,9 +65,10 @@ A fazer:
 
 ## Sprint 3 — AI SDR
 
-- **Envio de verdade**: integração de email (OAuth Gmail/Outlook e SMTP) e o
-  passo que transforma rascunho em mensagem enviada — hoje o Outreach Agent
-  para no rascunho, de propósito
+- **Envio de verdade**: o passo que pega o rascunho aprovado e manda pela conta
+  já configurada, respeitando o limite diário e o aquecimento
+- **Recebimento**: ler as respostas (IMAP ou webhook) e acionar o Conversation
+  Agent sozinho
 - Fila e workers consumindo `JobEnvelope` (o payload já é o contrato)
 - Ingestão da Knowledge Base: chunking, embeddings, busca (migrar
   `knowledge_chunks.embedding` para `pgvector`)

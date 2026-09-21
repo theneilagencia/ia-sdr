@@ -56,7 +56,7 @@ class FakeClient:
 def _registrar(payload: dict | None = None, stop_reason: str = "end_turn") -> FakeClient:
     parsed = ConversationReply.model_validate(payload) if payload is not None else None
     cliente = FakeClient([FakeResponse(parsed_output=parsed, stop_reason=stop_reason)])
-    register_executor("conversation", ConversationExecutor(client_factory=lambda: cliente))
+    register_executor("conversation", ConversationExecutor(client_factory=lambda *_: cliente))
     return cliente
 
 

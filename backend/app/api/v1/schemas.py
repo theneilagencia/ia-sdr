@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -395,6 +395,73 @@ class AgentRunResponse(ORMModel):
     output: dict
     error: str | None
     created_at: datetime
+
+
+# ---------------------------------------------------------------- configurações
+class AIKeyUpdate(BaseModel):
+    api_key: str = Field(min_length=8, max_length=300)
+
+
+class AISettingsResponse(BaseModel):
+    """Estado da chave, sem a chave."""
+
+    configured: bool
+    key_hint: str | None
+    status: str
+    using_platform_key: bool
+    updated_at: str | None
+
+
+class ConnectionTestResult(BaseModel):
+    ok: bool
+    message: str
+
+
+class EmailPreset(BaseModel):
+    provider: str
+    label: str
+    host: str
+    port: int
+    help: str
+
+
+class EmailAccountUpdate(BaseModel):
+    provider: Literal["gmail", "outlook", "smtp"] = "gmail"
+    from_email: EmailStr
+    from_name: str | None = Field(default=None, max_length=120)
+    username: str | None = Field(default=None, max_length=320)
+    password: str = Field(min_length=1, max_length=300)
+    host: str | None = Field(default=None, max_length=255)
+    port: int | None = Field(default=None, ge=1, le=65535)
+
+
+class EmailAccountResponse(BaseModel):
+    """Estado da conta, sem a senha."""
+
+    configured: bool
+    provider: str | None
+    from_email: str | None
+    from_name: str | None
+    host: str | None
+    port: int | None
+    status: str
+    last_error: str | None
+
+
+class SendingPolicy(BaseModel):
+    """Os freios de volume, na linguagem de quem opera.
+
+    Existem para proteger a reputação do domínio de quem envia: provedor de
+    email que vê volume novo e alto trata como spam, e recuperar reputação é
+    muito mais caro do que subir devagar.
+    """
+
+    daily_limit: int = Field(default=30, ge=1, le=2000)
+    warmup_enabled: bool = True
+    warmup_start: int = Field(default=10, ge=1, le=500)
+    warmup_daily_increment: int = Field(default=5, ge=1, le=100)
+    business_hours_only: bool = True
+    timezone: str = Field(default="America/Sao_Paulo", max_length=60)
 
 
 # ---------------------------------------------------------------- integrações

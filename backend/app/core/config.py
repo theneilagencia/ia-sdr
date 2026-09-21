@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     # continuam registrando execução e consumo, mas com o executor de eco —
     # nenhuma chamada de modelo acontece.
     anthropic_api_key: str | None = None
+    #: Deixar um tenant sem chave usar a chave da plataforma significa pagar
+    #: a conta dele. Desligado por padrão: a empresa configura a própria.
+    ai_platform_key_fallback: bool = False
     ai_model_default: str = "claude-opus-5"
     ai_effort: str = "high"  # low | medium | high | xhigh | max
     ai_max_output_tokens: int = 8000

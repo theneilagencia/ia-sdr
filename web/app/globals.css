@@ -79,6 +79,24 @@ tbody tr { background: var(--surface); }
 .card .meta { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
 .card pre { white-space: pre-wrap; font: inherit; margin: 0 0 14px; }
 
+.card .ajuda { color: var(--muted); font-size: 14px; margin: 0 0 14px; }
+.card .estado { font-size: 14px; margin: 0 0 16px; }
+.card .estado code { background: var(--accent-soft); padding: 1px 6px; border-radius: 6px; }
+
+.campos { display: grid; gap: 16px; }
+.campos label { display: grid; gap: 6px; font-size: 14px; }
+.campos label small { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.campos label.checkbox { grid-auto-flow: column; justify-content: start; align-items: center; gap: 8px; }
+.campos label.checkbox input { width: auto; }
+.dupla { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
+
+.opcoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.opcao { display: flex !important; grid-auto-flow: column; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.opcao input { width: auto; }
+
+.ok { color: var(--ok); }
+.aviso { color: var(--warn); }
+
 .anchors { border-left: 2px solid var(--border); padding-left: 12px; margin-bottom: 14px; color: var(--muted); font-size: 13px; }
 
 form.inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -103,6 +121,7 @@ button.ghost { color: var(--muted); }
 .erro { color: var(--accent); font-size: 14px; }
 
 @media (max-width: 640px) {
+  .dupla { grid-template-columns: 1fr; }
   .funnel { grid-template-columns: repeat(2, 1fr); }
   table, thead, tbody, tr, td, th { display: block; }
   thead { display: none; }

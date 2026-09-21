@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, type Resultado } from "@/lib/api";
 import { clearToken, setToken } from "@/lib/session";
 
 type TokenResponse = { access_token: string; expires_in_minutes: number };
@@ -45,4 +45,103 @@ export async function rejectDraft(formData: FormData) {
     body: { reason: reason || null },
   });
   revalidatePath("/drafts");
+}
+
+/**
+ * As ações de configuração devolvem uma frase, não um código.
+ *
+ * Quem está configurando não sabe o que é 400, nem precisa: a API já manda a
+ * mensagem em português, e é ela que aparece embaixo do campo.
+ */
+async function executar(
+  chamada: () => Promise<unknown>,
+  sucesso: string,
+): Promise<Resultado> {
+  try {
+    await chamada();
+    return { ok: true, message: sucesso };
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
+}
+
+export async function testarChaveIA(_: Resultado, form: FormData): Promise<Resultado> {
+  const api_key = String(form.get("api_key") ?? "");
+  try {
+    const r = await api<{ ok: boolean; message: string }>("/api/v1/settings/ai/test", {
+      method: "POST",
+      body: { api_key },
+    });
+    return r;
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
+}
+
+export async function salvarChaveIA(_: Resultado, form: FormData): Promise<Resultado> {
+  const api_key = String(form.get("api_key") ?? "");
+  const resultado = await executar(
+    () => api("/api/v1/settings/ai", { method: "PUT", body: { api_key } }),
+    "Chave salva. Os agentes desta empresa já podem trabalhar.",
+  );
+  revalidatePath("/settings");
+  return resultado;
+}
+
+export async function removerChaveIA(): Promise<void> {
+  await api("/api/v1/settings/ai", { method: "DELETE" });
+  revalidatePath("/settings");
+}
+
+function corpoEmail(form: FormData) {
+  const porta = String(form.get("port") ?? "").trim();
+  return {
+    provider: String(form.get("provider") ?? "gmail"),
+    from_email: String(form.get("from_email") ?? ""),
+    from_name: String(form.get("from_name") ?? "") || null,
+    username: String(form.get("username") ?? "") || null,
+    password: String(form.get("password") ?? ""),
+    host: String(form.get("host") ?? "") || null,
+    port: porta ? Number(porta) : null,
+  };
+}
+
+export async function testarEmail(_: Resultado, form: FormData): Promise<Resultado> {
+  try {
+    return await api<{ ok: boolean; message: string }>("/api/v1/settings/email/test", {
+      method: "POST",
+      body: corpoEmail(form),
+    });
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
+}
+
+export async function salvarEmail(_: Resultado, form: FormData): Promise<Resultado> {
+  const resultado = await executar(
+    () => api("/api/v1/settings/email", { method: "PUT", body: corpoEmail(form) }),
+    "Conta conectada. É deste endereço que as abordagens vão sair.",
+  );
+  revalidatePath("/settings");
+  return resultado;
+}
+
+export async function salvarVolume(_: Resultado, form: FormData): Promise<Resultado> {
+  const corpo = {
+    daily_limit: Number(form.get("daily_limit") ?? 30),
+    warmup_enabled: form.get("warmup_enabled") === "on",
+    warmup_start: Number(form.get("warmup_start") ?? 10),
+    warmup_daily_increment: Number(form.get("warmup_daily_increment") ?? 5),
+    business_hours_only: form.get("business_hours_only") === "on",
+    timezone: String(form.get("timezone") ?? "America/Sao_Paulo"),
+  };
+  const resultado = await executar(
+    () => api("/api/v1/settings/sending", { method: "PUT", body: corpo }),
+    "Limites salvos.",
+  );
+  revalidatePath("/settings");
+  return resultado;
 }
