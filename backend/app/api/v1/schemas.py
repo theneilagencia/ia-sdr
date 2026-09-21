@@ -1,0 +1,262 @@
+"""Contratos de entrada e saída da API.
+
+Nada que seja segredo de cliente é serializado aqui — credenciais de
+integração não têm campo de leitura, de propósito.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+from app.db.models.platform import Plan
+from app.rbac.roles import Role
+
+
+class ORMModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ---------------------------------------------------------------- auth
+class RegisterRequest(BaseModel):
+    tenant_name: str = Field(min_length=2, max_length=200)
+    tenant_slug: str | None = Field(default=None, pattern=r"^[a-z0-9]([a-z0-9-]{0,58}[a-z0-9])?$")
+    email: EmailStr
+    password: str = Field(min_length=10, max_length=128)
+    full_name: str = Field(default="", max_length=200)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+    tenant_slug: str | None = None
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in_minutes: int
+    tenant_id: uuid.UUID | None
+    role: str | None
+
+
+class MembershipInfo(BaseModel):
+    tenant_id: uuid.UUID
+    tenant_name: str
+    tenant_slug: str
+    role: Role
+
+
+class MeResponse(BaseModel):
+    user_id: uuid.UUID
+    email: EmailStr
+    full_name: str
+    is_platform_admin: bool
+    tenant_id: uuid.UUID
+    role: Role
+    permissions: list[str]
+    memberships: list[MembershipInfo]
+
+
+class SwitchTenantRequest(BaseModel):
+    tenant_id: uuid.UUID
+
+
+# ---------------------------------------------------------------- tenant
+class TenantResponse(ORMModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    plan: Plan
+    subscription_status: str
+    trial_ends_at: datetime | None
+    settings: dict
+    created_at: datetime
+
+
+class TenantUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=200)
+    settings: dict | None = None
+
+
+class MemberCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=10, max_length=128)
+    full_name: str = Field(default="", max_length=200)
+    role: Role = Role.OPERATOR
+
+
+class MemberResponse(BaseModel):
+    user_id: uuid.UUID
+    email: EmailStr
+    full_name: str
+    role: Role
+    is_active: bool
+
+
+# ---------------------------------------------------------------- campaign
+class CampaignCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=200)
+    slug: str = Field(pattern=r"^[a-z0-9]([a-z0-9-]{0,118}[a-z0-9])?$")
+    objective: str | None = None
+    icp: dict = Field(default_factory=dict)
+    target_geography: list[str] = Field(default_factory=list)
+    personas: list[dict] = Field(default_factory=list)
+    offer: dict = Field(default_factory=dict)
+    messaging: dict = Field(default_factory=dict)
+    qualification_criteria: dict = Field(default_factory=dict)
+    channels: list[str] = Field(default_factory=lambda: ["email"])
+    daily_limits: dict = Field(default_factory=dict)
+
+
+class CampaignUpdate(BaseModel):
+    name: str | None = None
+    status: str | None = None
+    objective: str | None = None
+    icp: dict | None = None
+    target_geography: list[str] | None = None
+    personas: list[dict] | None = None
+    offer: dict | None = None
+    messaging: dict | None = None
+    qualification_criteria: dict | None = None
+    channels: list[str] | None = None
+    daily_limits: dict | None = None
+
+
+class CampaignResponse(ORMModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    name: str
+    slug: str
+    status: str
+    objective: str | None
+    icp: dict
+    target_geography: list
+    personas: list
+    offer: dict
+    messaging: dict
+    qualification_criteria: dict
+    channels: list
+    daily_limits: dict
+    created_at: datetime
+
+
+# ---------------------------------------------------------------- company brain
+class CompanyBrainUpdate(BaseModel):
+    legal_name: str | None = None
+    website: str | None = None
+    positioning: str | None = None
+    products: list[dict] | None = None
+    services: list[dict] | None = None
+    icp: dict | None = None
+    personas: list[dict] | None = None
+    pricing: dict | None = None
+    cases: list[dict] | None = None
+    faqs: list[dict] | None = None
+    objections: list[dict] | None = None
+    competitors: list[dict] | None = None
+    sales_playbook: dict | None = None
+    brand_voice: dict | None = None
+    ai_policies: dict | None = None
+
+
+class CompanyBrainResponse(ORMModel):
+    tenant_id: uuid.UUID
+    legal_name: str | None
+    website: str | None
+    positioning: str | None
+    products: list
+    services: list
+    icp: dict
+    personas: list
+    pricing: dict
+    cases: list
+    faqs: list
+    objections: list
+    competitors: list
+    sales_playbook: dict
+    brand_voice: dict
+    ai_policies: dict
+    updated_at: datetime
+
+
+# ---------------------------------------------------------------- agentes
+class AgentRunRequest(BaseModel):
+    agent: str
+    campaign_id: uuid.UUID | None = None
+    entity_type: str | None = None
+    entity_id: uuid.UUID | None = None
+    params: dict = Field(default_factory=dict)
+
+
+class AgentRunResponse(ORMModel):
+    id: uuid.UUID
+    job_id: str
+    agent_kind: str
+    status: str
+    campaign_id: uuid.UUID | None
+    entity_id: uuid.UUID | None
+    context_digest: str | None
+    units: int
+    output: dict
+    error: str | None
+    created_at: datetime
+
+
+# ---------------------------------------------------------------- integrações
+class IntegrationCreate(BaseModel):
+    provider: str
+    account_ref: str
+    display_name: str | None = None
+    credentials: dict[str, Any]
+    config: dict = Field(default_factory=dict)
+
+
+class IntegrationResponse(BaseModel):
+    """Sem campo de credencial. Nunca."""
+
+    id: uuid.UUID
+    provider: str
+    account_ref: str
+    display_name: str | None
+    status: str
+    config: dict
+    created_at: datetime
+
+
+# ---------------------------------------------------------------- auditoria e uso
+class AuditLogResponse(ORMModel):
+    id: uuid.UUID
+    actor_user_id: uuid.UUID | None
+    actor_role: str | None
+    action: str
+    resource_type: str | None
+    resource_id: str | None
+    source: str
+    payload: dict
+    created_at: datetime
+
+
+# ---------------------------------------------------------------- platform admin
+class AdminTenantResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    plan: str
+    subscription_status: str
+    is_active: bool
+    users: int
+    campaigns: int
+    ai_units_this_month: int
+    estimated_cost_usd: float
+    created_at: datetime
+
+
+class AdminTenantUpdate(BaseModel):
+    plan: Plan | None = None
+    subscription_status: str | None = None
+    is_active: bool | None = None
+    limit_overrides: dict | None = None
