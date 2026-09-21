@@ -19,6 +19,24 @@ function checar(condicao, descricao) {
   if (!condicao) falhas.push(descricao);
 }
 
+/**
+ * Espera a condição virar verdadeira, em vez de dormir um tempo fixo.
+ *
+ * Dormir dois segundos depois de um clique é uma corrida: passa na máquina de
+ * quem escreveu e falha no runner mais lento — que foi exatamente o que
+ * aconteceu, com duas execuções do mesmo commit dando resultados diferentes.
+ * Um teste que falha por tempo ensina a ignorar teste vermelho, que é o pior
+ * hábito que uma suíte pode criar.
+ */
+async function ate(condicao, { limite = 20000, passo = 250 } = {}) {
+  const fim = Date.now() + limite;
+  for (;;) {
+    if (await condicao()) return true;
+    if (Date.now() >= fim) return false;
+    await page.waitForTimeout(passo);
+  }
+}
+
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || undefined,
 });
@@ -52,10 +70,12 @@ try {
   checar(antes > 0, `fila de revisão tem rascunho (${antes})`);
 
   await page.locator('button:has-text("Aprovar")').first().click();
-  await page.waitForTimeout(2000);
-  checar((await emRevisao()) === antes - 1, "aprovar tira o rascunho da revisão");
   checar(
-    (await page.locator('[data-secao="aprovados"]').count()) > 0,
+    await ate(async () => (await emRevisao()) === antes - 1),
+    "aprovar tira o rascunho da revisão",
+  );
+  checar(
+    await ate(async () => (await page.locator('[data-secao="aprovados"]').count()) > 0),
     "o aprovado aparece na fila de envio",
   );
 
