@@ -80,11 +80,15 @@ Feito:
   endereço do remetente quando o cabeçalho não vem. Sem pareamento, ignora:
   inventar a conversa seria pior do que perder a mensagem
 
+- **Fila e worker** (`app/services/jobs.py`, `app/workers/runner.py`):
+  PostgreSQL como fila, com `FOR UPDATE SKIP LOCKED`, deduplicação, backoff e
+  retomada do que ficou preso. O worker lê a caixa de cada empresa, despacha o
+  que está aprovado e aciona o Conversation Agent quando chega resposta — o
+  ciclo roda sem ninguém olhando
+
 A fazer:
 
-- **Fila e workers**: hoje os agentes rodam dentro da requisição HTTP, e ler a
-  caixa é um botão. Com worker, a resposta do lead aciona o Conversation Agent
-  sozinho
+- Sequências (cadência multi-passo com follow-up automático)
 - Fila e workers consumindo `JobEnvelope` (o payload já é o contrato)
 - Ingestão da Knowledge Base: chunking, embeddings, busca (migrar
   `knowledge_chunks.embedding` para `pgvector`)

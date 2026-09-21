@@ -50,3 +50,4 @@ ignore = ["B008"]
 [tool.ruff.lint.per-file-ignores]
 # Migration gerada pelo autogenerate: não vale reformatar à mão.
 "alembic/versions/0001_foundation.py" = ["E501"]
+"alembic/versions/0004_jobs.py" = ["E501"]

@@ -15,8 +15,8 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 **Sprint 1 (Foundation) implementado e testado**: autenticação, tenants,
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
-criptografia de credenciais e painel de plataforma. 63 endpoints, 22 tabelas,
-143 testes contra PostgreSQL de verdade.
+criptografia de credenciais e painel de plataforma. 65 endpoints, 23 tabelas,
+164 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
@@ -152,7 +152,7 @@ O que está coberto:
 ## Estrutura
 
 ```
-web/                  Next.js: funil, fila de revisão, prospects, campanhas
+web/                  Next.js: funil, revisão e envio, prospects, configurações
 backend/
   app/
     api/            rotas HTTP, dependências, middleware
@@ -163,6 +163,7 @@ backend/
     rbac/           papéis e permissões
     services/       auditoria, consumo, limites
     tenancy/        contexto de tenant
+    workers/        o worker que faz o ciclo rodar sem ninguém olhando
   alembic/          migrations (inclui as políticas de RLS)
   scripts/          seed de demonstração
   tests/

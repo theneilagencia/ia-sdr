@@ -22,6 +22,7 @@ from app.db.models.engagement import (
     Qualification,
     Sequence,
 )
+from app.db.models.jobs import Job, JobKind, JobStatus
 from app.db.models.knowledge import (
     CompanyProfile,
     DocumentStatus,
@@ -69,6 +70,7 @@ TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "ai_agents",
     "agent_runs",
     "integrations",
+    "jobs",
 )
 
 __all__ = [
@@ -87,6 +89,9 @@ __all__ = [
     "DocumentStatus",
     "Integration",
     "IntegrationProvider",
+    "Job",
+    "JobKind",
+    "JobStatus",
     "KnowledgeChunk",
     "KnowledgeDocument",
     "Meeting",

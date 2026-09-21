@@ -406,6 +406,18 @@ class AgentRunRequest(BaseModel):
     params: dict = Field(default_factory=dict)
 
 
+class JobResponse(ORMModel):
+    id: uuid.UUID
+    kind: str
+    status: str
+    payload: dict
+    attempts: int
+    max_attempts: int
+    run_at: datetime
+    last_error: str | None
+    created_at: datetime
+
+
 class AgentRunResponse(ORMModel):
     id: uuid.UUID
     job_id: str
