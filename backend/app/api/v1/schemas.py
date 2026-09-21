@@ -325,6 +325,10 @@ class ProspectCsvResult(ProspectImportResult):
     #: Linhas que ficaram de fora, com o número da linha no arquivo. Import que
     #: diz "42 importados" e engole oito linhas é pior do que import que falha.
     row_errors: list[dict]
+    #: Linhas que entraram sem email. Não é erro — lista de LinkedIn é assim —
+    #: mas o agente de abordagem se recusa a escrever para quem não tem
+    #: endereço, e é melhor saber disso no import do que no disparo.
+    missing_email: int = 0
 
 
 class ScoreResponse(ORMModel):
@@ -346,6 +350,20 @@ class ProspectResponse(ORMModel):
     source: str | None
     last_activity_at: datetime | None
     created_at: datetime
+
+
+class ProspectListItem(ProspectResponse):
+    """O prospect com nome de gente.
+
+    A listagem crua devolve três UUIDs — contato, empresa, campanha — e nenhuma
+    tela consegue pedir "pesquise este aqui" com isso. Os nomes vêm resolvidos
+    em uma consulta para a lista inteira, como na caixa de entrada.
+    """
+
+    contact_name: str | None = None
+    contact_email: str | None = None
+    company_name: str | None = None
+    campaign_name: str | None = None
 
 
 class InboundMessageCreate(BaseModel):

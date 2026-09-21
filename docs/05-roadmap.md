@@ -153,9 +153,25 @@ verdade é código que ainda não existe.
 
 ## Transversal (quando a operação exigir)
 
-- **Telas que faltam no web app**: conversas, importação de lista, cadências,
-  CRM, detalhe do prospect e Platform Admin. Company Brain, base de
-  conhecimento e equipe ✅. Toda a API por trás das que faltam existe
+- **Telas que faltam no web app**: conversas, cadências, conexão com o RAVI,
+  detalhe do prospect e Platform Admin. Company Brain, base de conhecimento,
+  equipe ✅; campanhas, import de lista e disparo de agente ✅. Toda a API por
+  trás das que faltam existe
+
+  A tela de agentes traduz o que ninguém deveria precisar saber: o envelope pede
+  a entidade **daquele** agente, e ela muda — a pesquisa é sobre a conta, a
+  abordagem e a qualificação são sobre o prospect, a conversa é sobre a conversa.
+  Quem opera escolhe uma pessoa numa lista com nome e empresa. A pesquisa vai
+  para a fila porque busca na web leva minutos; os outros três rodam na
+  requisição, e o resultado diz onde o trabalho aparece ("está em Revisão"), não
+  o nome interno do agente
+
+  A tela de campanha serve os campos que **algum agente lê** — objetivo,
+  geografia, ICP, personas, oferta, mensagem e critérios de qualificação — e
+  mostra, por campanha, o que falta para ela produzir: sem critérios o agente de
+  qualificação se recusa a julgar, e é melhor ler isso na lista do que descobrir
+  no disparo. `channels` e `daily_limits` ficam fora: o volume de envio é
+  configuração da empresa, e está em Configurações
 
   Do Company Brain, a tela serve os **sete campos que algum agente lê** —
   posicionamento, produtos, casos, objeções, tom de voz, playbook e políticas de

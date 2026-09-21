@@ -88,7 +88,10 @@ async def import_prospects_csv(
         db=db,
     )
     return schemas.ProspectCsvResult(
-        **resultado.model_dump(), rows_read=len(itens) + len(erros), row_errors=erros
+        **resultado.model_dump(),
+        rows_read=len(itens) + len(erros),
+        row_errors=erros,
+        missing_email=sum(1 for item in itens if item.email is None),
     )
 
 
@@ -140,6 +143,17 @@ def import_prospects(
         if item.email:
             contact = db.execute(
                 select(Contact).where(Contact.email == str(item.email))
+            ).scalar_one_or_none()
+        else:
+            # Lista de LinkedIn vem sem email, e sem esta busca a mesma pessoa
+            # entrava de novo a cada reimportação: a promessa de não duplicar
+            # valia só para quem tinha endereço. Nome dentro da mesma conta é o
+            # critério que uma pessoa usaria para dizer que é a mesma pessoa.
+            contact = db.execute(
+                select(Contact)
+                .where(Contact.company_id == company.id)
+                .where(Contact.email.is_(None))
+                .where(func.lower(Contact.full_name) == item.full_name.strip().lower())
             ).scalar_one_or_none()
         if contact is None:
             contact = Contact(
@@ -197,7 +211,33 @@ def import_prospects(
     )
 
 
-@router.get("", response_model=list[schemas.ProspectResponse])
+def _nomes(db: Session, prospects: list[Prospect]) -> dict[uuid.UUID, dict]:
+    """Contato, empresa e campanha de cada prospect, em uma consulta.
+
+    Resolver por linha seria uma consulta por prospect na tela — rápido com dez
+    prospects, inutilizável com mil.
+    """
+    if not prospects:
+        return {}
+    linhas = db.execute(
+        select(Prospect.id, Contact.full_name, Contact.email, Company.name, Campaign.name)
+        .join(Contact, Prospect.contact_id == Contact.id, isouter=True)
+        .join(Company, Prospect.company_id == Company.id, isouter=True)
+        .join(Campaign, Prospect.campaign_id == Campaign.id, isouter=True)
+        .where(Prospect.id.in_([p.id for p in prospects]))
+    ).all()
+    return {
+        pid: {
+            "contact_name": nome,
+            "contact_email": email,
+            "company_name": empresa,
+            "campaign_name": campanha,
+        }
+        for pid, nome, email, empresa, campanha in linhas
+    }
+
+
+@router.get("", response_model=list[schemas.ProspectListItem])
 def list_prospects(
     campaign_id: uuid.UUID | None = None,
     status_filter: str | None = Query(default=None, alias="status"),
@@ -210,7 +250,15 @@ def list_prospects(
         stmt = stmt.where(Prospect.campaign_id == campaign_id)
     if status_filter:
         stmt = stmt.where(Prospect.status == status_filter)
-    return list(db.execute(stmt).scalars())
+    prospects = list(db.execute(stmt).scalars())
+
+    nomes = _nomes(db, prospects)
+    return [
+        schemas.ProspectListItem.model_validate(
+            {**schemas.ProspectResponse.model_validate(p).model_dump(), **nomes.get(p.id, {})}
+        )
+        for p in prospects
+    ]
 
 
 @router.get("/{prospect_id}/scores", response_model=list[schemas.ScoreResponse])

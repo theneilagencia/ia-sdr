@@ -99,16 +99,38 @@ export type Campaign = {
   name: string;
   slug: string;
   status: string;
+  objective: string | null;
+  //: Tudo daqui para baixo entra no contexto dos agentes desta campanha. É o
+  //: que diferencia duas campanhas da mesma empresa: mesma marca, ICP e
+  //: critérios diferentes.
+  //:
+  //: São dicionários livres: a API aceita qualquer JSON, e uma campanha criada
+  //: por API pode ter lista ou objeto no valor. O tipo diz `unknown` porque é o
+  //: que é — quem exibe converte para texto de propósito, e não por acidente.
+  icp: Record<string, unknown>;
   target_geography: string[];
+  personas: Record<string, unknown>[];
+  offer: Record<string, unknown>;
+  messaging: Record<string, unknown>;
+  qualification_criteria: Record<string, unknown>;
   created_at: string;
 };
 
 export type Prospect = {
   id: string;
   campaign_id: string;
+  contact_id: string;
+  company_id: string | null;
   status: string;
   source: string | null;
+  last_activity_at: string | null;
   created_at: string;
+  //: Resolvidos pela API. Sem eles a lista é uma coluna de UUIDs, e ninguém
+  //: consegue escolher para quem disparar um agente.
+  contact_name: string | null;
+  contact_email: string | null;
+  company_name: string | null;
+  campaign_name: string | null;
 };
 
 export type Message = {
@@ -232,4 +254,56 @@ export type Member = {
   full_name: string;
   role: "owner" | "admin" | "operator" | "viewer";
   is_active: boolean;
+};
+
+/** Um agente do catálogo, com o que ele custa por execução. */
+export type AgentCatalogItem = {
+  kind: string;
+  name: string;
+  model: string;
+  tools: string[];
+  units_per_run: number;
+};
+
+export type AgentRun = {
+  id: string;
+  job_id: string;
+  agent_kind: string;
+  status: string;
+  campaign_id: string | null;
+  entity_id: string | null;
+  context_digest: string | null;
+  units: number;
+  output: Record<string, unknown>;
+  error: string | null;
+  created_at: string;
+};
+
+export type Job = {
+  id: string;
+  kind: string;
+  status: string;
+  payload: Record<string, unknown>;
+  attempts: number;
+  max_attempts: number;
+  run_at: string;
+  last_error: string | null;
+  created_at: string;
+};
+
+export type Conversation = {
+  id: string;
+  prospect_id: string;
+  campaign_id: string | null;
+  channel: string;
+  subject: string | null;
+  status: string;
+  last_message_at: string | null;
+  handoff_to_user_id: string | null;
+  created_at: string;
+  contact_name: string | null;
+  contact_email: string | null;
+  company_name: string | null;
+  message_count: number;
+  awaiting_reply: boolean;
 };

@@ -148,3 +148,16 @@ table .ajuda { margin: 4px 0 0; font-size: 12px; }
   .dupla { grid-template-columns: 1fr; }
   header.top nav { flex-wrap: wrap; }
 }
+
+/* Conteúdo longo da campanha, fechado por padrão: a lista de campanhas continua
+   legível, e quem vai editar abre uma. */
+.dobra { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; }
+.dobra > summary { cursor: pointer; font-size: 14px; color: var(--accent); }
+.dobra > form { margin-top: 16px; }
+.dobra h4 { margin: 4px 0 0; font-size: 14px; }
+.dobra .ajuda { color: var(--muted); font-size: 13px; margin: 0; }
+
+/* O que falta para a campanha produzir. Não é decoração: cada linha é um agente
+   que não vai rodar. */
+.pendencias { margin: 0 0 12px; padding-left: 18px; color: var(--warn); font-size: 13px; }
+td .meta { display: block; color: var(--muted); font-size: 12px; }

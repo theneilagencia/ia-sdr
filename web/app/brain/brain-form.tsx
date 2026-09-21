@@ -3,50 +3,11 @@
 import { useActionState } from "react";
 
 import MarcaDeHidratacao from "../hydrated";
+import Repetivel from "../repetivel";
 
 import type { CompanyBrain } from "@/lib/api";
 
 import { salvarCerebro } from "../actions";
-
-/** Linhas existentes mais duas vazias: quem precisa de mais salva e ganha duas. */
-const EXTRA = 2;
-
-function Repetivel({
-  prefixo,
-  linhas,
-  campos,
-}: {
-  prefixo: string;
-  linhas: Record<string, string | undefined>[];
-  campos: { nome: string; rotulo: string; largo?: boolean }[];
-}) {
-  const total = linhas.length + EXTRA;
-  return (
-    <>
-      {Array.from({ length: total }, (_, i) => (
-        <div className="dupla" key={i}>
-          {campos.map((campo) => (
-            <label key={campo.nome}>
-              {i === 0 ? campo.rotulo : <span className="repetido">{campo.rotulo}</span>}
-              {campo.largo ? (
-                <textarea
-                  name={`${prefixo}_${campo.nome}`}
-                  rows={2}
-                  defaultValue={linhas[i]?.[campo.nome] ?? ""}
-                />
-              ) : (
-                <input
-                  name={`${prefixo}_${campo.nome}`}
-                  defaultValue={linhas[i]?.[campo.nome] ?? ""}
-                />
-              )}
-            </label>
-          ))}
-        </div>
-      ))}
-    </>
-  );
-}
 
 export default function BrainForm({ cerebro }: { cerebro: CompanyBrain }) {
   const [resultado, salvar, salvando] = useActionState(salvarCerebro, null);

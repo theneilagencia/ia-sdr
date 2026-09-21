@@ -215,7 +215,7 @@ class OutreachExecutor:
         pesquisa = session.execute(stmt).scalar_one_or_none()
         if pesquisa is None:
             raise OutreachBlocked(
-                "Sem pesquisa desta conta: rode o Research Agent antes de abordar"
+                "Sem pesquisa desta conta: dispare o agente de pesquisa antes de abordar"
             )
         assert_same_tenant(pesquisa, envelope.tenant_id)
 

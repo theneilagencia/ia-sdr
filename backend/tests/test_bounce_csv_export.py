@@ -255,6 +255,12 @@ def test_le_planilha_do_excel_em_portugues():
     assert erros == []
     assert itens[0].company_name == "Mineração Alfa"
     assert itens[0].full_name == "José Gonçalves"
+    # "E-mail" vira "e_mail" na normalização do cabeçalho, e o apelido guardado
+    # tinha hífen: a coluna nunca casava. Este teste já lia o cabeçalho certo e
+    # não conferia o email — a lista inteira entrava sem endereço nenhum, em
+    # silêncio, e o agente de abordagem se recusava a escrever depois.
+    assert str(itens[0].email) == "jose@alfa.com.br"
+    assert itens[0].title == "Diretor"
     # "1.200" vira 1200: perder a linha por causa do separador de milhar seria
     # absurdo, e o número é opcional.
     assert itens[0].employee_count == 1200
@@ -317,6 +323,69 @@ def test_import_por_csv_pela_api(client, make_tenant, auth_headers):
     )
     assert de_novo.json()["imported"] == 0
     assert de_novo.json()["duplicates"] == 2
+
+
+def test_linha_sem_email_entra_e_o_import_diz_quantas(client, make_tenant, auth_headers):
+    """Lista de LinkedIn vem sem email, e isso não é erro — é consequência.
+
+    A linha entra, e o relatório diz quantas vieram assim: quem opera descobre
+    no import, não no disparo que não escreveu.
+    """
+    t = make_tenant()
+    headers = auth_headers(t["email"], t["password"])
+    campanha = client.post(
+        "/api/v1/campaigns",
+        json={"name": "Sem email", "slug": f"s-{uuid.uuid4().hex[:6]}"},
+        headers=headers,
+    ).json()
+
+    arquivo = b"Empresa,Nome,E-mail\nCom Email,Alice,alice@comemail.com\nSem Email,Bruno,\n"
+    r = client.post(
+        "/api/v1/prospects/import/csv",
+        files={"file": ("lista.csv", arquivo, "text/csv")},
+        data={"campaign_id": campanha["id"]},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["imported"] == 2
+    assert r.json()["missing_email"] == 1
+
+
+def test_reimportar_lista_sem_email_nao_duplica(client, make_tenant, auth_headers):
+    """Sem email, a deduplicação era por um campo vazio — ou seja, nenhuma.
+
+    Quem sobe a mesma lista de LinkedIn duas vezes ganhava a base dobrada, e o
+    import ainda dizia "importados" com orgulho. Nome dentro da mesma conta é o
+    critério que uma pessoa usaria para dizer que é a mesma pessoa.
+    """
+    t = make_tenant()
+    headers = auth_headers(t["email"], t["password"])
+    campanha = client.post(
+        "/api/v1/campaigns",
+        json={"name": "LinkedIn", "slug": f"l-{uuid.uuid4().hex[:6]}"},
+        headers=headers,
+    ).json()
+    arquivo = b"Empresa,Nome\nTerraplanagem Oeste,Marina Lopes\n"
+
+    def subir():
+        return client.post(
+            "/api/v1/prospects/import/csv",
+            files={"file": ("lista.csv", arquivo, "text/csv")},
+            data={"campaign_id": campanha["id"]},
+            headers=headers,
+        ).json()
+
+    assert subir()["imported"] == 1
+    de_novo = subir()
+    assert de_novo == {
+        "imported": 0,
+        "duplicates": 1,
+        "prospect_ids": [],
+        "rows_read": 1,
+        "row_errors": [],
+        "missing_email": 1,
+    }
+    assert len(client.get("/api/v1/prospects", headers=headers).json()) == 1
 
 
 # ----------------------------------------------------------------- exportação

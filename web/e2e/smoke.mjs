@@ -191,6 +191,111 @@ try {
     (await page.locator("tbody tr", { hasText: EMAIL }).locator("select").count()) === 0,
     "o próprio usuário não tem seletor de papel",
   );
+
+  // As telas que fazem o funil andar: campanha, lista e disparo. O caminho é
+  // encadeado de propósito — a campanha recebe a lista, e a lista alimenta o
+  // seletor de alvo do agente. Se um elo quebra, o teste aponta qual.
+  await page.goto(`${WEB}/campaigns`);
+  await hidratada();
+  checar(
+    (await page.locator(".pendencias li").first().innerText()).includes("critérios"),
+    "a campanha diz o que falta para ela produzir",
+  );
+  const campanha = page.locator('[data-secao="campanha"]').first();
+  await campanha.locator("summary").click();
+  await campanha.locator('input[name="criterio_chave"]').first().fill("orçamento");
+  await campanha
+    .locator('textarea[name="criterio_valor"]')
+    .first()
+    .fill("tem verba aprovada para este ano");
+  await campanha.locator('button:has-text("Salvar")').click();
+  checar(
+    await ate(async () => (await page.locator("p.ok").count()) > 0),
+    "critério de qualificação salva",
+  );
+  await page.reload();
+  await hidratada();
+  const reaberta = page.locator('[data-secao="campanha"]').first();
+  await reaberta.locator("summary").click();
+  checar(
+    (await reaberta.locator('input[name="criterio_chave"]').first().inputValue()) === "orçamento",
+    "o critério volta na recarga",
+  );
+
+  await page.goto(`${WEB}/prospects`);
+  await hidratada();
+  const prospectsAntes = await page.locator("tbody tr").count();
+  // Latin-1, ponto e vírgula e cabeçalho "E-mail": é como a planilha exportada
+  // do Excel em português chega. Uma linha sem empresa e uma com email inválido
+  // entram de propósito — o relatório tem de apontar as duas pela linha.
+  const lista =
+    "Empresa;Nome;E-mail;Cargo\n" +
+    "Mineradora Açaí;José Antônio;jose@acai.com.br;Diretor\n" +
+    ";Fulano Sem Empresa;fulano@x.com;\n" +
+    "Britagem Norte;Carlos Dias;nao-e-email;COO\n";
+  await page.setInputFiles('input[name="file"]', {
+    name: "lista.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(lista, "latin1"),
+  });
+  await page.selectOption('select[name="campaign_id"]', { index: 1 });
+  await page.locator('section.card button[type="submit"]').click();
+  checar(
+    await ate(async () => (await page.locator("p.ok, p.erro").count()) > 0),
+    "o import responde com um relatório",
+  );
+  const relato = await page.locator("p.ok, p.erro").first().innerText();
+  checar(relato.includes("3 linhas lidas"), `o relatório diz quantas linhas leu: "${relato}"`);
+  checar(/linha \d+/.test(relato), "o relatório aponta a linha que ficou de fora");
+
+  await page.reload();
+  await hidratada();
+  checar(
+    (await page.locator("tbody tr").count()) === prospectsAntes + 1,
+    "só a linha válida entrou na base",
+  );
+  checar(
+    (await page.locator("tbody tr", { hasText: "José Antônio" }).innerText()).includes(
+      "Mineradora Açaí",
+    ),
+    "o acento em Latin-1 sobreviveu ao import",
+  );
+
+  await page.goto(`${WEB}/agents`);
+  await hidratada();
+  checar(
+    (await page.locator('select[name="agent"] option').count()) === 4,
+    "o catálogo traz os quatro agentes",
+  );
+  checar(
+    (await page.locator('select[name="prospect"] option').allInnerTexts()).some((t) =>
+      t.includes("José Antônio"),
+    ),
+    "o prospect importado pode ser escolhido pelo nome, não por UUID",
+  );
+  await page.selectOption('select[name="agent"]', { value: "research" });
+  await page.selectOption('select[name="prospect"]', { index: 1 });
+  await page.locator('button:has-text("Disparar")').click();
+  checar(
+    await ate(async () =>
+      (await page.locator("p.ok, p.erro").first().innerText()).includes("fila"),
+    ),
+    "a pesquisa vai para a fila em vez de pendurar a tela",
+  );
+  await page.reload();
+  await hidratada();
+  checar(
+    (await page.locator("table").first().innerText()).includes("Pesquisa"),
+    "o trabalho enfileirado aparece em Na fila",
+  );
+  // O alvo muda com o agente: conversa para o agente de conversa, pessoa para
+  // os outros. Trocar a lista é o que poupa a pergunta "entity_type é qual?".
+  await page.selectOption('select[name="agent"]', { value: "conversation" });
+  checar(
+    (await page.locator('select[name="conversation"]').count()) === 1 &&
+      (await page.locator('select[name="prospect"]').count()) === 0,
+    "escolher Conversa troca a lista de alvos",
+  );
 } catch (erro) {
   falhas.push(`exceção: ${erro.message}`);
   console.error(erro);

@@ -189,19 +189,23 @@ O que está coberto:
   `MockTransport`: o token que nunca volta na resposta, o prospect sem nota que
   não sobe, o reenvio que não duplica, e um teste que usa o modelo do próprio
   Qualification Agent para a forma dos critérios não poder divergir em silêncio
-- `web/e2e/smoke.mjs` — browser de verdade: quinze verificações cobrindo o
+- `web/e2e/smoke.mjs` — browser de verdade: vinte e oito verificações cobrindo o
   caminho crítico de cada tela, inclusive o que é salvo no Company Brain voltar
-  na recarga e o documento colado aparecer indexado. O CRUD completo das telas
+  na recarga, o documento colado aparecer indexado, e o encadeamento que faz o
+  funil andar — critério salvo na campanha, planilha do Excel em português
+  importada com o relatório apontando a linha ruim, e o prospect importado
+  aparecendo pelo nome no seletor de alvo do agente. O CRUD completo das telas
   fica nos testes de backend — repetir tudo no browser só somaria tempo e
-  superfície de intermitência: login, funil e aprovação. Pega o
+  superfície de intermitência. Pega o
   que build e typecheck não pegam, como Server Action que compila e falha ao
   executar
 
 ## Estrutura
 
 ```
-web/                  Next.js: funil, revisão e envio, prospects, campanhas,
-                      Company Brain, base de conhecimento, equipe e configurações
+web/                  Next.js: funil, revisão e envio, prospects e import de
+                      lista, campanhas, agentes, Company Brain, base de
+                      conhecimento, equipe e configurações
 backend/
   app/
     api/            rotas HTTP, dependências, middleware

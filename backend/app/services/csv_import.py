@@ -77,15 +77,22 @@ def _normalizar(cabecalho: str) -> str:
     return limpo.lstrip("﻿")
 
 
+#: Os apelidos passam pela mesma normalização que o cabeçalho do arquivo.
+#: Sem isto, "e-mail" na lista de apelidos nunca casava com a coluna "E-mail",
+#: porque o cabeçalho vira "e_mail" antes da comparação — e toda planilha
+#: exportada em português entrava sem email nenhum, em silêncio.
+_APELIDOS_NORMALIZADOS: dict[str, str] = {
+    _normalizar(apelido): campo for campo, apelidos in APELIDOS.items() for apelido in apelidos
+}
+
+
 def _mapear_colunas(cabecalhos: list[str]) -> dict[str, str]:
     """Nome da coluna no arquivo -> campo do item de import."""
     mapa: dict[str, str] = {}
     for bruto in cabecalhos:
-        normalizado = _normalizar(bruto or "")
-        for campo, apelidos in APELIDOS.items():
-            if normalizado in apelidos and campo not in mapa.values():
-                mapa[bruto] = campo
-                break
+        campo = _APELIDOS_NORMALIZADOS.get(_normalizar(bruto or ""))
+        if campo is not None and campo not in mapa.values():
+            mapa[bruto] = campo
     return mapa
 
 

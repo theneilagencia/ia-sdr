@@ -401,3 +401,274 @@ export async function trocarSenha(_: Resultado, form: FormData): Promise<Resulta
     message: "Senha trocada. As outras sessões abertas foram encerradas.",
   };
 }
+
+// ------------------------------------------------------- disparo de agente
+/**
+ * Que entidade cada agente recebe.
+ *
+ * O envelope não pede "o prospect": pede a entidade daquele agente, e ela muda.
+ * A pesquisa é sobre a **conta** (a empresa é o que se pesquisa na web); a
+ * abordagem e a qualificação são sobre o **prospect**; a conversa é sobre a
+ * **conversa**. Quem opera escolhe uma pessoa numa lista e não deveria precisar
+ * saber disso — a tradução é aqui.
+ */
+const ALVO: Record<string, "company" | "prospect" | "conversation"> = {
+  research: "company",
+  outreach: "prospect",
+  qualification: "prospect",
+  conversation: "conversation",
+};
+
+/**
+ * Agentes que vão para a fila em vez de rodar na requisição.
+ *
+ * A pesquisa faz busca na web e leva minutos. Nenhuma tela deve ficar
+ * pendurada esperando — e nenhuma pessoa deveria ter que escolher entre "agora"
+ * e "na fila" para descobrir isso na prática.
+ */
+const NA_FILA = new Set(["research"]);
+
+type Alvo = {
+  prospect?: string;
+  company?: string | null;
+  contact?: string;
+  conversation?: string;
+  campaign?: string | null;
+};
+
+/** O que aconteceu, dito pelo efeito e não pelo nome do agente. */
+const DEPOIS: Record<string, string> = {
+  outreach: "Abordagem escrita. Ela está em Revisão, esperando alguém ler antes de sair.",
+  conversation:
+    "Resposta escrita. Ela está em Revisão — se o agente não achou a resposta na base " +
+    "de conhecimento, o rascunho vem marcado para um humano.",
+  qualification: "Veredito registrado, critério a critério, no prospect.",
+};
+
+export async function dispararAgente(_: Resultado, form: FormData): Promise<Resultado> {
+  const agente = String(form.get("agent") ?? "");
+  const entidade = ALVO[agente];
+  if (!entidade) {
+    return {
+      ok: false,
+      message: agente
+        ? `O agente "${agente}" não tem alvo definido nesta tela.`
+        : "Escolha o agente.",
+    };
+  }
+
+  const cru = String(form.get(entidade === "conversation" ? "conversation" : "prospect") ?? "");
+  if (!cru) {
+    return {
+      ok: false,
+      message:
+        entidade === "conversation"
+          ? "Escolha a conversa que o agente deve responder."
+          : "Escolha para quem o agente vai trabalhar.",
+    };
+  }
+
+  let alvo: Alvo;
+  try {
+    alvo = JSON.parse(cru) as Alvo;
+  } catch {
+    return { ok: false, message: "Alvo inválido. Recarregue a página e escolha de novo." };
+  }
+
+  // A pesquisa cai no contato quando o prospect entrou sem empresa: o executor
+  // aceita os dois, e perder o disparo por causa de um campo vazio na
+  // importação seria gratuito.
+  const [entity_type, entity_id] =
+    entidade === "conversation"
+      ? ["conversation", alvo.conversation]
+      : entidade === "company"
+        ? alvo.company
+          ? ["company", alvo.company]
+          : ["contact", alvo.contact]
+        : ["prospect", alvo.prospect];
+
+  if (!entity_id) return { ok: false, message: "Este alvo não tem o que o agente precisa." };
+
+  const corpo = {
+    agent: agente,
+    campaign_id: alvo.campaign ?? null,
+    entity_type,
+    entity_id,
+    params: {},
+  };
+
+  try {
+    if (NA_FILA.has(agente)) {
+      await api("/api/v1/agents/jobs", { method: "POST", body: corpo });
+      revalidatePath("/agents");
+      return {
+        ok: true,
+        message:
+          "Pesquisa na fila. Ela busca na web e leva alguns minutos; o resultado " +
+          "aparece abaixo, em Execuções.",
+      };
+    }
+    const run = await api<{ status: string; error: string | null }>("/api/v1/agents/runs", {
+      method: "POST",
+      body: corpo,
+    });
+    revalidatePath("/agents");
+    if (run.status !== "succeeded") {
+      return { ok: false, message: run.error ?? "O agente não concluiu." };
+    }
+    return { ok: true, message: DEPOIS[agente] ?? "Feito." };
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
+}
+
+// ------------------------------------------------------------ import de lista
+export async function importarLista(_: Resultado, form: FormData): Promise<Resultado> {
+  const arquivo = form.get("file");
+  if (!(arquivo instanceof File) || arquivo.size === 0) {
+    return { ok: false, message: "Escolha o arquivo CSV com a lista." };
+  }
+  const campanha = String(form.get("campaign_id") ?? "");
+  if (!campanha) return { ok: false, message: "Escolha a campanha que vai receber a lista." };
+
+  const envio = new FormData();
+  envio.append("file", arquivo);
+  envio.append("campaign_id", campanha);
+  const origem = String(form.get("source") ?? "").trim();
+  if (origem) envio.append("source", origem);
+
+  try {
+    const r = await api<{
+      imported: number;
+      duplicates: number;
+      rows_read: number;
+      row_errors: { line: number; error: string }[];
+      missing_email: number;
+    }>("/api/v1/prospects/import/csv", { method: "POST", body: envio });
+    revalidatePath("/prospects");
+
+    // O relatório diz as quatro coisas juntas. Import que anuncia "98
+    // importados" e cala sobre as oito linhas que ficaram de fora é pior do que
+    // import que falha: ninguém vai atrás do que não sabe que perdeu.
+    const partes = [
+      `${r.rows_read} ${r.rows_read === 1 ? "linha lida" : "linhas lidas"}`,
+      `${r.imported} ${r.imported === 1 ? "importado" : "importados"}`,
+    ];
+    if (r.duplicates) partes.push(`${r.duplicates} já estavam na campanha`);
+    // Linha sem email não é erro — lista de LinkedIn é assim — mas o agente de
+    // abordagem se recusa a escrever para quem não tem endereço. Melhor saber
+    // aqui do que no disparo que não escreveu.
+    if (r.missing_email)
+      partes.push(
+        `${r.missing_email} sem email: a abordagem não sai para ${r.missing_email === 1 ? "esse" : "esses"}`,
+      );
+    if (r.row_errors.length) {
+      const detalhe = r.row_errors
+        .slice(0, 5)
+        .map((e) => `linha ${e.line}: ${e.error}`)
+        .join("; ");
+      const resto = r.row_errors.length - Math.min(5, r.row_errors.length);
+      partes.push(
+        `${r.row_errors.length} ${r.row_errors.length === 1 ? "linha ficou" : "linhas ficaram"} de fora — ${detalhe}${resto ? ` (e mais ${resto})` : ""}`,
+      );
+    }
+    return { ok: r.imported > 0, message: `${partes.join(" · ")}.` };
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
+}
+
+// -------------------------------------------------------------- campanhas
+/**
+ * O slug sai do nome.
+ *
+ * É identificador de URL, não conteúdo: pedir para quem está criando a
+ * campanha inventar um seria pedir para resolver um problema nosso. Nome
+ * repetido dá conflito na API, e a mensagem que volta diz isso.
+ */
+function slugificar(nome: string): string {
+  return nome
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+}
+
+/** Pares "chave: valor" vindos de linhas repetidas, viram um dicionário. */
+function dicionario(form: FormData, prefixo: string) {
+  const saida: Record<string, string> = {};
+  for (const linha of linhas(form, prefixo, ["chave", "valor"])) {
+    if (linha.chave && linha.valor) saida[linha.chave] = linha.valor;
+  }
+  return saida;
+}
+
+export async function criarCampanha(_: Resultado, form: FormData): Promise<Resultado> {
+  const nome = String(form.get("name") ?? "").trim();
+  if (nome.length < 2) return { ok: false, message: "Dê um nome à campanha." };
+  const slug = slugificar(nome);
+  if (!slug) {
+    return { ok: false, message: "O nome precisa ter letras ou números." };
+  }
+
+  const resultado = await executar(
+    () =>
+      api("/api/v1/campaigns", {
+        method: "POST",
+        body: {
+          name: nome,
+          slug,
+          objective: texto(form, "objective"),
+          target_geography: String(form.get("target_geography") ?? "")
+            .split(",")
+            .map((g) => g.trim())
+            .filter(Boolean),
+        },
+      }),
+    `Campanha "${nome}" criada como rascunho. Preencha o que os agentes leem e ative.`,
+  );
+  revalidatePath("/campaigns");
+  return resultado;
+}
+
+export async function salvarCampanha(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("id"));
+  const resultado = await executar(
+    () =>
+      api(`/api/v1/campaigns/${id}`, {
+        method: "PATCH",
+        body: {
+          objective: texto(form, "objective"),
+          target_geography: String(form.get("target_geography") ?? "")
+            .split(",")
+            .map((g) => g.trim())
+            .filter(Boolean),
+          icp: dicionario(form, "icp"),
+          personas: linhas(form, "persona", ["cargo", "dor"]),
+          offer: objeto(form, ["o_que_vendemos", "resultado_esperado", "prova"]),
+          messaging: objeto(form, ["angulo", "gancho", "chamada_para_acao", "evitar"]),
+          qualification_criteria: dicionario(form, "criterio"),
+        },
+      }),
+    "Salvo. Os agentes desta campanha já usam isto na próxima execução.",
+  );
+  revalidatePath("/campaigns");
+  return resultado;
+}
+
+export async function mudarStatusCampanha(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("id"));
+  const novo = String(form.get("status"));
+  const resultado = await executar(
+    () => api(`/api/v1/campaigns/${id}`, { method: "PATCH", body: { status: novo } }),
+    novo === "active"
+      ? "Campanha ativa. A cadência volta a andar nos prospects dela."
+      : "Campanha pausada. Os toques agendados esperam; nada é perdido.",
+  );
+  revalidatePath("/campaigns");
+  return resultado;
+}

@@ -262,3 +262,70 @@ def test_contato_sem_email_ainda_entra(client):
     with tenant_session(reg["_tenant"]) as session:
         contato = session.execute(select(Contact)).scalars().one()
     assert contato.email is None
+
+
+def test_listagem_traz_nome_de_gente_e_nao_so_uuid(client):
+    """A tela escolhe o alvo do agente nesta lista.
+
+    Enquanto a resposta era três UUIDs, nenhuma tela conseguia oferecer "dispare
+    a pesquisa para este" — e quem operava tinha que casar id na mão.
+    """
+    reg = _register(client, "Apy Mine", "nomes@example.com")
+    campanha = _campanha(client, reg, slug="nomes")
+    client.post(
+        "/api/v1/prospects/import",
+        headers=_headers(reg),
+        json={"campaign_id": campanha, "items": LISTA},
+    )
+
+    lista = client.get("/api/v1/prospects", headers=_headers(reg)).json()
+    assert {p["contact_name"] for p in lista} == {"Alice Tremblay", "Bruno Lemay"}
+    assert {p["company_name"] for p in lista} == {"Northern Ore"}
+    assert {p["campaign_name"] for p in lista} == {"Mining Canada"}
+    # O company_id vai junto porque o agente de pesquisa recebe a conta, não a
+    # pessoa: é a tela que traduz, e ela precisa do id aqui.
+    assert all(p["company_id"] for p in lista)
+
+
+def test_nomes_da_lista_saem_em_uma_consulta(client):
+    """Uma consulta para a lista inteira, não uma por linha.
+
+    Resolver nome por linha fica rápido com dez prospects e inutiliza a tela com
+    mil. O teste conta as consultas em vez de confiar na leitura do código.
+    """
+    reg = _register(client, "Apy Mine", "consultas@example.com")
+    campanha = _campanha(client, reg, slug="consultas")
+    itens = [
+        {
+            "company_name": f"Conta {i}",
+            "company_domain": f"conta{i}.example",
+            "full_name": f"Pessoa {i}",
+            "email": f"pessoa{i}@conta{i}.example",
+        }
+        for i in range(12)
+    ]
+    client.post(
+        "/api/v1/prospects/import",
+        headers=_headers(reg),
+        json={"campaign_id": campanha, "items": itens},
+    )
+
+    selects: list[str] = []
+
+    def contar(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().lower().startswith("select") and "prospects" in statement:
+            selects.append(statement)
+
+    from sqlalchemy import event
+
+    from app.db.session import engine
+
+    event.listen(engine, "before_cursor_execute", contar)
+    try:
+        lista = client.get("/api/v1/prospects", headers=_headers(reg)).json()
+    finally:
+        event.remove(engine, "before_cursor_execute", contar)
+
+    assert len(lista) == 12
+    # Uma para os prospects, uma para os nomes. Não doze mais uma.
+    assert len(selects) == 2, "\n\n".join(selects)
