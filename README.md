@@ -16,7 +16,7 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
 criptografia de credenciais e painel de plataforma. 21 endpoints, 22 tabelas,
-45 testes contra PostgreSQL de verdade.
+48 testes contra PostgreSQL de verdade.
 
 A execução dos agentes tem a fronteira pronta e testada (isolamento, cota,
 registro, consumo), com a chamada ao modelo como ponto de extensão — é o
@@ -39,11 +39,18 @@ Sem Docker (precisa de um PostgreSQL 14+ acessível):
 ```bash
 cd backend
 uv venv .venv && uv pip install -e ".[dev]"
-cp .env.example .env            # ajuste DATABASE_URL
+cp .env.example .env
 .venv/bin/alembic upgrade head
-.venv/bin/python -m scripts.seed_demo    # dois tenants de exemplo
+.venv/bin/python -m scripts.bootstrap_roles
+.venv/bin/python -m scripts.seed_demo
 .venv/bin/uvicorn app.main:app --reload
 ```
+
+O `.env` tem **duas** URLs de banco, e a diferença entre elas é o que sustenta
+o isolamento: `DATABASE_ADMIN_URL` (dono das tabelas, com `BYPASSRLS`, usado
+por migrations e autenticação) e `DATABASE_URL` (role da aplicação, sem
+privilégio nenhum de ignorar RLS). O `bootstrap_roles` cria o segundo a partir
+do primeiro. A API recusa subir se essa separação não estiver de pé.
 
 Atalhos no `Makefile`: `make install`, `make migrate`, `make seed`, `make run`,
 `make test`, `make lint`.
@@ -69,6 +76,12 @@ no meio, sem rede. Limpe e suba de novo:
 **`Cannot connect to the Docker daemon`** — o daemon não está rodando
 (`colima start`, ou abra o Docker Desktop).
 
+**A API não sobe e reclama de `SUPERUSER`/`BYPASSRLS`** — é proposital.
+`DATABASE_URL` está apontando para um role que ignora Row Level Security, o que
+faria os tenants enxergarem os dados uns dos outros. Rode
+`python -m scripts.bootstrap_roles` e aponte `DATABASE_URL` para o role de
+aplicação, deixando o administrativo em `DATABASE_ADMIN_URL`.
+
 ## Testes
 
 ```bash
@@ -82,7 +95,9 @@ verificam — Row Level Security — não existe em outro banco. Aponte
 O que está coberto:
 
 - `test_rls.py` — isolamento no banco: leitura, escrita, update e delete
-  cruzados; sessão sem escopo; política presente em todas as tabelas
+  cruzados; sessão sem escopo; política presente em todas as tabelas; e o
+  privilégio do role com que a aplicação conecta, que é o que decide se tudo
+  isso vale alguma coisa
 - `test_api_isolation.py` — isolamento pela API, token forjado, credencial que
   não vaza na resposta, auditoria
 - `test_rbac.py` — matriz de papéis e enforcement na rota
@@ -121,5 +136,6 @@ docs/               arquitetura e decisões
 
 1. **Credencial de cliente não vai para o frontend.** Fica no backend, cifrada,
    e nunca é serializada em resposta de API.
-2. **Dado de cliente não sai do tenant.** O banco recusa por RLS, e o
-   orquestrador confere de novo antes de montar qualquer contexto de IA.
+2. **Dado de cliente não sai do tenant.** O banco recusa por RLS — com um role
+   que não tem como ignorá-lo — e o orquestrador confere de novo antes de
+   montar qualquer contexto de IA.

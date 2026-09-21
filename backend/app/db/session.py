@@ -1,8 +1,18 @@
 """Sessões de banco com escopo de tenant.
 
-Regra da casa: nenhuma query de dados de cliente roda sem `app.tenant_id`
-definido na transação. O RLS do PostgreSQL depende disso e, sem a variável,
-as políticas simplesmente não retornam linha alguma.
+Duas conexões, e a diferença entre elas é o que sustenta o isolamento:
+
+* `engine` — role da aplicação, **sem** superusuário e **sem** BYPASSRLS. Toda
+  query de dado de cliente passa por aqui, dentro de uma transação que define
+  `app.tenant_id`. O PostgreSQL filtra o resto.
+* `admin_engine` — role administrativo, com BYPASSRLS. Usado só por migrations,
+  bootstrap e pelos três pontos que precisam enxergar mais de um tenant:
+  autenticação, painel de plataforma e manutenção.
+
+Por que não uma variável de sessão para "desligar" o RLS: qualquer SQL
+executado na conexão conseguiria ligá-la. O privilégio de atravessar o
+isolamento é atributo do role, verificado pelo banco, e não um valor que a
+aplicação escolhe em tempo de execução.
 """
 
 from __future__ import annotations
@@ -25,10 +35,66 @@ engine = create_engine(
     future=True,
 )
 
+#: Pool pequeno: o caminho administrativo é exceção, não regra.
+admin_engine = create_engine(
+    settings.effective_admin_url,
+    pool_size=2,
+    max_overflow=3,
+    pool_pre_ping=True,
+    echo=settings.db_echo,
+    future=True,
+)
+
 SessionFactory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
+AdminSessionFactory = sessionmaker(
+    bind=admin_engine, autoflush=False, expire_on_commit=False, future=True
+)
 
 TENANT_GUC = "app.tenant_id"
-BYPASS_GUC = "app.bypass_rls"
+
+
+class InsecureDatabaseRole(RuntimeError):
+    """A configuração do banco anularia o isolamento entre tenants."""
+
+
+def _role_privileges(target_engine) -> tuple[str, bool, bool]:
+    with target_engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT rolname, rolsuper, rolbypassrls "
+                "FROM pg_roles WHERE rolname = current_user"
+            )
+        ).one()
+    return row[0], bool(row[1]), bool(row[2])
+
+
+def verify_database_roles() -> None:
+    """Recusa subir com uma configuração que desliga o RLS sem avisar.
+
+    Este é o alarme que faltava: a imagem oficial do PostgreSQL cria o
+    `POSTGRES_USER` como superusuário, e superusuário ignora RLS por completo —
+    inclusive `FORCE ROW LEVEL SECURITY`. Uma aplicação apontada para esse role
+    funciona perfeitamente e serve dados de todos os tenants para todo mundo.
+    """
+    app_role, app_super, app_bypass = _role_privileges(engine)
+    if app_super or app_bypass:
+        raise InsecureDatabaseRole(
+            f"O role de aplicação '{app_role}' tem "
+            f"{'SUPERUSER' if app_super else 'BYPASSRLS'} e ignoraria o Row Level "
+            "Security: os tenants enxergariam os dados uns dos outros. Rode "
+            "`python -m scripts.bootstrap_roles` e aponte DATABASE_URL para o "
+            "role de aplicação, deixando o role administrativo em "
+            "DATABASE_ADMIN_URL."
+        )
+
+    admin_role, admin_super, admin_bypass = _role_privileges(admin_engine)
+    if not (admin_super or admin_bypass):
+        raise InsecureDatabaseRole(
+            f"O role administrativo '{admin_role}' não tem BYPASSRLS. "
+            "Autenticação e painel de plataforma precisam enxergar mais de um "
+            "tenant e retornariam vazio silenciosamente. Rode "
+            "`ALTER ROLE {admin} BYPASSRLS;` como superusuário.".format(admin=admin_role)
+        )
 
 
 def _set_local(session: Session, key: str, value: str) -> None:
@@ -52,15 +118,15 @@ def tenant_session(tenant_id: uuid.UUID) -> Iterator[Session]:
 
 @contextmanager
 def unscoped_session(*, reason: str) -> Iterator[Session]:
-    """Sessão sem filtro de tenant — atravessa o RLS.
+    """Sessão administrativa, que atravessa o RLS.
 
     Usada só em três lugares: autenticação (antes de existir tenant ativo),
-    painel de Platform Admin e migrations/manutenção. O `reason` é obrigatório
-    para que o motivo apareça nos logs e no code review.
+    painel de Platform Admin e manutenção. O `reason` é obrigatório para que o
+    motivo apareça nos logs e no code review — `grep unscoped_session` mostra
+    toda a superfície de uma vez.
     """
-    session = SessionFactory()
+    session = AdminSessionFactory()
     try:
-        _set_local(session, BYPASS_GUC, "on")
         session.info["rls_bypass_reason"] = reason
         yield session
         session.commit()

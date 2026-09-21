@@ -16,21 +16,46 @@ ALTER TABLE campaigns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE campaigns FORCE  ROW LEVEL SECURITY;
 
 CREATE POLICY tenant_isolation ON campaigns
-USING (
-    current_setting('app.bypass_rls', true) = 'on'
-    OR tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid
-)
-WITH CHECK ( ... mesma condição ... );
+USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 ```
 
-Três detalhes importam:
+Quatro detalhes importam:
 
-- **`FORCE`** faz a política valer inclusive para o dono da tabela — que é o
-  papel que a aplicação usa no MVP. Sem isso, o RLS seria decorativo.
+- **`FORCE`** faz a política valer inclusive para o dono da tabela. Sem isso, o
+  RLS seria decorativo para quem roda as migrations.
 - **`WITH CHECK`** impede *gravar* linha com `tenant_id` alheio, não só lê-la.
   Sem isso, dá para escrever no tenant do vizinho.
 - **Esquecer o escopo não vaza**: sessão sem `app.tenant_id` não lê nada, em
   vez de ler tudo.
+- **Não há escape por variável de sessão.** A primeira versão da política
+  aceitava `app.bypass_rls = 'on'`, o que era conveniente e errado: qualquer
+  SQL executado na conexão da aplicação podia ligá-la. Hoje o privilégio de
+  atravessar o isolamento é atributo do role, verificado pelo banco.
+
+### Os dois roles
+
+| Role             | Atributos                 | Quem usa                                          |
+|------------------|---------------------------|---------------------------------------------------|
+| `ia_sdr_app`     | NOSUPERUSER, NOBYPASSRLS  | A aplicação, em toda query de dado de cliente      |
+| `ia_sdr`         | dono das tabelas, BYPASSRLS | Migrations, bootstrap, autenticação, Platform Admin |
+
+`python -m scripts.bootstrap_roles` cria o role de aplicação e concede a ele
+`SELECT/INSERT/UPDATE/DELETE` — nada de DDL, nada de `TRUNCATE`. É idempotente
+e roda em toda subida.
+
+**Por que isso não é detalhe de deploy.** A imagem oficial do PostgreSQL cria o
+`POSTGRES_USER` como **superusuário**, e superusuário ignora RLS inteiro —
+`FORCE` inclusive. Uma aplicação apontada para esse role sobe normalmente,
+responde tudo com `200`, e entrega os dados de todos os tenants para qualquer
+um. Não há mensagem de erro em lugar nenhum. Por isso existem duas defesas
+contra essa configuração:
+
+- `verify_database_roles()` roda no startup e recusa subir se o role da
+  aplicação tiver `SUPERUSER` ou `BYPASSRLS` — ou se o administrativo não
+  tiver o bypass de que precisa;
+- `tests/test_rls.py::test_conexao_da_aplicacao_nao_pode_ignorar_rls` falha a
+  suíte inteira nessa configuração.
 
 Quem define a variável é `app/db/session.py`:
 
@@ -40,11 +65,8 @@ with tenant_session(tenant_id) as session:   # SET LOCAL app.tenant_id
 ```
 
 `backend/tests/test_rls.py` verifica cada uma dessas propriedades — inclusive
-`UPDATE` e `DELETE` cruzados, que retornam 0 linhas afetadas.
-
-**Próximo passo em produção:** a aplicação conectar com um role sem
-`BYPASSRLS`. O código já está pronto para isso, porque só três pontos usam
-sessão sem escopo.
+`UPDATE` e `DELETE` cruzados, que retornam 0 linhas afetadas, e o privilégio do
+role com que a suíte está conectada.
 
 ## 2. IA
 
@@ -111,7 +133,8 @@ Quando fizer sentido, a escala cresce sem refazer nada:
 - [x] Rate limiting
 - [x] Registro de toda execução de agente (entrada, saída, custo, digest do contexto)
 - [x] Controle de acesso à Knowledge Base (por tenant e por campanha)
+- [x] Role de banco sem `SUPERUSER`/`BYPASSRLS` para a aplicação, verificado
+      no startup
 - [ ] Secrets manager externo (hoje: variável de ambiente)
-- [ ] Role de banco sem `BYPASSRLS` para a aplicação
 - [ ] Política de retenção de dados
 - [ ] SSO / MFA

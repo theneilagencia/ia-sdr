@@ -32,6 +32,9 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `scripts` não é instalado junto com o pacote, mas a suíte usa o bootstrap
+# de roles para montar o banco de teste igual ao de produção.
+pythonpath = ["."]
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.ruff]

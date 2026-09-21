@@ -23,14 +23,22 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgresql+psycopg://ia_sdr:ia_sdr@db:5432/ia_sdr
+      # O POSTGRES_USER da imagem oficial é superusuário — e superusuário
+      # ignora RLS. Ele fica só no caminho administrativo; a aplicação conecta
+      # com um role sem privilégio, criado pelo bootstrap na subida.
+      DATABASE_URL: postgresql+psycopg://ia_sdr_app:ia_sdr_app@db:5432/ia_sdr
+      DATABASE_ADMIN_URL: postgresql+psycopg://ia_sdr:ia_sdr@db:5432/ia_sdr
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "${API_PORT:-8000}:8000"
-    # Migrations rodam na subida: o schema e as políticas de RLS vêm juntos.
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # Na subida: schema e políticas de RLS (migrations), depois o role de
+    # aplicação com seus privilégios mínimos. Ambos idempotentes.
+    command: >
+      sh -c "alembic upgrade head
+      && python -m scripts.bootstrap_roles
+      && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
 volumes:
   pgdata:

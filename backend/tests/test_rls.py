@@ -111,8 +111,52 @@ def test_sessao_sem_tenant_nao_le_nada(make_tenant):
         assert session.execute(sa.select(sa.func.count(Campaign.id))).scalar_one() == 0
 
 
+def test_conexao_da_aplicacao_nao_pode_ignorar_rls():
+    """O teste que faltava.
+
+    Um role com SUPERUSER ou BYPASSRLS ignora Row Level Security por completo —
+    inclusive FORCE — e a aplicação continua funcionando, servindo dados de
+    todos os tenants para todo mundo, sem erro nenhum. A imagem oficial do
+    PostgreSQL cria o POSTGRES_USER exatamente assim.
+    """
+    with SessionFactory() as session:
+        rolname, rolsuper, rolbypassrls = session.execute(
+            sa.text(
+                "SELECT rolname, rolsuper, rolbypassrls "
+                "FROM pg_roles WHERE rolname = current_user"
+            )
+        ).one()
+    assert not rolsuper, f"role de aplicação '{rolname}' é superusuário e ignora o RLS"
+    assert not rolbypassrls, f"role de aplicação '{rolname}' tem BYPASSRLS"
+
+
+def test_variavel_de_sessao_nao_abre_bypass(make_tenant):
+    """Atravessar o isolamento é atributo do role, não valor que se define em SQL."""
+    a = make_tenant()
+    with tenant_session(a["tenant_id"]) as session:
+        session.add(_campaign(a["tenant_id"], "Reservada"))
+
+    with SessionFactory() as session:
+        session.execute(sa.text("SELECT set_config('app.bypass_rls', 'on', true)"))
+        assert session.execute(sa.select(sa.func.count(Campaign.id))).scalar_one() == 0
+
+
+def test_startup_recusa_role_privilegiado(monkeypatch):
+    """A aplicação não sobe com uma configuração que anula o isolamento."""
+    from app.db import session as session_module
+
+    monkeypatch.setattr(
+        session_module,
+        "_role_privileges",
+        lambda target: ("postgres", True, True),
+    )
+    with pytest.raises(session_module.InsecureDatabaseRole) as exc:
+        session_module.verify_database_roles()
+    assert "SUPERUSER" in str(exc.value)
+
+
 def test_bypass_explicito_enxerga_tudo(make_tenant):
-    """A saída de emergência existe, é explícita e exige justificativa."""
+    """A saída de emergência existe, é explícita, separada e exige justificativa."""
     a = make_tenant()
     b = make_tenant()
     for t in (a, b):

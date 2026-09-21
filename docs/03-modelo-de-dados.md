@@ -83,6 +83,8 @@ chegar, não se refaz o modelo de dados.
 ```
 0001_foundation        22 tabelas, índices e constraints
 0002_rls               RLS: ENABLE + FORCE + policy tenant_isolation
+0003_rls_role          tira o escape por variável de sessão; o bypass passa a
+                       ser atributo do role administrativo
 ```
 
 ```bash
@@ -90,6 +92,11 @@ alembic upgrade head          # aplica
 alembic downgrade -1          # volta uma
 alembic revision --autogenerate -m "descrição"
 ```
+
+Migrations rodam com o role **administrativo** (`DATABASE_ADMIN_URL`): a
+aplicação não tem, e não deve ter, privilégio de DDL. Depois delas,
+`python -m scripts.bootstrap_roles` garante o role de aplicação e seus
+privilégios mínimos.
 
 A URL do banco vem sempre de `app.core.config.settings` — dev, CI e produção
 leem da mesma fonte.

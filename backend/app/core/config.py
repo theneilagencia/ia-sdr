@@ -15,8 +15,19 @@ class Settings(BaseSettings):
     environment: str = "development"
     debug: bool = False
 
-    # Banco
-    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/ia_sdr"
+    # Banco — duas conexões, de propósito.
+    #
+    # database_url: o role da APLICAÇÃO. Precisa ser NOSUPERUSER e NOBYPASSRLS,
+    #   senão o Row Level Security é simplesmente ignorado e o isolamento entre
+    #   tenants deixa de existir. A aplicação recusa subir se esse role tiver
+    #   privilégio demais (app/db/session.py::verify_database_roles).
+    #
+    # database_admin_url: o role ADMINISTRATIVO (dono das tabelas, com
+    #   BYPASSRLS). Serve para migrations, bootstrap e para os três pontos que
+    #   precisam atravessar o RLS: autenticação, painel de plataforma e
+    #   manutenção.
+    database_url: str = "postgresql+psycopg://ia_sdr_app:ia_sdr_app@localhost:5432/ia_sdr"
+    database_admin_url: str | None = None
     db_pool_size: int = 10
     db_max_overflow: int = 20
     db_echo: bool = False
@@ -35,6 +46,15 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = 60
 
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+
+    @property
+    def effective_admin_url(self) -> str:
+        """Sem URL administrativa configurada, cai na de aplicação.
+
+        Em desenvolvimento isso é conveniente; a checagem de privilégio no
+        startup avisa se a configuração ficar inconsistente.
+        """
+        return self.database_admin_url or self.database_url
 
     @property
     def is_production(self) -> bool:

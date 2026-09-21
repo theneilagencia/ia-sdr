@@ -8,6 +8,7 @@
 | Tenant + Users + Memberships           | `app/db/models/platform.py`               |
 | RBAC (owner/admin/operator/viewer)     | `app/rbac/roles.py`                       |
 | PostgreSQL + RLS                       | `alembic/versions/0002_row_level_security.py` |
+| Role de aplicação sem bypass de RLS    | `scripts/bootstrap_roles.py`, `app/db/session.py` |
 | Contexto de tenant por requisição/job  | `app/tenancy/context.py`, `app/api/deps.py` |
 | Platform Admin                         | `app/api/v1/admin.py`                     |
 | Audit log                              | `app/services/audit.py`                   |
@@ -48,7 +49,6 @@ migration a cada entrega.
 ## Transversal (quando a operação exigir)
 
 - Web app em Next.js — hoje só existe a API
-- Role de banco sem `BYPASSRLS` para a aplicação
 - Secrets manager externo
 - Rate limiting distribuído (Redis)
 - Política de retenção e exportação de dados por tenant

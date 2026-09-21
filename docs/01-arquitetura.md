@@ -100,10 +100,23 @@ possível depois, porque `tenant_id` já está em toda linha.
 `memberships` a cada requisição (`app/api/deps.py`) e vira a variável
 `app.tenant_id` da transação. O banco faz o resto.
 
-**A sessão sem escopo existe, mas é explícita.** `unscoped_session(reason=...)`
-atravessa o RLS e exige um motivo escrito. Hoje ela aparece em três lugares:
-autenticação, painel de plataforma e manutenção. É fácil auditar num code
-review — `grep unscoped_session`.
+**Dois roles de banco, não um.** A aplicação conecta com um role
+NOSUPERUSER/NOBYPASSRLS — ele *não consegue* sair do tenant, mesmo que o código
+erre. O role administrativo, com BYPASSRLS, fica reservado a migrations,
+autenticação e painel de plataforma, via `unscoped_session(reason=...)`, que
+exige um motivo escrito. É fácil auditar num code review:
+`grep unscoped_session` mostra toda a superfície.
+
+**O privilégio de atravessar o isolamento é atributo do role, não variável de
+sessão.** A primeira versão aceitava `app.bypass_rls = 'on'` na política — e
+qualquer SQL rodando na conexão da aplicação conseguiria ligar essa variável.
+Quem decide agora é o banco, pelo atributo do role.
+
+**A API recusa subir com um role privilegiado.** `verify_database_roles()` roda
+antes da primeira requisição. É a checagem que faltava: a imagem oficial do
+PostgreSQL cria o `POSTGRES_USER` como superusuário, e superusuário ignora RLS
+por completo — inclusive `FORCE`. Uma aplicação apontada para esse role
+funciona sem erro nenhum e serve dados de todos os tenants para todo mundo.
 
 **Todo trabalho assíncrono tem envelope.** `JobEnvelope` carrega `tenant_id`,
 `job_id`, `user_id` e `campaign_id`. Um worker não tem como "herdar" o tenant
