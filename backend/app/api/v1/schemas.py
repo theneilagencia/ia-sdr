@@ -266,6 +266,33 @@ class ContactResponse(ORMModel):
     created_at: datetime
 
 
+class ContactUpdate(BaseModel):
+    full_name: str | None = Field(default=None, min_length=1, max_length=200)
+    company_id: uuid.UUID | None = None
+    email: EmailStr | None = None
+    phone: str | None = None
+    title: str | None = None
+    seniority: str | None = None
+    persona: str | None = None
+    linkedin_url: str | None = None
+    timezone: str | None = None
+    attributes: dict | None = None
+    #: Só pode virar `true`. Desmarcar descadastro pela API seria a forma mais
+    #: fácil de voltar a escrever para quem pediu para não receber mais — e é a
+    #: única coisa aqui que gera multa.
+    opted_out: Literal[True] | None = None
+
+
+class ContactDetail(ContactResponse):
+    """O contato inteiro. A resposta de lista é enxuta de propósito."""
+
+    phone: str | None
+    seniority: str | None
+    linkedin_url: str | None
+    timezone: str | None
+    attributes: dict
+
+
 class ProspectImportItem(BaseModel):
     """Uma linha do import: empresa e pessoa juntas, como vem de uma lista."""
 
@@ -339,6 +366,42 @@ class MessageResponse(ORMModel):
     sent_at: datetime | None
     metrics: dict
     created_at: datetime
+
+
+# ------------------------------------------------------------------ conversa
+class ConversationResponse(BaseModel):
+    id: uuid.UUID
+    prospect_id: uuid.UUID
+    campaign_id: uuid.UUID | None
+    channel: str
+    subject: str | None
+    status: str
+    last_message_at: datetime | None
+    handoff_to_user_id: uuid.UUID | None
+    created_at: datetime
+    #: Quem é o lead, resolvido aqui: a tela de conversas sem nome do contato
+    #: obrigaria uma chamada por linha.
+    contact_name: str | None = None
+    contact_email: str | None = None
+    company_name: str | None = None
+    message_count: int = 0
+    awaiting_reply: bool = False
+
+
+class ConversationDetail(ConversationResponse):
+    messages: list[MessageResponse]
+
+
+class ConversationUpdate(BaseModel):
+    status: Literal["open", "closed", "handed_off"] | None = None
+    #: `null` devolve a conversa para o agente; um id passa para a pessoa.
+    handoff_to_user_id: uuid.UUID | None = None
+    clear_handoff: bool = False
+
+
+class ConversationReplyCreate(BaseModel):
+    body: str = Field(min_length=1)
+    subject: str | None = Field(default=None, max_length=500)
 
 
 class MeetingCreate(BaseModel):
