@@ -80,7 +80,6 @@ A fazer:
 ## Transversal (quando a operação exigir)
 
 - Telas que faltam no web app: Company Brain, conversas, importação de lista
-- Teste de ponta a ponta do web app no CI (hoje validado manualmente com browser)
 - Secrets manager externo
 - Rate limiting distribuído (Redis)
 - Política de retenção e exportação de dados por tenant

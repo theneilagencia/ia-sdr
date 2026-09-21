@@ -111,7 +111,8 @@ aplicação, deixando o administrativo em `DATABASE_ADMIN_URL`.
 ## Testes
 
 ```bash
-make test        # ou: cd backend && .venv/bin/pytest
+make test        # backend: cd backend && .venv/bin/pytest
+cd web && npm run e2e   # com API e web no ar
 ```
 
 Os testes rodam contra PostgreSQL de verdade, porque metade do que eles
@@ -142,6 +143,11 @@ O que está coberto:
   obedecido no ato e recusa do modelo tratada como sinal, não como erro
 - `test_qualification_agent.py` — os freios contra falso positivo: evidência
   obrigatória, piso de confiança, e campanha sem critérios que não qualifica
+- `test_review_queue.py` — o portão humano: aprovar, recusar com motivo, e
+  quem não pode aprovar
+- `web/e2e/smoke.mjs` — browser de verdade: login, funil e aprovação. Pega o
+  que build e typecheck não pegam, como Server Action que compila e falha ao
+  executar
 
 ## Estrutura
 

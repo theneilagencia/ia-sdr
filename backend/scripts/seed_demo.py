@@ -13,9 +13,10 @@ import sys
 from sqlalchemy import select
 
 from app.core.security import hash_password
+from app.db.models.engagement import Conversation, Message
 from app.db.models.knowledge import CompanyProfile, KnowledgeChunk, KnowledgeDocument
 from app.db.models.platform import Membership, Plan, Tenant, User
-from app.db.models.sales import Campaign
+from app.db.models.sales import Campaign, Company, Contact, Prospect
 from app.db.session import tenant_session, unscoped_session
 
 DEMOS = [
@@ -30,6 +31,7 @@ DEMOS = [
             ("Mining Brazil", "mining-brazil", ["BR"], "COO"),
         ],
         "doc": "Playbook de vendas para mineradoras de médio porte.",
+        "rascunho": True,
     },
     {
         "tenant": "Empresa XYZ",
@@ -98,8 +100,78 @@ def main() -> int:
                     tenant_id=tenant_id, document_id=doc.id, ordinal=0, content=demo["doc"]
                 )
             )
+        if demo.get("rascunho"):
+            _seed_fila_de_revisao(tenant_id)
         print(f"✓ {demo['tenant']} criado — login {demo['email']} / {SENHA_DEMO}")
     return 0
+
+
+def _seed_fila_de_revisao(tenant_id) -> None:
+    """Um prospect com rascunho, para a fila de revisão não nascer vazia.
+
+    Serve para ver a tela funcionando sem chave de API: o texto abaixo foi
+    escrito à mão, não por um modelo.
+    """
+    with tenant_session(tenant_id) as session:
+        campanha = session.execute(select(Campaign)).scalars().first()
+        empresa = Company(
+            tenant_id=tenant_id, name="Northern Ore", domain="northernore.ca", country="CA"
+        )
+        session.add(empresa)
+        session.flush()
+        contato = Contact(
+            tenant_id=tenant_id,
+            company_id=empresa.id,
+            full_name="Alice Tremblay",
+            email="alice@northernore.ca",
+            title="CFO",
+        )
+        session.add(contato)
+        session.flush()
+        prospect = Prospect(
+            tenant_id=tenant_id,
+            campaign_id=campanha.id,
+            contact_id=contato.id,
+            company_id=empresa.id,
+            status="scored",
+            source="demo",
+        )
+        session.add(prospect)
+        session.flush()
+        conversa = Conversation(
+            tenant_id=tenant_id,
+            prospect_id=prospect.id,
+            campaign_id=campanha.id,
+            channel="email",
+            subject="Turnos em Sudbury",
+        )
+        session.add(conversa)
+        session.flush()
+        session.add(
+            Message(
+                tenant_id=tenant_id,
+                conversation_id=conversa.id,
+                direction="outbound",
+                status="draft",
+                channel="email",
+                subject="Turnos em Sudbury",
+                body=(
+                    "Alice, vi as duas vagas de gerente de operações em Sudbury.\n\n"
+                    "Quando uma operação cresce assim, a escala costuma virar planilha "
+                    "compartilhada — e o custo aparece no turno extra, não no relatório.\n\n"
+                    "Vale 15 minutos?"
+                ),
+                metrics={
+                    "to": "alice@northernore.ca",
+                    "anchors": [
+                        {
+                            "fact": "Duas vagas de gerente de operações em Sudbury",
+                            "how_used": "abertura da mensagem",
+                        }
+                    ],
+                },
+            )
+        )
 
 
 if __name__ == "__main__":
