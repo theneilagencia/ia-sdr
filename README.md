@@ -108,6 +108,30 @@ faria os tenants enxergarem os dados uns dos outros. Rode
 `python -m scripts.bootstrap_roles` e aponte `DATABASE_URL` para o role de
 aplicação, deixando o administrativo em `DATABASE_ADMIN_URL`.
 
+## Publicar
+
+```bash
+cd deploy
+./publicar.sh app.suaempresa.com voce@suaempresa.com
+```
+
+Sobe banco, API, worker, web e um proxy com HTTPS automático num servidor com
+Docker. O script gera as senhas e as chaves — só o proxy publica porta, o resto
+fica na rede interna. Depois, uma linha por cliente:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api \
+  python -m scripts.criar_empresa --nome "Sua Empresa" --email voce@suaempresa.com
+```
+
+O passo a passo completo, incluindo DNS, backup e atualização, está em
+[docs/06-publicar.md](docs/06-publicar.md).
+
+Em produção a API recusa subir com segredo de exemplo, com chave de cifra
+inválida ou com `PUBLIC_BASE_URL` sem HTTPS. É proposital: um deploy que herda o
+`.env.example` funciona perfeitamente — e é por funcionar que ninguém descobre
+que o segredo que assina os tokens está publicado no repositório.
+
 ## Testes
 
 ```bash
@@ -145,6 +169,8 @@ O que está coberto:
   obrigatória, piso de confiança, e campanha sem critérios que não qualifica
 - `test_review_queue.py` — o portão humano: aprovar, recusar com motivo, e
   quem não pode aprovar
+- `test_startup.py` — as verificações de boot em produção: segredo de exemplo,
+  chave Fernet inválida e URL pública que o mundo não alcança
 - `web/e2e/smoke.mjs` — browser de verdade: login, funil e aprovação. Pega o
   que build e typecheck não pegam, como Server Action que compila e falha ao
   executar
@@ -165,8 +191,9 @@ backend/
     tenancy/        contexto de tenant
     workers/        o worker que faz o ciclo rodar sem ninguém olhando
   alembic/          migrations (inclui as políticas de RLS)
-  scripts/          seed de demonstração
+  scripts/          bootstrap de roles, provisionamento e seed de demonstração
   tests/
+deploy/             compose de produção, proxy com HTTPS e script de publicação
 docs/               arquitetura e decisões
 ```
 
@@ -177,6 +204,7 @@ docs/               arquitetura e decisões
 - [Modelo de dados](docs/03-modelo-de-dados.md)
 - [AI Orchestrator e Company Brain](docs/04-ai-orchestrator.md)
 - [Roadmap](docs/05-roadmap.md)
+- [Publicar a aplicação](docs/06-publicar.md)
 
 ## Duas regras que não se negociam
 

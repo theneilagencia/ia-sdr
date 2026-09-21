@@ -158,3 +158,35 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npm run e2e
+
+  deploy-config:
+    # A stack de produção não é exercitada por nenhum teste — o que dá para
+    # verificar de graça é que o compose resolve e o script não tem erro de
+    # sintaxe. Erro de digitação em nome de variável aqui só apareceria no
+    # servidor de alguém, no meio de uma publicação.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compose de produção resolve
+        working-directory: deploy
+        env:
+          DOMAIN: app.exemplo.com
+          ACME_EMAIL: voce@exemplo.com
+          DB_NAME: ia_sdr
+          DB_ADMIN_USER: ia_sdr_admin
+          DB_ADMIN_PASSWORD: ci
+          APP_DB_USER: ia_sdr_app
+          APP_DB_PASSWORD: ci
+          JWT_SECRET: ci
+          SECRETS_ENCRYPTION_KEY: ci
+        run: docker compose -f docker-compose.prod.yml config --quiet
+
+      - name: Script de publicação sem erro de sintaxe
+        run: bash -n deploy/publicar.sh
+
+      - name: Shellcheck
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck deploy/publicar.sh

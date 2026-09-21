@@ -1,0 +1,134 @@
+# Publicar a aplicação
+
+O que segue é o caminho de um servidor vazio até a aplicação no ar, com HTTPS,
+respondendo num domínio seu. São cinco passos e nenhum deles exige saber
+programar.
+
+A stack sobe com Docker: banco, API, worker, web e um proxy que cuida do
+certificado. Roda em qualquer máquina Linux com Docker — Hetzner, DigitalOcean,
+Contabo, AWS, ou um servidor na sua sala.
+
+## 1. Um servidor
+
+Peça a menor máquina que aguente: **2 vCPU e 4 GB de RAM** é o piso confortável
+(o build do frontend é o que pede memória). Ubuntu 24.04 serve.
+
+Instale o Docker:
+
+```
+curl -fsSL https://get.docker.com | sh
+```
+
+## 2. Aponte o domínio
+
+No painel do seu DNS, crie um registro **A** apontando o subdomínio para o IP do
+servidor:
+
+```
+app.suaempresa.com  →  203.0.113.10
+```
+
+Faça isso **antes** do passo 4: o certificado é emitido na primeira subida, e
+para isso o Let's Encrypt precisa resolver o nome. Propagação costuma levar
+minutos; `dig app.suaempresa.com` mostra quando terminou.
+
+## 3. Traga o código
+
+```
+git clone https://github.com/theneilagencia/ia-sdr.git
+cd ia-sdr
+```
+
+## 4. Publique
+
+```
+cd deploy
+./publicar.sh app.suaempresa.com voce@suaempresa.com
+```
+
+O script gera todas as senhas e chaves, sobe os cinco serviços e espera a API
+ficar pronta. A primeira vez demora alguns minutos — é o build das imagens.
+
+Se algo falhar, ele mostra o log da API e para. Rodar de novo é seguro.
+
+### Guarde o `deploy/.env`
+
+O script grava ali as senhas do banco e duas chaves. Uma delas,
+`SECRETS_ENCRYPTION_KEY`, é o que decifra as credenciais de email e as chaves de
+API que as empresas salvarem. **Perder esse arquivo é perder o acesso a tudo
+isso** — não tem recuperação, por desenho. Copie para um gerenciador de senhas
+antes de seguir.
+
+## 5. Crie a primeira empresa
+
+```
+docker compose -f docker-compose.prod.yml exec api \
+  python -m scripts.criar_empresa --nome "Sua Empresa" --email voce@suaempresa.com
+```
+
+A senha aparece uma vez na tela. Entre em `https://app.suaempresa.com` com ela.
+
+Cada cliente novo é outra empresa: rode o mesmo comando com outro nome e outro
+email. Os dados de uma nunca aparecem para a outra — isso é garantido pelo banco,
+não pelo código da aplicação.
+
+## Depois de entrar
+
+Duas configurações por empresa, ambas em **Configurações**, ambas testadas antes
+de salvar:
+
+- **Chave da Anthropic.** É o que faz os agentes pensarem. Sem ela, a empresa usa
+  a aplicação mas os agentes não trabalham. Cada empresa paga o próprio consumo.
+- **Conta de email.** Gmail, Outlook ou um SMTP próprio. É deste endereço que as
+  abordagens saem e é nele que as respostas chegam.
+
+Com as duas no lugar, o funil gira: importe uma lista, os agentes pesquisam,
+pontuam e escrevem, você aprova, o email sai.
+
+## Manutenção
+
+**Atualizar** para a última versão:
+
+```
+git pull
+cd deploy && ./publicar.sh
+```
+
+Sem apagar nada: o `.env` e o volume do banco são preservados, as migrations
+aplicam sozinhas na subida.
+
+**Backup** — o que importa são duas coisas:
+
+```
+# o banco
+docker compose -f docker-compose.prod.yml exec db \
+  pg_dump -U ia_sdr_admin ia_sdr | gzip > ia-sdr-$(date +%F).sql.gz
+
+# e o deploy/.env, que você já copiou no passo 4
+```
+
+Um dump sem o `.env` não restaura as credenciais das empresas: o dump guarda o
+texto cifrado, a chave está no `.env`.
+
+**Ver o que está acontecendo:**
+
+```
+docker compose -f docker-compose.prod.yml logs -f api worker
+```
+
+O worker é quem lê as caixas de email, despacha o que foi aprovado e responde
+quando um lead escreve de volta. Se as respostas pararem de chegar, é o log dele
+que conta o motivo.
+
+## Por que a API pode recusar subir
+
+De propósito, e a mensagem diz qual é o caso:
+
+- **Segredo de exemplo.** `JWT_SECRET` ou `SECRETS_ENCRYPTION_KEY` com o valor
+  que está no repositório. Qualquer pessoa que leu o código conseguiria assinar
+  um token válido para qualquer empresa.
+- **`PUBLIC_BASE_URL` sem HTTPS ou apontando para localhost.** É a base do link
+  de descadastro que vai em todo email: errada, o link não abre.
+- **Role do banco com privilégio demais.** Se a aplicação conectasse como
+  superusuário, o Row Level Security seria ignorado e as empresas enxergariam os
+  dados umas das outras. É melhor não subir do que subir assim.
