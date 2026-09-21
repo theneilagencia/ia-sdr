@@ -125,3 +125,39 @@ def test_listar_mostra_quem_tem_a_marca(make_tenant, capsys):
 def test_sem_argumento_mostra_ajuda(capsys):
     assert promover([]) == 1
     assert "--listar" in capsys.readouterr().out
+
+
+def test_painel_devolve_os_limites_para_poder_editar_sem_apagar(
+    client, make_tenant, auth_headers
+):
+    """O PATCH substitui o dicionário inteiro de overrides.
+
+    Sem receber de volta o que já está guardado, um painel que edita limites
+    edita no escuro: salvar uma alteração apagaria em silêncio os outros
+    overrides do contrato. `effective_limits` vem junto porque é o número que a
+    cota consulta — o que responde "por que este cliente travou".
+    """
+    t = make_tenant()
+    headers = auth_headers(t["email"], t["password"])
+    assert promover(["--email", t["email"]]) == 0
+
+    salvo = client.patch(
+        f"/api/v1/admin/tenants/{t['tenant_id']}",
+        headers=headers,
+        json={"plan": "starter", "limit_overrides": {"campaigns": 7, "users": -1}},
+    )
+    assert salvo.status_code == 200, salvo.text
+    assert salvo.json()["limit_overrides"] == {"campaigns": 7, "users": -1}
+    # O plano Starter dá 1 campanha; o override manda.
+    assert salvo.json()["effective_limits"]["campaigns"] == 7
+    assert salvo.json()["effective_limits"]["users"] == -1
+    # O que o override não toca continua vindo do plano.
+    assert salvo.json()["effective_limits"]["prospects_per_month"] == 1_000
+
+    na_lista = next(
+        e
+        for e in client.get("/api/v1/admin/tenants", headers=headers).json()
+        if e["id"] == str(t["tenant_id"])
+    )
+    assert na_lista["limit_overrides"] == {"campaigns": 7, "users": -1}
+    assert na_lista["effective_limits"]["campaigns"] == 7

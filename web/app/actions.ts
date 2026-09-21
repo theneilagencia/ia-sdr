@@ -859,3 +859,71 @@ export async function dispararNoProspect(_: Resultado, form: FormData): Promise<
   revalidatePath(`/prospects/${String(form.get("prospect_id"))}`);
   return resultado;
 }
+
+// ---------------------------------------------------- painel da plataforma
+/**
+ * Os limites que um override pode mexer.
+ *
+ * São exatamente as chaves que o plano define: `effective_limits` ignora chave
+ * que não existe no plano, então oferecer outras seria oferecer um campo que não
+ * faz nada. `-1` é ilimitado, e é o valor que o Enterprise já usa.
+ */
+const LIMITES = [
+  "campaigns",
+  "prospects_per_month",
+  "users",
+  "email_accounts",
+  "ai_units_per_month",
+  "knowledge_documents",
+] as const;
+
+export async function salvarEmpresaDaPlataforma(
+  _: Resultado,
+  form: FormData,
+): Promise<Resultado> {
+  const id = String(form.get("tenant_id"));
+
+  // O PATCH substitui o dicionário inteiro, então a tela manda todos os
+  // campos: mandar só o alterado apagaria os outros overrides em silêncio.
+  const overrides: Record<string, number> = {};
+  for (const chave of LIMITES) {
+    const bruto = String(form.get(`limite_${chave}`) ?? "").trim();
+    if (bruto === "") continue;
+    const valor = Number(bruto);
+    if (!Number.isInteger(valor)) {
+      return { ok: false, message: `O limite de ${chave} precisa ser um número inteiro.` };
+    }
+    overrides[chave] = valor;
+  }
+
+  const resultado = await executar(
+    () =>
+      api(`/api/v1/admin/tenants/${id}`, {
+        method: "PATCH",
+        body: {
+          plan: String(form.get("plan") ?? "") || null,
+          subscription_status: String(form.get("subscription_status") ?? "") || null,
+          limit_overrides: overrides,
+        },
+      }),
+    "Salvo. O plano e os limites valem na próxima verificação de cota.",
+  );
+  revalidatePath("/platform");
+  return resultado;
+}
+
+export async function alternarEmpresaDaPlataforma(
+  _: Resultado,
+  form: FormData,
+): Promise<Resultado> {
+  const id = String(form.get("tenant_id"));
+  const ativar = String(form.get("is_active")) === "true";
+  const resultado = await executar(
+    () => api(`/api/v1/admin/tenants/${id}`, { method: "PATCH", body: { is_active: ativar } }),
+    ativar
+      ? "Empresa reativada. Todo mundo dela volta a entrar."
+      : "Empresa suspensa. Ninguém dela entra, e o histórico fica inteiro.",
+  );
+  revalidatePath("/platform");
+  return resultado;
+}

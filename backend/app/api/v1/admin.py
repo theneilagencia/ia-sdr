@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 
 from app.api.deps import require_platform_admin
 from app.api.v1 import schemas
+from app.billing.plans import limits_for
 from app.core.errors import NotFound
 from app.db.models.ai import AgentRun
 from app.db.models.platform import AuditLog, Membership, Tenant, UsageEvent, User
@@ -76,6 +77,8 @@ def list_tenants(
                 ai_units_this_month=usage_by_tenant.get(t.id, (0, 0))[0],
                 estimated_cost_usd=round(usage_by_tenant.get(t.id, (0, 0))[1] / 1e6, 4),
                 created_at=t.created_at,
+                limit_overrides=t.limit_overrides or {},
+                effective_limits=limits_for(t.plan, t.limit_overrides),
             )
             for t in tenants
         ]
@@ -126,6 +129,8 @@ def update_tenant(
             ai_units_this_month=0,
             estimated_cost_usd=0.0,
             created_at=tenant.created_at,
+            limit_overrides=tenant.limit_overrides or {},
+            effective_limits=limits_for(tenant.plan, tenant.limit_overrides),
         )
 
 

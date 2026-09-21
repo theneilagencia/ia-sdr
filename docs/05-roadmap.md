@@ -153,10 +153,10 @@ verdade é código que ainda não existe.
 
 ## Transversal (quando a operação exigir)
 
-- **Telas que faltam no web app**: cadências, conexão com o RAVI e Platform
-  Admin. Company Brain, base de conhecimento, equipe ✅; campanhas, import de
-  lista e disparo de agente ✅; conversas e detalhe do prospect ✅. Toda a API
-  por trás das que faltam existe
+- **Telas que faltam no web app**: cadências e a conexão com o RAVI. Company
+  Brain, base de conhecimento, equipe ✅; campanhas, import de lista e disparo de
+  agente ✅; conversas e detalhe do prospect ✅; painel da plataforma ✅. Toda a
+  API por trás das duas que faltam existe
 
   A caixa de entrada põe quem escreveu e não foi respondido no topo, porque é o
   único item da lista com prazo. Na conversa, o humano assume com os mesmos
@@ -195,6 +195,14 @@ verdade é código que ainda não existe.
   que preencher importa quando não importa. `pricing` e `faqs` são o caso mais
   interessante: o agente de conversa **escala preço para humano por desenho**,
   então preenchê-los mudaria o comportamento dele, não a tela
+
+  O painel da plataforma mostra plano, assinatura, consumo do mês e falhas de
+  agente, e deixa mexer em plano, status e limites contratados. O que ele **não**
+  mostra é tão deliberado quanto o que mostra: nome de campanha, lead, conversa e
+  base de conhecimento do cliente não aparecem ali. Ver a conta de um cliente e
+  ler as conversas dele são coisas diferentes, e a marca de platform admin só
+  concede a primeira — há teste de backend para isso desde o item 1
+
 - Secrets manager externo (hoje a chave Fernet vive no `.env` do servidor)
 - Rate limiting distribuído (Redis) — hoje é por processo, o que basta para uma
   réplica só

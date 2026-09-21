@@ -789,6 +789,14 @@ class AdminTenantResponse(BaseModel):
     ai_units_this_month: int
     estimated_cost_usd: float
     created_at: datetime
+    #: Os overrides contratuais, como estão guardados. Sem devolvê-los, um
+    #: painel que edita limites edita no escuro — e o PATCH substitui o
+    #: dicionário inteiro, então o que não fosse reenviado seria apagado em
+    #: silêncio.
+    limit_overrides: dict = Field(default_factory=dict)
+    #: O que vale hoje: o limite do plano com os overrides aplicados. É o número
+    #: que a cota usa, e é ele que responde "por que este cliente travou".
+    effective_limits: dict = Field(default_factory=dict)
 
 
 class AdminTenantUpdate(BaseModel):

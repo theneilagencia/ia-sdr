@@ -6,6 +6,11 @@
  * a API respondeu 401. Roda contra a API e o web de verdade.
  *
  *   node e2e/smoke.mjs
+ *
+ * **Precisa de um banco recém-semeado** (`seed_demo` mais `promover_admin` no
+ * owner da Apy Mine, que é o que o CI faz). Várias verificações contam linhas
+ * antes e depois de uma ação, então rodar duas vezes contra o mesmo banco falha
+ * nas contagens — e isso é o teste funcionando, não quebrando.
  */
 import { chromium } from "playwright";
 
@@ -377,6 +382,53 @@ try {
   checar(
     (await page.locator("main").innerText()).includes("reunião marcada"),
     "a reunião move o prospect no funil",
+  );
+
+  // O painel da plataforma: a marca aparece nos dois sentidos. Quem a tem
+  // enxerga as empresas; quem não a tem não ganha nem o link.
+  await page.goto(`${WEB}/platform`);
+  await page.waitForSelector('[data-hidratado="1"]', { state: "attached", timeout: 20000 });
+  checar(
+    (await page.locator('header nav a:has-text("Plataforma")').count()) === 1,
+    "com a marca de plataforma, o link aparece",
+  );
+  const empresas = await page.locator('[data-secao="empresa"]').count();
+  checar(empresas >= 2, `o painel lista as empresas da plataforma (${empresas})`);
+  const xyz = page.locator('[data-secao="empresa"]', { hasText: "Empresa XYZ" });
+  await xyz.locator("summary").click();
+  await xyz.locator('input[name="limite_campaigns"]').fill("7");
+  await xyz.locator('button:has-text("Salvar")').click();
+  checar(
+    await ate(async () => (await xyz.locator("p.ok, p.erro").count()) > 0),
+    "salvar plano e limite no painel responde",
+  );
+  await page.reload();
+  await page.waitForSelector('[data-hidratado="1"]', { state: "attached", timeout: 20000 });
+  const depois = page.locator('[data-secao="empresa"]', { hasText: "Empresa XYZ" });
+  await depois.locator("summary").click();
+  // O PATCH substitui o dicionário inteiro de overrides: se a tela não
+  // devolvesse o que já está guardado, a próxima edição apagaria isto.
+  checar(
+    (await depois.locator('input[name="limite_campaigns"]').inputValue()) === "7",
+    "o override de limite volta na recarga",
+  );
+
+  const outra = await browser.newPage();
+  await outra.goto(`${WEB}/login`);
+  await outra.fill('input[name="email"]', "owner@xyz.com");
+  await outra.fill('input[name="password"]', SENHA);
+  await outra.click('button[type="submit"]');
+  await outra.waitForURL(`${WEB}/`, { timeout: 15000 });
+  checar(
+    (await outra.locator('header nav a:has-text("Plataforma")').count()) === 0,
+    "sem a marca, o link da plataforma não aparece",
+  );
+  await outra.goto(`${WEB}/platform`);
+  await outra.waitForSelector("h1");
+  checar(
+    (await outra.locator('[data-secao="empresa"]').count()) === 0 &&
+      (await outra.locator(".empty").innerText()).includes("opera a plataforma"),
+    "sem a marca, o painel explica em vez de listar empresa de ninguém",
   );
 } catch (erro) {
   falhas.push(`exceção: ${erro.message}`);

@@ -364,3 +364,44 @@ export type Contact = {
   attributes: Record<string, unknown>;
   created_at: string;
 };
+
+// --------------------------------------------------------- painel da plataforma
+export type AdminTenant = {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  subscription_status: string;
+  is_active: boolean;
+  users: number;
+  campaigns: number;
+  ai_units_this_month: number;
+  estimated_cost_usd: number;
+  created_at: string;
+  //: Os overrides como estão guardados, e o que vale hoje com eles aplicados.
+  //: O PATCH substitui o dicionário inteiro, então a tela precisa mostrar o que
+  //: já existe para não apagar em silêncio o que não reenviou.
+  limit_overrides: Record<string, number>;
+  effective_limits: Record<string, number | string[]>;
+};
+
+export type PlatformUsage = {
+  period_start: string;
+  tenants: number;
+  active_tenants: number;
+  total_units: number;
+  estimated_cost_usd: number;
+  by_kind: Record<string, { units: number; cost_usd: number }>;
+};
+
+export type SystemHealth = {
+  agent_runs: Record<string, number>;
+  recent_failures: {
+    id: string;
+    tenant_id: string;
+    agent: string;
+    status: string;
+    error: string | null;
+    created_at: string;
+  }[];
+};

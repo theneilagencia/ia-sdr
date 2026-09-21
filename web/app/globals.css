@@ -175,3 +175,8 @@ td .meta { display: block; color: var(--muted); font-size: 12px; }
 .card.mensagem.lead { border-left: 3px solid var(--accent); }
 .lista { margin: 0 0 16px; padding-left: 18px; font-size: 14px; }
 .lista li { margin-bottom: 6px; }
+
+/* Id de empresa no painel da plataforma: o suficiente para achar a linha no log,
+   sem o nome de ninguém. */
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.dobra .campos small { color: var(--muted); font-weight: 400; }

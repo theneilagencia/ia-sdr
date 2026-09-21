@@ -24,6 +24,9 @@ export default async function Nav() {
           <Link href="/knowledge">Conhecimento</Link>
           <Link href="/team">Equipe</Link>
           <Link href="/settings">Configurações</Link>
+          {/* Só quem opera a plataforma vê o painel dela. Quem não tem a marca
+              não ganha um link que só levaria a uma recusa. */}
+          {me.is_platform_admin ? <Link href="/platform">Plataforma</Link> : null}
         </nav>
         <span className="who">
           {tenant} · {me.email} · {me.role}

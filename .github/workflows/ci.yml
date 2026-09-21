@@ -134,6 +134,10 @@ jobs:
           alembic upgrade head
           python -m scripts.bootstrap_roles
           python -m scripts.seed_demo
+          # O painel da plataforma só existe para quem tem a marca, e ela é
+          # concedida por linha de comando. Sem isto, a fumaça só conseguiria
+          # verificar a recusa — que é metade do que importa.
+          python -m scripts.promover_admin --email owner@apymine.com
 
       - name: Subir API
         working-directory: backend
