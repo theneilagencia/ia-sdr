@@ -276,4 +276,4 @@ def test_caixa_lida_grava_o_que_parear(conversa_com_abordagem_enviada, monkeypat
             session, tenant_id=conversa_com_abordagem_enviada["tenant_id"]
         )
 
-    assert resultado == {"fetched": 2, "recorded": 1, "ignored": 1}
+    assert resultado == {"fetched": 2, "recorded": 1, "ignored": 1, "bounced": 0}

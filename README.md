@@ -171,6 +171,17 @@ O que está coberto:
   quem não pode aprovar
 - `test_startup.py` — as verificações de boot em produção: segredo de exemplo,
   chave Fernet inválida e URL pública que o mundo não alcança
+- `test_auth_and_members.py` — troca de senha que encerra as sessões abertas, e
+  as travas que impedem uma empresa de ficar sem ninguém que possa administrar
+- `test_knowledge.py` — fatiamento, ingestão idempotente, escopo por campanha e
+  a busca por relevância; inclusive o teste que confere que é o trecho certo
+  que chega ao contexto do agente, e não o documento mais recente
+- `test_conversations_and_contacts.py` — a caixa de entrada, o descadastro que
+  não se desfaz e o contato com histórico que não se apaga
+- `test_sequences.py` — as regras de parada da cadência, que importam mais que
+  a cadência: resposta, descadastro, reunião, qualificação
+- `test_bounce_csv_export.py` — bounce permanente versus temporário, planilha do
+  Excel em português e a exportação que não leva segredo junto
 - `web/e2e/smoke.mjs` — browser de verdade: login, funil e aprovação. Pega o
   que build e typecheck não pegam, como Server Action que compila e falha ao
   executar

@@ -192,7 +192,12 @@ export async function reenviar(_: Resultado, form: FormData): Promise<Resultado>
 
 export async function buscarRespostas(_: Resultado, _form: FormData): Promise<Resultado> {
   try {
-    const r = await api<{ fetched: number; recorded: number; ignored: number }>(
+    const r = await api<{
+      fetched: number;
+      recorded: number;
+      ignored: number;
+      bounced: number;
+    }>(
       "/api/v1/messages/fetch-inbox",
       { method: "POST" },
     );
@@ -203,6 +208,9 @@ export async function buscarRespostas(_: Resultado, _form: FormData): Promise<Re
         r.fetched === 0
           ? "Nenhuma mensagem nova na caixa."
           : `${r.recorded} ${r.recorded === 1 ? "resposta ligada" : "respostas ligadas"} à conversa` +
+            (r.bounced
+              ? `, ${r.bounced} ${r.bounced === 1 ? "email voltou" : "emails voltaram"}`
+              : "") +
             (r.ignored ? `, ${r.ignored} sem relação com campanha` : "") +
             ".",
     };

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -15,7 +17,7 @@ from app.core.security import hash_password
 from app.db.models.platform import Membership, Tenant, User
 from app.db.session import unscoped_session
 from app.rbac.roles import Permission, Role
-from app.services import audit, limits
+from app.services import audit, export, limits
 from app.tenancy.context import TenantContext
 
 router = APIRouter(prefix="/tenants", tags=["tenant"])
@@ -248,6 +250,36 @@ def _owners_ativos(identity: Session, tenant_id: uuid.UUID) -> int:
             .where(Membership.is_active.is_(True))
         ).scalar()
         or 0
+    )
+
+
+@router.get("/me/export")
+def export_tenant_data(
+    ctx: TenantContext = Depends(require(Permission.TENANT_WRITE)),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Leva os dados desta empresa embora, num JSON só.
+
+    Uma plataforma da qual não se sai é uma plataforma na qual não se entra —
+    quem avalia contratar pergunta "e se eu quiser sair?", e "abre um chamado"
+    é pior resposta do que um endpoint. Também é o que a LGPD pede.
+
+    Nenhum segredo vai junto: integrações saem pelo provedor e pela data, e as
+    credenciais do cliente não são serializadas aqui nem em lugar nenhum.
+    """
+    pacote = export.export_tenant(db, ctx.tenant_id)
+    audit.record(
+        db,
+        action="tenant.exported",
+        resource_type="tenant",
+        resource_id=ctx.tenant_id,
+        payload={"counts": pacote["counts"], "truncated": pacote["truncated"]},
+        context=ctx,
+    )
+    nome = f"{pacote['tenant']['slug'] or 'empresa'}-{date.today().isoformat()}.json"
+    return JSONResponse(
+        content=pacote,
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
     )
 
 

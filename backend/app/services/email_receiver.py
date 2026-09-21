@@ -28,15 +28,17 @@ from email.header import decode_header, make_header
 from email.message import Message as EmailMessageType
 from email.utils import parseaddr
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError, NotFound
 from app.db.models.engagement import (
     Conversation,
+    EnrollmentStatus,
     Message,
     MessageDirection,
     MessageStatus,
+    SequenceEnrollment,
 )
 from app.db.models.sales import Contact, Prospect, ProspectStatus
 from app.services import audit, email_accounts
@@ -59,6 +61,22 @@ class InboxUnavailable(AppError):
 
 
 @dataclass(frozen=True, slots=True)
+class Bounce:
+    """O que voltou quando o email não chegou.
+
+    `permanent` é a distinção que importa. Caixa cheia e servidor fora do ar
+    (4.x.x) voltam a funcionar; endereço que não existe (5.x.x) não volta — e
+    insistir num endereço inexistente é o jeito mais rápido de a reputação do
+    domínio de quem manda cair.
+    """
+
+    permanent: bool
+    recipient: str | None
+    status_code: str | None
+    diagnostic: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class InboundEmail:
     message_id: str | None
     in_reply_to: str | None
@@ -67,6 +85,8 @@ class InboundEmail:
     subject: str | None
     body: str
     received_at: datetime
+    #: Preenchido quando a mensagem é um aviso de não entrega, não uma resposta.
+    bounce: Bounce | None = None
 
 
 def imap_settings(provider: str, config: dict) -> tuple[str, int]:
@@ -101,18 +121,80 @@ def _corpo(mensagem: EmailMessageType) -> str:
     return _texto(mensagem)[:MAX_BODY]
 
 
+#: Remetentes automáticos de aviso de não entrega. A parte local é o que
+#: varia menos entre provedores.
+REMETENTES_DE_AVISO = {"mailer-daemon", "postmaster", "mail-daemon", "noreply-dmarc-support"}
+
+#: Assuntos de bounce que chegam sem `multipart/report`. A lista é curta de
+#: propósito: errar para o lado de tratar como resposta apenas atrasa; errar
+#: para o lado de marcar como bounce apaga um lead de verdade do funil.
+ASSUNTOS_DE_AVISO = (
+    "undelivered mail returned to sender",
+    "delivery status notification (failure)",
+    "mail delivery failed",
+    "returned mail",
+    "undeliverable",
+    "falha na entrega",
+)
+
+
+def _detectar_bounce(mensagem: EmailMessageType, from_email: str) -> Bounce | None:
+    """Reconhece um aviso de não entrega e extrai o que ele diz.
+
+    O caminho confiável é o `multipart/report` da RFC 3464, que traz
+    `Final-Recipient` e `Status` em campos próprios. O reconhecimento por
+    remetente e assunto é o recuo para provedores que não seguem a norma — e,
+    sem código de status, um bounce assim é tratado como **temporário**: tirar
+    um lead do funil por causa de um assunto em inglês mal traduzido seria pior
+    do que tentar de novo.
+    """
+    relatorio = None
+    for parte in mensagem.walk() if mensagem.is_multipart() else []:
+        if parte.get_content_type() == "message/delivery-status":
+            relatorio = parte
+            break
+
+    if relatorio is not None:
+        campos: dict[str, str] = {}
+        for bloco in relatorio.get_payload():
+            if not hasattr(bloco, "items"):
+                continue
+            for chave, valor in bloco.items():
+                campos.setdefault(chave.lower(), str(valor).strip())
+        status = campos.get("status")
+        destinatario = campos.get("final-recipient") or campos.get("original-recipient")
+        if destinatario and ";" in destinatario:
+            destinatario = destinatario.split(";", 1)[1].strip()
+        return Bounce(
+            # 5.x.x é permanente; 4.x.x é temporário. Sem status, o mais
+            # seguro é assumir temporário.
+            permanent=bool(status and status.startswith("5")),
+            recipient=(destinatario or "").lower() or None,
+            status_code=status,
+            diagnostic=campos.get("diagnostic-code"),
+        )
+
+    local = from_email.split("@", 1)[0] if from_email else ""
+    assunto = (mensagem.get("Subject") or "").lower()
+    if local in REMETENTES_DE_AVISO or any(a in assunto for a in ASSUNTOS_DE_AVISO):
+        return Bounce(permanent=False, recipient=None, status_code=None, diagnostic=None)
+    return None
+
+
 def parse_email(bruto: bytes) -> InboundEmail:
     mensagem = email_lib.message_from_bytes(bruto)
     referencias = (mensagem.get("References") or "").split()
     assunto = mensagem.get("Subject")
+    remetente = parseaddr(mensagem.get("From") or "")[1].lower()
     return InboundEmail(
         message_id=mensagem.get("Message-ID"),
         in_reply_to=(mensagem.get("In-Reply-To") or "").strip() or None,
         references=referencias,
-        from_email=parseaddr(mensagem.get("From") or "")[1].lower(),
+        from_email=remetente,
         subject=str(make_header(decode_header(assunto))) if assunto else None,
         body=_corpo(mensagem),
         received_at=datetime.now(UTC),
+        bounce=_detectar_bounce(mensagem, remetente),
     )
 
 
@@ -175,6 +257,9 @@ def record_inbound(
             # Reler a caixa não pode duplicar conversa nem reengajar ninguém.
             return None
 
+    if recebido.bounce is not None:
+        return _registrar_bounce(session, tenant_id=tenant_id, recebido=recebido, ctx=ctx)
+
     par = _match_conversation(session, tenant_id, recebido)
     if par is None:
         logger.info(
@@ -221,6 +306,135 @@ def record_inbound(
     return mensagem
 
 
+def _contato_do_bounce(
+    session: Session, tenant_id: uuid.UUID, recebido: InboundEmail
+) -> tuple[Contact | None, Message | None]:
+    """De quem era o email que voltou.
+
+    O aviso de não entrega não vem do lead: vem do servidor. O endereço
+    original está no `Final-Recipient` do relatório ou na referência ao
+    `Message-ID` da mensagem que saiu.
+    """
+    original = None
+    for referencia in [recebido.in_reply_to, *reversed(recebido.references)]:
+        if not referencia:
+            continue
+        original = session.execute(
+            select(Message)
+            .where(Message.tenant_id == tenant_id)
+            .where(Message.external_message_id == referencia)
+            .limit(1)
+        ).scalar_one_or_none()
+        if original is not None:
+            break
+
+    destinatario = (recebido.bounce.recipient or "").lower() if recebido.bounce else ""
+    contato = None
+    if destinatario:
+        contato = session.execute(
+            select(Contact)
+            .where(Contact.tenant_id == tenant_id)
+            .where(func.lower(Contact.email) == destinatario)
+            .limit(1)
+        ).scalar_one_or_none()
+
+    if contato is None and original is not None:
+        conversa = session.get(Conversation, original.conversation_id)
+        prospect = session.get(Prospect, conversa.prospect_id) if conversa else None
+        contato = session.get(Contact, prospect.contact_id) if prospect else None
+
+    return contato, original
+
+
+def _registrar_bounce(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    recebido: InboundEmail,
+    ctx: TenantContext,
+) -> Message | None:
+    """Trata o aviso de não entrega — e nunca como se fosse resposta do lead.
+
+    Contar um bounce como resposta seria o pior dos mundos: o prospect viraria
+    "engajado", o Conversation Agent escreveria uma réplica para um endereço
+    que não existe, e a cadência continuaria insistindo. É assim que a
+    reputação de um domínio some.
+    """
+    bounce = recebido.bounce
+    contato, original = _contato_do_bounce(session, tenant_id, recebido)
+
+    if original is not None:
+        original.status = MessageStatus.BOUNCED.value
+        original.metrics = {
+            **(original.metrics or {}),
+            "bounce": {
+                "permanent": bounce.permanent,
+                "status_code": bounce.status_code,
+                "diagnostic": (bounce.diagnostic or "")[:500],
+            },
+        }
+
+    if contato is None:
+        logger.info(
+            "aviso de não entrega sem destinatário reconhecido",
+            extra={"tenant_id": str(tenant_id), "recipient": bounce.recipient},
+        )
+        return None
+
+    if not bounce.permanent:
+        # Temporário: registra e não mexe no funil. Caixa cheia esvazia.
+        audit.record(
+            session,
+            action="email.soft_bounce",
+            resource_type="contact",
+            resource_id=contato.id,
+            payload={"status_code": bounce.status_code},
+            context=ctx,
+        )
+        session.flush()
+        return None
+
+    # Permanente: o endereço não existe. Todo prospect deste contato sai do
+    # funil de abordagem — é o mesmo email em todos.
+    afetados = list(
+        session.execute(select(Prospect).where(Prospect.contact_id == contato.id)).scalars()
+    )
+    for prospect in afetados:
+        prospect.status = ProspectStatus.BOUNCED.value
+        prospect.last_activity_at = recebido.received_at
+
+    # E a cadência para: insistir num endereço inexistente é o jeito mais
+    # rápido de a reputação do domínio de quem manda cair.
+    paradas = 0
+    if afetados:
+        inscricoes = session.execute(
+            select(SequenceEnrollment)
+            .where(SequenceEnrollment.prospect_id.in_([p.id for p in afetados]))
+            .where(SequenceEnrollment.status == EnrollmentStatus.ACTIVE.value)
+        ).scalars()
+        for inscricao in inscricoes:
+            inscricao.status = EnrollmentStatus.STOPPED.value
+            inscricao.stop_reason = "email inválido"
+            inscricao.next_run_at = None
+            paradas += 1
+
+    audit.record(
+        session,
+        action="email.hard_bounce",
+        resource_type="contact",
+        resource_id=contato.id,
+        payload={
+            "status_code": bounce.status_code,
+            "prospects": len(afetados),
+            "sequences_stopped": paradas,
+            "diagnostic": (bounce.diagnostic or "")[:300],
+        },
+        context=ctx,
+    )
+    session.flush()
+    return None
+
+
 def _fetch_raw(host: str, port: int, username: str, password: str, limite: int) -> list[bytes]:
     """Busca os não lidos e os marca como lidos.
 
@@ -263,9 +477,7 @@ def fetch_inbox(
     try:
         credenciais = email_accounts.credentials(session, tenant_id)
     except NotFound as exc:
-        raise InboxUnavailable(
-            "Nenhuma conta de email configurada para esta empresa."
-        ) from exc
+        raise InboxUnavailable("Nenhuma conta de email configurada para esta empresa.") from exc
 
     integracao_config = {
         "imap_host": credenciais.get("imap_host"),
@@ -275,14 +487,25 @@ def fetch_inbox(
 
     brutos = _fetch_raw(host, porta, credenciais["username"], credenciais["password"], limit)
 
-    gravadas, ignoradas = 0, 0
+    gravadas, ignoradas, devolvidas = 0, 0, 0
     for bruto in brutos:
         recebido = parse_email(bruto)
-        if record_inbound(
+        resultado = record_inbound(
             session, tenant_id=tenant_id, recebido=recebido, context=context
-        ) is not None:
+        )
+        if resultado is not None:
             gravadas += 1
+        elif recebido.bounce is not None:
+            # Contar bounce como "ignorada" esconderia justamente o número que
+            # a operação precisa vigiar: lista comprada tem taxa de retorno
+            # alta, e é ela que queima o domínio.
+            devolvidas += 1
         else:
             ignoradas += 1
 
-    return {"fetched": len(brutos), "recorded": gravadas, "ignored": ignoradas}
+    return {
+        "fetched": len(brutos),
+        "recorded": gravadas,
+        "ignored": ignoradas,
+        "bounced": devolvidas,
+    }

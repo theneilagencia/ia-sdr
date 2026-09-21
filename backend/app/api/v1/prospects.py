@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -21,11 +21,16 @@ from app.db.models.engagement import (
 )
 from app.db.models.sales import Campaign, Company, Contact, Prospect, ProspectStatus, Score
 from app.rbac.roles import Permission
-from app.services import audit
+from app.services import audit, csv_import
+from app.services.csv_import import CsvInvalido
 from app.services.usage import UsageKind, count_this_month, effective_limits, record_usage
 from app.tenancy.context import TenantContext
 
 router = APIRouter(prefix="/prospects", tags=["prospects"])
+
+#: Teto do upload, checado antes de ler o arquivo na memória. O limite de
+#: linhas está em `services/csv_import`.
+MAX_CSV_BYTES = 5 * 1024 * 1024
 
 UNLIMITED = -1
 
@@ -51,6 +56,40 @@ def _check_import_budget(session: Session, tenant_id: uuid.UUID, quantidade: int
             "Cota mensal de prospects esgotada para este tenant",
             details={"limit": limite, "used": usados, "requested": quantidade},
         )
+
+
+@router.post(
+    "/import/csv", response_model=schemas.ProspectCsvResult, status_code=status.HTTP_201_CREATED
+)
+async def import_prospects_csv(
+    campaign_id: uuid.UUID = Form(...),
+    file: UploadFile = File(...),
+    source: str = Form(default="csv"),
+    ctx: TenantContext = Depends(require(Permission.PROSPECT_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """A mesma entrada em lote, a partir do arquivo que a pessoa já tem.
+
+    Quem monta lista exporta do Sales Navigator, do Apollo ou de uma planilha,
+    e cada um chama as colunas de um jeito. O mapeamento aceita os apelidos
+    conhecidos em português e inglês; o que não bate é ignorado, e linha
+    inválida volta com o número dela para a pessoa abrir o arquivo e corrigir.
+    """
+    bruto = await file.read()
+    if len(bruto) > MAX_CSV_BYTES:
+        raise CsvInvalido(
+            f"O arquivo passa de {MAX_CSV_BYTES // (1024 * 1024)} MB. Divida em partes."
+        )
+    itens, erros = csv_import.ler(bruto)
+
+    resultado = import_prospects(
+        payload=schemas.ProspectImportRequest(campaign_id=campaign_id, items=itens, source=source),
+        ctx=ctx,
+        db=db,
+    )
+    return schemas.ProspectCsvResult(
+        **resultado.model_dump(), rows_read=len(itens) + len(erros), row_errors=erros
+    )
 
 
 @router.post(
@@ -184,9 +223,7 @@ def list_scores(
         raise NotFound("Prospect não encontrado")
     return list(
         db.execute(
-            select(Score)
-            .where(Score.prospect_id == prospect_id)
-            .order_by(Score.created_at.desc())
+            select(Score).where(Score.prospect_id == prospect_id).order_by(Score.created_at.desc())
         ).scalars()
     )
 

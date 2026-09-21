@@ -1,6 +1,6 @@
 # Roadmap
 
-## Sprint 1 — Foundation ✅ (este commit)
+## Sprint 1 — Foundation ✅
 
 | Item                                   | Onde                                      |
 |----------------------------------------|-------------------------------------------|
@@ -21,7 +21,7 @@
 Modelo de dados completo dos quatro sprints já criado, para não refazer
 migration a cada entrega.
 
-## Sprint 2 — Sales Intelligence (em andamento)
+## Sprint 2 — Sales Intelligence ✅
 
 Feito:
 
@@ -57,13 +57,16 @@ Feito:
   email (Gmail, Outlook ou SMTP próprio), ambas testadas antes de salvar,
   cifradas e nunca devolvidas; limites de volume com aquecimento de domínio
 
+- **Import por CSV** (`app/services/csv_import.py`): o arquivo que a pessoa já
+  tem, com os apelidos de coluna em português e inglês, ponto e vírgula do
+  Excel em português, Latin-1 e linha inválida devolvida com o número da linha
+
 A fazer:
 
-- Enriquecimento de prospects por provedores externos
-- Upload de CSV (hoje o import é JSON em lote)
-- Editor do Company Brain no web app
+- Enriquecimento de prospects por provedores externos (exige fornecedor)
+- Editor do Company Brain no web app (a API existe)
 
-## Sprint 3 — AI SDR (em andamento)
+## Sprint 3 — AI SDR ✅
 
 Feito:
 
@@ -86,25 +89,53 @@ Feito:
   que está aprovado e aciona o Conversation Agent quando chega resposta — o
   ciclo roda sem ninguém olhando
 
-A fazer:
+- **Base de conhecimento inteira** (`app/services/knowledge.py`,
+  `app/api/v1/knowledge.py`): colar texto, subir arquivo, listar, apagar e
+  buscar. A recuperação é por relevância — busca textual nativa do PostgreSQL,
+  não vetorial, porque a Anthropic não tem API de embeddings e vetor exigiria
+  um segundo fornecedor. A coluna `embedding` segue no modelo para o dia em que
+  isso se justificar
 
-- Sequências (cadência multi-passo com follow-up automático)
-- Fila e workers consumindo `JobEnvelope` (o payload já é o contrato)
-- Ingestão da Knowledge Base: chunking, embeddings, busca (migrar
-  `knowledge_chunks.embedding` para `pgvector`)
-- Sequências (cadência multi-passo); o teto diário por campanha já existe
+- **Cadência multi-passo** (`app/services/sequences.py`,
+  `app/api/v1/sequences.py`): estado por prospect, o passo vencido vira job do
+  Outreach Agent com a instrução daquele toque, e as regras de parada valem
+  mais que a cadência — resposta, descadastro, reunião, qualificação e os
+  estágios terminais param; campanha pausada adia
+
+- **Bounce** (`app/services/email_receiver.py`): aviso de não entrega nunca é
+  contado como resposta. Permanente (5.x.x) tira o prospect do funil e para a
+  cadência; temporário (4.x.x) só registra
+
+- **Conversas e contatos** (`app/api/v1/conversations.py`, `contacts.py`): a
+  caixa de entrada da operação e o cadastro que só o import escrevia
+
+- **Troca de senha e gestão de membros**: a troca encerra as sessões abertas;
+  o último owner não é rebaixado nem removido
+
+- **Exportação por tenant** (`app/services/export.py`): o cliente leva os dados
+  embora, sem nenhum segredo junto
 
 ## Sprint 4 — Conversion
 
-- Integração de calendário (o agendamento manual já existe e é o mesmo caminho)
-- Integração de CRM (HubSpot, Salesforce, Pipedrive)
-- Dashboard do funil e de consumo
-- Billing: assinatura, cobrança por uso e faturas
+Tudo o que falta aqui depende de uma conta em serviço de terceiro, e por isso
+não foi construído às cegas: código de integração que nunca falou com a API de
+verdade é código que ainda não existe.
+
+- Integração de calendário — Google ou Microsoft (o agendamento manual já
+  existe e é o mesmo caminho)
+- Integração de CRM — HubSpot, Salesforce, Pipedrive
+- Billing: assinatura, cobrança por uso e faturas — exige gateway (Stripe)
+- Dashboard do funil e de consumo: a API existe (`/prospects/funnel`,
+  `/tenants/me/usage`); falta a tela
 
 ## Transversal (quando a operação exigir)
 
-- Telas que faltam no web app: Company Brain, conversas, importação de lista
-- Secrets manager externo
-- Rate limiting distribuído (Redis)
-- Política de retenção e exportação de dados por tenant
+- **Telas que faltam no web app**: Company Brain, base de conhecimento,
+  conversas, importação de lista, cadências, membros, detalhe do prospect e
+  Platform Admin. Toda a API por trás delas existe
+- Secrets manager externo (hoje a chave Fernet vive no `.env` do servidor)
+- Rate limiting distribuído (Redis) — hoje é por processo, o que basta para uma
+  réplica só
+- Política de **retenção** automática por tenant (a exportação já existe)
+- Busca vetorial na base de conhecimento — exige fornecedor de embeddings
 - SSO / MFA para contratos enterprise

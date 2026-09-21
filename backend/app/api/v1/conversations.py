@@ -34,7 +34,10 @@ from app.tenancy.context import TenantContext
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
-STATUS_VALIDOS = {"open", "closed", "handed_off"}
+#: `replied` é escrito pelo recebimento quando o lead responde; entra aqui
+#: para que uma pessoa consiga devolver a conversa a esse estado depois de
+#: fechá-la por engano.
+STATUS_VALIDOS = {"open", "replied", "closed", "handed_off"}
 
 
 def _quem_e_o_lead(db: Session, conversas: list[Conversation]) -> dict[uuid.UUID, dict]:

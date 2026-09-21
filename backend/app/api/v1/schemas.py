@@ -320,6 +320,13 @@ class ProspectImportResult(BaseModel):
     prospect_ids: list[uuid.UUID]
 
 
+class ProspectCsvResult(ProspectImportResult):
+    rows_read: int
+    #: Linhas que ficaram de fora, com o número da linha no arquivo. Import que
+    #: diz "42 importados" e engole oito linhas é pior do que import que falha.
+    row_errors: list[dict]
+
+
 class ScoreResponse(ORMModel):
     id: uuid.UUID
     prospect_id: uuid.UUID
@@ -393,7 +400,7 @@ class ConversationDetail(ConversationResponse):
 
 
 class ConversationUpdate(BaseModel):
-    status: Literal["open", "closed", "handed_off"] | None = None
+    status: Literal["open", "replied", "closed", "handed_off"] | None = None
     #: `null` devolve a conversa para o agente; um id passa para a pessoa.
     handoff_to_user_id: uuid.UUID | None = None
     clear_handoff: bool = False
@@ -515,6 +522,10 @@ class FetchInboxResult(BaseModel):
     fetched: int
     recorded: int
     ignored: int
+    #: Avisos de não entrega. Contá-los junto de "ignorados" esconderia o
+    #: número que a operação precisa vigiar: lista comprada tem taxa de
+    #: retorno alta, e é ela que queima o domínio.
+    bounced: int = 0
 
 
 class SendQueuedResult(BaseModel):
