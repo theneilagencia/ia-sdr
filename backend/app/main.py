@@ -33,6 +33,7 @@ from app.api.v1 import (
     settings as settings_router,
 )
 from app.core.config import settings
+from app.core.startup import verify_production_secrets
 from app.db.session import verify_database_roles
 from app.orchestrator.executors import register_default_executors
 
@@ -48,6 +49,8 @@ async def lifespan(app: FastAPI):
     # mesmo ser filtrado pelo RLS? Se não, é melhor não subir do que servir
     # dados de todos os tenants para todo mundo.
     verify_database_roles()
+    # E os segredos são de verdade, ou sobraram do .env.example?
+    verify_production_secrets()
     register_default_executors()
     yield
 

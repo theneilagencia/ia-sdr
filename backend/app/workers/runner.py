@@ -24,9 +24,10 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
+from app.core.startup import verify_production_secrets
 from app.db.models.jobs import Job, JobKind
 from app.db.models.platform import Tenant
-from app.db.session import tenant_session, unscoped_session
+from app.db.session import tenant_session, unscoped_session, verify_database_roles
 from app.orchestrator.envelope import JobEnvelope
 from app.orchestrator.executors import register_default_executors
 from app.orchestrator.runner import run_job
@@ -102,9 +103,7 @@ def agendar_periodicos(agora: datetime | None = None) -> int:
     with unscoped_session(reason="worker:listar-tenants") as admin:
         tenants = [
             t.id
-            for t in admin.execute(select(Tenant).where(Tenant.is_active.is_(True)))
-            .scalars()
-            .all()
+            for t in admin.execute(select(Tenant).where(Tenant.is_active.is_(True))).scalars().all()
         ]
 
     for tenant_id in tenants:
@@ -155,6 +154,11 @@ def ciclo() -> dict:
 
 def main() -> int:  # pragma: no cover - laço de processo
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    # O worker escreve dado de cliente como a API escreve: as mesmas condições
+    # valem aqui. Um worker que ignora o RLS executaria o job de uma empresa com
+    # a configuração de outra — e ninguém estaria olhando quando isso acontece.
+    verify_database_roles()
+    verify_production_secrets()
     register_default_executors()
 
     parar = False
