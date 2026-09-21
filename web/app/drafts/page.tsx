@@ -2,7 +2,7 @@ import { api, type Allowance, type Message } from "@/lib/api";
 
 import { approveDraft, rejectDraft } from "../actions";
 import Nav from "../nav";
-import { Requeue, SendAll, SendOne } from "./send-button";
+import { FetchInbox, Requeue, SendAll, SendOne } from "./send-button";
 
 type Anchor = { fact?: string; how_used?: string };
 
@@ -50,6 +50,9 @@ export default async function DraftsPage() {
           {cota.within_business_hours ? null : (
             <span className="aviso"> · fora do horário de envio configurado</span>
           )}
+          <div className="acao-caixa">
+            <FetchInbox />
+          </div>
         </div>
 
         <h2>Aguardando revisão</h2>

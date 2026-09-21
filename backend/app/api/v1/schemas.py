@@ -328,6 +328,12 @@ class AllowanceResponse(BaseModel):
     within_business_hours: bool
 
 
+class FetchInboxResult(BaseModel):
+    fetched: int
+    recorded: int
+    ignored: int
+
+
 class SendQueuedResult(BaseModel):
     sent: int
     blocked: list[dict]
@@ -450,6 +456,9 @@ class EmailAccountUpdate(BaseModel):
     password: str = Field(min_length=1, max_length=300)
     host: str | None = Field(default=None, max_length=255)
     port: int | None = Field(default=None, ge=1, le=65535)
+    #: Leitura das respostas. Gmail e Outlook têm padrão; servidor próprio não.
+    imap_host: str | None = Field(default=None, max_length=255)
+    imap_port: int | None = Field(default=None, ge=1, le=65535)
 
 
 class EmailAccountResponse(BaseModel):
@@ -461,6 +470,8 @@ class EmailAccountResponse(BaseModel):
     from_name: str | None
     host: str | None
     port: int | None
+    imap_host: str | None
+    imap_port: int | None
     status: str
     last_error: str | None
 

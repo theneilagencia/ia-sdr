@@ -97,6 +97,7 @@ export async function removerChaveIA(): Promise<void> {
 
 function corpoEmail(form: FormData) {
   const porta = String(form.get("port") ?? "").trim();
+  const portaImap = String(form.get("imap_port") ?? "").trim();
   return {
     provider: String(form.get("provider") ?? "gmail"),
     from_email: String(form.get("from_email") ?? ""),
@@ -105,6 +106,8 @@ function corpoEmail(form: FormData) {
     password: String(form.get("password") ?? ""),
     host: String(form.get("host") ?? "") || null,
     port: porta ? Number(porta) : null,
+    imap_host: String(form.get("imap_host") ?? "") || null,
+    imap_port: portaImap ? Number(portaImap) : null,
   };
 }
 
@@ -156,7 +159,7 @@ export async function enviarMensagem(_: Resultado, form: FormData): Promise<Resu
   return resultado;
 }
 
-export async function enviarFila(): Promise<Resultado> {
+export async function enviarFila(_: Resultado, _form: FormData): Promise<Resultado> {
   try {
     const r = await api<{ sent: number; blocked: { reason: string }[] }>(
       "/api/v1/messages/send-queued",
@@ -185,4 +188,26 @@ export async function reenviar(_: Resultado, form: FormData): Promise<Resultado>
   );
   revalidatePath("/drafts");
   return resultado;
+}
+
+export async function buscarRespostas(_: Resultado, _form: FormData): Promise<Resultado> {
+  try {
+    const r = await api<{ fetched: number; recorded: number; ignored: number }>(
+      "/api/v1/messages/fetch-inbox",
+      { method: "POST" },
+    );
+    revalidatePath("/drafts");
+    return {
+      ok: true,
+      message:
+        r.fetched === 0
+          ? "Nenhuma mensagem nova na caixa."
+          : `${r.recorded} ${r.recorded === 1 ? "resposta ligada" : "respostas ligadas"} à conversa` +
+            (r.ignored ? `, ${r.ignored} sem relação com campanha` : "") +
+            ".",
+    };
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
 }

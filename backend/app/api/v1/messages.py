@@ -20,7 +20,7 @@ from app.core.errors import ConflictError, NotFound
 from app.db.models.engagement import Message, MessageStatus
 from app.db.models.platform import Tenant
 from app.rbac.roles import Permission
-from app.services import audit, email_sender
+from app.services import audit, email_receiver, email_sender
 from app.tenancy.context import TenantContext
 
 router = APIRouter(prefix="/messages", tags=["messages"])
@@ -181,3 +181,16 @@ def requeue(
         context=ctx,
     )
     return mensagem
+
+
+@router.post("/fetch-inbox", response_model=schemas.FetchInboxResult)
+def fetch_inbox(
+    ctx: TenantContext = Depends(require(Permission.CONVERSATION_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """Lê a caixa da empresa e grava o que for resposta de campanha.
+
+    Hoje é um botão; quando a fila existir, é o worker que chama, de minuto em
+    minuto, e o Conversation Agent responde sozinho.
+    """
+    return email_receiver.fetch_inbox(db, tenant_id=ctx.tenant_id)

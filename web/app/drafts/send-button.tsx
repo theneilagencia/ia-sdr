@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 
-import { enviarFila, enviarMensagem, reenviar } from "../actions";
+import { buscarRespostas, enviarFila, enviarMensagem, reenviar } from "../actions";
 
 /**
  * Botões de envio com resposta visível.
@@ -58,6 +58,23 @@ export function Requeue({ id }: { id: string }) {
         <input type="hidden" name="id" value={id} />
         <button type="submit" disabled={enviando}>
           {enviando ? "Devolvendo…" : "Tentar de novo"}
+        </button>
+      </form>
+      {resultado ? (
+        <p className={resultado.ok ? "ok" : "erro"}>{resultado.message}</p>
+      ) : null}
+    </>
+  );
+}
+
+export function FetchInbox() {
+  const [resultado, acao, buscando] = useActionState(buscarRespostas, null);
+
+  return (
+    <>
+      <form action={acao} className="inline">
+        <button className="ghost" type="submit" disabled={buscando}>
+          {buscando ? "Lendo a caixa…" : "Buscar respostas"}
         </button>
       </form>
       {resultado ? (

@@ -75,10 +75,16 @@ Feito:
 - **Fila de envio na tela**: cota do dia com o motivo, envio individual ou em
   lote, e uma seção para o que falhou, com o erro em português e "tentar de novo"
 
+- **Recebimento** (`app/services/email_receiver.py`): lê a caixa da empresa por
+  IMAP e liga cada resposta à conversa certa — pelo `In-Reply-To`, e pelo
+  endereço do remetente quando o cabeçalho não vem. Sem pareamento, ignora:
+  inventar a conversa seria pior do que perder a mensagem
+
 A fazer:
 
-- **Recebimento**: ler as respostas (IMAP ou webhook) e acionar o Conversation
-  Agent sozinho
+- **Fila e workers**: hoje os agentes rodam dentro da requisição HTTP, e ler a
+  caixa é um botão. Com worker, a resposta do lead aciona o Conversation Agent
+  sozinho
 - Fila e workers consumindo `JobEnvelope` (o payload já é o contrato)
 - Ingestão da Knowledge Base: chunking, embeddings, busca (migrar
   `knowledge_chunks.embedding` para `pgvector`)

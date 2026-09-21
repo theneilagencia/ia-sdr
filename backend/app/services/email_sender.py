@@ -24,6 +24,7 @@ import ssl
 import uuid
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
+from email.utils import make_msgid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import func, select
@@ -151,6 +152,9 @@ def _build(
     link_descadastro: str,
 ) -> EmailMessage:
     mensagem = EmailMessage()
+    # Message-ID explícito: é por ele que a resposta do lead volta a ser ligada
+    # a esta conversa. Deixar o servidor gerar significaria não saber qual foi.
+    mensagem["Message-ID"] = make_msgid(domain=remetente.split("@")[-1])
     mensagem["From"] = f"{nome_remetente} <{remetente}>" if nome_remetente else remetente
     mensagem["To"] = destinatario
     mensagem["Subject"] = assunto
@@ -287,6 +291,7 @@ def send_message(
 
     mensagem.status = MessageStatus.SENT.value
     mensagem.sent_at = agora
+    mensagem.external_message_id = email["Message-ID"]
     if conversa is not None:
         conversa.last_message_at = agora
     # Agora sim: contatado é depois do envio, não depois do rascunho.

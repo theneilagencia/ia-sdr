@@ -24,6 +24,8 @@ from app.core.errors import AppError, NotFound
 from app.db.models.ai import Integration
 
 ACCOUNT_PROVIDERS = ("gmail", "outlook", "smtp")
+#: Teste de conexão roda com alguém olhando a tela: não pode demorar um minuto.
+SMTP_TIMEOUT = 15
 
 
 class EmailConfigInvalid(AppError):
@@ -106,7 +108,7 @@ def test_connection(
     o que fazer, não o código SMTP que voltou.
     """
     try:
-        with smtplib.SMTP(host, port, timeout=20) as smtp:
+        with smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT) as smtp:
             smtp.ehlo()
             if use_tls:
                 smtp.starttls(context=ssl.create_default_context())
@@ -139,6 +141,8 @@ def describe(session: Session, tenant_id: uuid.UUID) -> dict:
             "from_name": None,
             "host": None,
             "port": None,
+            "imap_host": None,
+            "imap_port": None,
             "status": "missing",
             "last_error": None,
         }
@@ -150,6 +154,8 @@ def describe(session: Session, tenant_id: uuid.UUID) -> dict:
         "from_name": config.get("from_name"),
         "host": config.get("host"),
         "port": config.get("port"),
+        "imap_host": config.get("imap_host"),
+        "imap_port": config.get("imap_port"),
         "status": integracao.status,
         "last_error": integracao.last_error,
     }
@@ -166,7 +172,9 @@ def store(
     password: str,
     host: str | None,
     port: int | None,
-    created_by: uuid.UUID | None,
+    imap_host: str | None = None,
+    imap_port: int | None = None,
+    created_by: uuid.UUID | None = None,
 ) -> Integration:
     servidor, porta = resolve(provider, host, port)
     usuario = (username or from_email).strip()
@@ -192,6 +200,10 @@ def store(
         "port": porta,
         "from_name": from_name,
         "use_tls": True,
+        # Leitura da caixa: em Gmail e Outlook o padrão resolve; em servidor
+        # próprio, quem configura informa.
+        "imap_host": imap_host,
+        "imap_port": imap_port,
     }
     integracao.status = "connected"
     integracao.last_error = None
@@ -207,9 +219,12 @@ def credentials(session: Session, tenant_id: uuid.UUID) -> dict:
     segredo = decrypt_json(integracao.credentials_encrypted)
     config = integracao.config or {}
     return {
+        "provider": integracao.provider,
         "host": config.get("host"),
         "port": config.get("port"),
         "use_tls": config.get("use_tls", True),
+        "imap_host": config.get("imap_host"),
+        "imap_port": config.get("imap_port"),
         "username": segredo["username"],
         "password": segredo["password"],
         "from_email": integracao.account_ref,

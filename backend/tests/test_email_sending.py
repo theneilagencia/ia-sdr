@@ -136,6 +136,16 @@ def test_email_leva_descadastro_no_corpo_e_no_cabecalho(pronto_para_enviar, envi
     assert "cancele aqui" in email.get_content()
 
 
+def test_message_id_do_email_fica_guardado(pronto_para_enviar, enviados):
+    """É por ele que a resposta do lead volta a ser ligada a esta conversa."""
+    _enviar(pronto_para_enviar)
+
+    with tenant_session(pronto_para_enviar["tenant_id"]) as session:
+        mensagem = session.get(Message, pronto_para_enviar["message_id"])
+    assert mensagem.external_message_id == enviados[0]["Message-ID"]
+    assert "@apymine.com>" in mensagem.external_message_id
+
+
 def test_rascunho_nao_aprovado_nao_sai(pronto_para_enviar, enviados):
     with tenant_session(pronto_para_enviar["tenant_id"]) as session:
         session.get(Message, pronto_para_enviar["message_id"]).status = "draft"

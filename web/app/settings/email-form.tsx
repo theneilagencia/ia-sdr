@@ -104,6 +104,19 @@ export default function EmailForm({
               Porta
               <input name="port" type="number" defaultValue={estado.port ?? 587} />
             </label>
+            <label>
+              Servidor de leitura (IMAP)
+              <input
+                name="imap_host"
+                defaultValue={estado.imap_host ?? ""}
+                placeholder="imap.seudominio.com"
+              />
+              <small>Usado para ler as respostas dos leads.</small>
+            </label>
+            <label>
+              Porta do IMAP
+              <input name="imap_port" type="number" defaultValue={estado.imap_port ?? 993} />
+            </label>
           </div>
         ) : null}
 

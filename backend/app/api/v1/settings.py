@@ -155,6 +155,8 @@ def set_email_account(
         password=payload.password,
         host=payload.host,
         port=payload.port,
+        imap_host=payload.imap_host,
+        imap_port=payload.imap_port,
         created_by=ctx.user_id,
     )
     audit.record(

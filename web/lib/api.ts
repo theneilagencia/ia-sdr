@@ -158,6 +158,8 @@ export type EmailAccount = {
   from_name: string | null;
   host: string | null;
   port: number | null;
+  imap_host: string | null;
+  imap_port: number | null;
   status: string;
   last_error: string | null;
 };
