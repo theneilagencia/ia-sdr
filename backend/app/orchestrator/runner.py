@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Protocol
 
 from sqlalchemy.orm import Session
 
@@ -27,26 +26,12 @@ from app.core.errors import AppError, NotFound
 from app.db.models.ai import AgentRun, RunStatus
 from app.db.session import tenant_session
 from app.orchestrator.agents import AGENT_DEFINITIONS, AgentDefinition
-from app.orchestrator.context_builder import AgentContext, build_context
+from app.orchestrator.context_builder import build_context
 from app.orchestrator.envelope import JobEnvelope
+from app.orchestrator.executors.base import AgentExecutor, ExecutionResult
+from app.orchestrator.executors.echo import echo_executor
 from app.services import audit, usage
 from app.tenancy.context import TenantContext, use_context
-
-
-class AgentExecutor(Protocol):
-    def __call__(self, context: AgentContext, envelope: JobEnvelope) -> dict: ...
-
-
-def _echo_executor(context: AgentContext, envelope: JobEnvelope) -> dict:
-    """Placeholder determinístico até o Sprint 3 ligar o modelo de verdade."""
-    return {
-        "agent": envelope.agent.value,
-        "context_digest": context.digest(),
-        "knowledge_chunks": len(context.knowledge),
-        "campaign": (context.campaign or {}).get("name"),
-        "note": "executor de desenvolvimento: nenhuma chamada de modelo realizada",
-    }
-
 
 _EXECUTORS: dict[str, AgentExecutor] = {}
 
@@ -56,7 +41,8 @@ def register_executor(kind: str, executor: AgentExecutor) -> None:
 
 
 def get_executor(kind: str) -> AgentExecutor:
-    return _EXECUTORS.get(kind, _echo_executor)
+    """Sem executor registrado, o eco mantém o caminho exercitável."""
+    return _EXECUTORS.get(kind, echo_executor)
 
 
 def _open_run(envelope: JobEnvelope, run_id: uuid.UUID) -> None:
@@ -89,6 +75,9 @@ def _close_run(
     units: int = 0,
     model: str | None = None,
     context_digest: str | None = None,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cost_micro_usd: int = 0,
 ) -> None:
     with tenant_session(envelope.tenant_id) as book:
         run = book.get(AgentRun, run_id)
@@ -100,6 +89,8 @@ def _close_run(
         run.units = units
         run.model = model
         run.context_digest = context_digest
+        run.input_tokens = input_tokens
+        run.output_tokens = output_tokens
         run.finished_at = datetime.now(UTC)
 
         if status is RunStatus.SUCCEEDED:
@@ -111,9 +102,15 @@ def _close_run(
                 campaign_id=envelope.campaign_id,
                 agent_run_id=run_id,
                 user_id=envelope.user_id,
+                cost_micro_usd=cost_micro_usd,
             )
             action = "agent.run.succeeded"
-            payload = {"agent": envelope.agent.value, "units": units}
+            payload = {
+                "agent": envelope.agent.value,
+                "units": units,
+                "cost_micro_usd": cost_micro_usd,
+                "model": model,
+            }
         else:
             action = "agent.run.failed"
             payload = {"agent": envelope.agent.value, "error": error}
@@ -141,7 +138,9 @@ def run_job(session: Session, envelope: JobEnvelope) -> AgentRun:
             usage.check_ai_budget(session, envelope.tenant_id, units)
 
             context = build_context(session, envelope)
-            output = get_executor(envelope.agent.value)(context, envelope)
+            result: ExecutionResult = get_executor(envelope.agent.value)(
+                session, context, envelope
+            )
         except AppError as exc:
             # 402/403 são recusa de política (cota, isolamento); o resto é falha.
             status = (
@@ -161,13 +160,18 @@ def run_job(session: Session, envelope: JobEnvelope) -> AgentRun:
             run_id,
             ctx,
             status=RunStatus.SUCCEEDED,
-            output=output,
+            output=result.output,
             units=units,
-            model=context.agent["model"],
+            model=result.model or context.agent["model"],
             context_digest=context.digest(),
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            cost_micro_usd=result.cost_micro_usd,
         )
 
-    session.expire_all()
+    # O executor pode ter gravado dado de domínio (a pesquisa, no caso do
+    # Research Agent). Fecha a transação antes de reler o run.
+    session.commit()
     run = session.get(AgentRun, run_id)
     if run is None:  # pragma: no cover
         raise NotFound("Execução não encontrada após finalizar")

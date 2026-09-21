@@ -27,6 +27,7 @@ from app.api.v1 import (
 )
 from app.core.config import settings
 from app.db.session import verify_database_roles
+from app.orchestrator.executors import register_default_executors
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI):
     # mesmo ser filtrado pelo RLS? Se não, é melhor não subir do que servir
     # dados de todos os tenants para todo mundo.
     verify_database_roles()
+    register_default_executors()
     yield
 
 

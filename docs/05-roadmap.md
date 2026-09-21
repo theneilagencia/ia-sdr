@@ -21,10 +21,20 @@
 Modelo de dados completo dos quatro sprints já criado, para não refazer
 migration a cada entrega.
 
-## Sprint 2 — Sales Intelligence
+## Sprint 2 — Sales Intelligence (em andamento)
+
+Feito:
+
+- **Research Agent com execução real** (`app/orchestrator/executors/research.py`):
+  saída estruturada e validada, busca na web como ferramenta de servidor,
+  retomada de turno pausado, teto de custo por execução e persistência em
+  `research`
+- Custo por token, por modelo (`app/ai/pricing.py`), gravado em cada
+  `usage_event` — unidades são o que se cobra, micro-dólares são o que se paga
+
+A fazer:
 
 - Importação e enriquecimento de prospects (CSV e provedores)
-- Research Agent com execução real e fontes citadas
 - Scoring contra o ICP da campanha, com justificativa
 - Editor do Company Brain no web app
 - Limite de prospects/mês ligado ao `usage_events`

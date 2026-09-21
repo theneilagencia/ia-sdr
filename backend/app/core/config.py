@@ -41,6 +41,21 @@ class Settings(BaseSettings):
     # Em produção, vem de um secrets manager.
     secrets_encryption_key: str = "dev-only-key-not-for-production"
 
+    # IA. A chave é da plataforma e vive só no backend. Sem ela, os agentes
+    # continuam registrando execução e consumo, mas com o executor de eco —
+    # nenhuma chamada de modelo acontece.
+    anthropic_api_key: str | None = None
+    ai_model_default: str = "claude-opus-5"
+    ai_effort: str = "high"  # low | medium | high | xhigh | max
+    ai_max_output_tokens: int = 8000
+    ai_web_search: bool = True
+    ai_max_web_searches: int = 8
+    ai_timeout_seconds: float = 600.0
+    ai_max_retries: int = 2
+    #: Teto de segurança por execução, em micro-dólares. Uma pesquisa que
+    #: custar mais que isso é registrada como falha, não cobrada em silêncio.
+    ai_max_cost_micro_usd: int = 500_000  # US$ 0,50
+
     # Rate limiting (janela deslizante em memória; use Redis em produção)
     rate_limit_requests: int = 300
     rate_limit_window_seconds: int = 60

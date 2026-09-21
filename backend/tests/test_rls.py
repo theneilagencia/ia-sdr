@@ -111,6 +111,25 @@ def test_sessao_sem_tenant_nao_le_nada(make_tenant):
         assert session.execute(sa.select(sa.func.count(Campaign.id))).scalar_one() == 0
 
 
+def test_escopo_sobrevive_a_commit_no_meio_da_sessao(make_tenant):
+    """`SET LOCAL` morre com a transação — o escopo precisa ser reaplicado.
+
+    Sem isso, commitar no meio de um trabalho abre a transação seguinte sem
+    `app.tenant_id`, e dali em diante as consultas voltam vazias. É uma falha
+    silenciosa das piores: o RLS fecha em vez de abrir, então parece que o
+    dado sumiu.
+    """
+    a = make_tenant()
+    with tenant_session(a["tenant_id"]) as session:
+        session.add(_campaign(a["tenant_id"], "Antes do commit"))
+        session.commit()
+
+        assert session.execute(sa.select(sa.func.count(Campaign.id))).scalar_one() == 1
+        session.add(_campaign(a["tenant_id"], "Depois do commit"))
+        session.flush()
+        assert session.execute(sa.select(sa.func.count(Campaign.id))).scalar_one() == 2
+
+
 def test_conexao_da_aplicacao_nao_pode_ignorar_rls():
     """O teste que faltava.
 

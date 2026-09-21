@@ -52,7 +52,7 @@ class AIAgent(Base, TenantScoped, TimestampMixin):
     id: Mapped[uuid.UUID] = uuid_pk()
     kind: Mapped[str] = mapped_column(String(40), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    model: Mapped[str] = mapped_column(String(120), nullable=False, default="claude-sonnet-5")
+    model: Mapped[str] = mapped_column(String(120), nullable=False, default="claude-opus-5")
     instructions: Mapped[str] = mapped_column(Text, nullable=False, default="")
     temperature: Mapped[int] = mapped_column(Integer, nullable=False, default=30)  # 0-100
     max_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=2000)

@@ -21,7 +21,7 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
@@ -97,22 +97,33 @@ def verify_database_roles() -> None:
         )
 
 
-def _set_local(session: Session, key: str, value: str) -> None:
-    session.execute(text("SELECT set_config(:k, :v, true)"), {"k": key, "v": value})
-
-
 @contextmanager
 def tenant_session(tenant_id: uuid.UUID) -> Iterator[Session]:
-    """Sessão restrita a um tenant. É o caminho normal da aplicação."""
+    """Sessão restrita a um tenant. É o caminho normal da aplicação.
+
+    O escopo é reaplicado no início de **cada** transação da sessão, não só na
+    primeira. `SET LOCAL` vale até o fim da transação: um `commit()` no meio do
+    trabalho abriria a transação seguinte sem `app.tenant_id` e, a partir dali,
+    as consultas não retornariam nada — uma falha silenciosa e difícil de ler,
+    porque o RLS fecha em vez de abrir. Com o listener, commitar no meio é
+    seguro.
+    """
     session = SessionFactory()
+
+    @event.listens_for(session, "after_begin")
+    def _apply_tenant_scope(session_, transaction, connection) -> None:  # noqa: ARG001
+        connection.exec_driver_sql(
+            "SELECT set_config(%s, %s, true)", (TENANT_GUC, str(tenant_id))
+        )
+
     try:
-        _set_local(session, TENANT_GUC, str(tenant_id))
         yield session
         session.commit()
     except Exception:
         session.rollback()
         raise
     finally:
+        event.remove(session, "after_begin", _apply_tenant_scope)
         session.close()
 
 

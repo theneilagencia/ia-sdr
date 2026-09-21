@@ -16,11 +16,14 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
 criptografia de credenciais e painel de plataforma. 21 endpoints, 22 tabelas,
-48 testes contra PostgreSQL de verdade.
+56 testes contra PostgreSQL de verdade.
 
-A execução dos agentes tem a fronteira pronta e testada (isolamento, cota,
-registro, consumo), com a chamada ao modelo como ponto de extensão — é o
-Sprint 3. Não há web app ainda: só a API.
+**Sprint 2 começou**: o Research Agent chama o modelo de verdade — saída
+estruturada e validada, busca na web, retomada de turno pausado, teto de custo
+por execução e custo real por token gravado em cada evento de consumo. Os
+outros três agentes seguem no executor de eco até terem sua vez.
+
+Não há web app ainda: só a API.
 
 Veja [`docs/05-roadmap.md`](docs/05-roadmap.md) para o que vem a seguir.
 
@@ -45,6 +48,16 @@ cp .env.example .env
 .venv/bin/python -m scripts.seed_demo
 .venv/bin/uvicorn app.main:app --reload
 ```
+
+Para ligar o Research Agent de verdade, ponha sua chave no `backend/.env`:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Sem ela a API sobe igual, e os agentes rodam com o executor de eco — registram
+execução, consumo e auditoria, mas não chamam modelo nenhum. A chave é da
+plataforma, vive só no backend e nunca vai para o frontend.
 
 O `.env` tem **duas** URLs de banco, e a diferença entre elas é o que sustenta
 o isolamento: `DATABASE_ADMIN_URL` (dono das tabelas, com `BYPASSRLS`, usado
@@ -104,6 +117,9 @@ O que está coberto:
 - `test_orchestrator.py` — contexto de IA só com dado do próprio tenant,
   envelope, cota e registro de execução
 - `test_usage_and_limits.py` — consumo, limites de plano e criptografia
+- `test_research_agent.py` — o agente real com cliente falso: retomada de turno
+  pausado, teto de custo, persistência, custo por token e recusa de alvo de
+  outro tenant
 
 ## Estrutura
 
