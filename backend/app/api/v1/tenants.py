@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_context, get_db, require
@@ -61,9 +63,9 @@ def list_members(
 ) -> list[schemas.MemberResponse]:
     # `users` é global (uma identidade pode servir vários tenants), então a
     # consulta parte sempre dos memberships deste tenant.
-    rows = db.execute(
-        select(Membership).where(Membership.tenant_id == ctx.tenant_id)
-    ).scalars().all()
+    rows = (
+        db.execute(select(Membership).where(Membership.tenant_id == ctx.tenant_id)).scalars().all()
+    )
     user_ids = [m.user_id for m in rows]
     with unscoped_session(reason="tenant:list-members") as identity:
         users = {
@@ -112,9 +114,7 @@ def add_member(
         ).scalar_one_or_none()
         if existing is not None:
             raise ConflictError("Usuário já faz parte deste tenant")
-        identity.add(
-            Membership(tenant_id=ctx.tenant_id, user_id=user.id, role=payload.role.value)
-        )
+        identity.add(Membership(tenant_id=ctx.tenant_id, user_id=user.id, role=payload.role.value))
         identity.flush()
         result = schemas.MemberResponse(
             user_id=user.id,
@@ -133,6 +133,122 @@ def add_member(
         context=ctx,
     )
     return result
+
+
+@router.patch("/me/members/{user_id}", response_model=schemas.MemberResponse)
+def update_member(
+    user_id: uuid.UUID,
+    payload: schemas.MemberUpdate,
+    ctx: TenantContext = Depends(require(Permission.USER_WRITE)),
+    db: Session = Depends(get_db),
+) -> schemas.MemberResponse:
+    """Muda o papel de um membro, ou o desativa.
+
+    Duas travas, e as duas existem para o mesmo motivo — uma empresa sem ninguém
+    que possa administrar é um chamado de suporte que só o operador da
+    plataforma resolve:
+
+    * ninguém rebaixa nem desativa a si mesmo;
+    * o último owner ativo não sai nem é rebaixado.
+    """
+    if user_id == ctx.user_id:
+        raise ConflictError(
+            "Você não pode mudar o próprio papel nem se desativar. Peça a outro "
+            "administrador desta empresa."
+        )
+
+    with unscoped_session(reason="tenant:update-member") as identity:
+        membership = identity.execute(
+            select(Membership)
+            .where(Membership.tenant_id == ctx.tenant_id)
+            .where(Membership.user_id == user_id)
+        ).scalar_one_or_none()
+        if membership is None:
+            raise NotFound("Membro não encontrado nesta empresa")
+
+        perde_owner = membership.role == Role.OWNER.value and (
+            (payload.role is not None and payload.role != Role.OWNER) or payload.is_active is False
+        )
+        if perde_owner and _owners_ativos(identity, ctx.tenant_id) <= 1:
+            raise ConflictError(
+                "Esta é a única pessoa com papel de owner. Promova outra antes de mudar esta."
+            )
+
+        if payload.role is not None:
+            membership.role = payload.role.value
+        if payload.is_active is not None:
+            membership.is_active = payload.is_active
+        identity.flush()
+
+        user = identity.get(User, user_id)
+        resultado = schemas.MemberResponse(
+            user_id=user_id,
+            email=user.email,
+            full_name=user.full_name,
+            role=Role(membership.role),
+            is_active=membership.is_active,
+        )
+
+    audit.record(
+        db,
+        action="member.updated",
+        resource_type="user",
+        resource_id=user_id,
+        payload={"role": resultado.role.value, "is_active": resultado.is_active},
+        context=ctx,
+    )
+    return resultado
+
+
+@router.delete("/me/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_member(
+    user_id: uuid.UUID,
+    ctx: TenantContext = Depends(require(Permission.USER_WRITE)),
+    db: Session = Depends(get_db),
+) -> None:
+    """Remove o membro desta empresa.
+
+    Remove o *vínculo*, não a identidade: `users` é global, e a mesma pessoa
+    pode trabalhar em outras empresas da plataforma. Apagar o usuário aqui
+    tiraria o acesso dela a clientes que não têm nada com este.
+    """
+    if user_id == ctx.user_id:
+        raise ConflictError("Você não pode remover a si mesmo desta empresa.")
+
+    with unscoped_session(reason="tenant:remove-member") as identity:
+        membership = identity.execute(
+            select(Membership)
+            .where(Membership.tenant_id == ctx.tenant_id)
+            .where(Membership.user_id == user_id)
+        ).scalar_one_or_none()
+        if membership is None:
+            raise NotFound("Membro não encontrado nesta empresa")
+        if membership.role == Role.OWNER.value and _owners_ativos(identity, ctx.tenant_id) <= 1:
+            raise ConflictError(
+                "Esta é a única pessoa com papel de owner. Promova outra antes de remover esta."
+            )
+        identity.delete(membership)
+
+    audit.record(
+        db,
+        action="member.removed",
+        resource_type="user",
+        resource_id=user_id,
+        context=ctx,
+    )
+
+
+def _owners_ativos(identity: Session, tenant_id: uuid.UUID) -> int:
+    return int(
+        identity.execute(
+            select(func.count())
+            .select_from(Membership)
+            .where(Membership.tenant_id == tenant_id)
+            .where(Membership.role == Role.OWNER.value)
+            .where(Membership.is_active.is_(True))
+        ).scalar()
+        or 0
+    )
 
 
 @router.get("/me/audit", response_model=list[schemas.AuditLogResponse])

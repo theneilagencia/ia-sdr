@@ -35,6 +35,16 @@ class LoginRequest(BaseModel):
     tenant_slug: str | None = None
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=10, max_length=128)
+
+
+class MemberUpdate(BaseModel):
+    role: Role | None = None
+    is_active: bool | None = None
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -95,6 +105,52 @@ class MemberResponse(BaseModel):
     full_name: str
     role: Role
     is_active: bool
+
+
+# ------------------------------------------------------- base de conhecimento
+class KnowledgeDocumentCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    content: str = Field(min_length=1)
+    source_type: str = Field(default="paste", max_length=40)
+    source_uri: str | None = Field(default=None, max_length=1000)
+    #: Vazio significa "vale para a empresa inteira". Com lista, o documento só
+    #: entra no contexto das campanhas listadas.
+    campaign_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class KnowledgeDocumentResponse(BaseModel):
+    id: uuid.UUID
+    title: str
+    source_type: str
+    source_uri: str | None
+    mime_type: str | None
+    status: str
+    campaign_ids: list[uuid.UUID]
+    char_count: int
+    chunk_count: int
+    error: str | None
+    created_at: datetime
+
+
+class KnowledgeChunkResponse(BaseModel):
+    id: uuid.UUID
+    ordinal: int
+    content: str
+    token_count: int
+
+
+class KnowledgeDocumentDetail(KnowledgeDocumentResponse):
+    chunks: list[KnowledgeChunkResponse]
+
+
+class KnowledgeSearchHit(BaseModel):
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    title: str
+    ordinal: int
+    content: str
+    relevance: float
+    excerpt: str | None
 
 
 # ---------------------------------------------------------------- campaign

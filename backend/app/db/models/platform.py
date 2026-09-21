@@ -63,6 +63,10 @@ class User(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Trocar a senha encerra as sessões abertas: qualquer token emitido antes
+    #: deste instante é recusado. Sem isso, "troquei a senha" só valeria a
+    #: partir da expiração do token que já estava na mão de quem invadiu.
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     memberships: Mapped[list[Membership]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

@@ -173,6 +173,57 @@ def switch_tenant(
         )
 
 
+@router.post("/change-password", response_model=schemas.TokenResponse)
+def change_password(
+    payload: schemas.ChangePasswordRequest,
+    request: Request,
+    ctx: TenantContext = Depends(get_current_context),
+) -> schemas.TokenResponse:
+    """Troca a senha e encerra as outras sessões.
+
+    Faltava, e não era detalhe: o provisionamento de uma empresa nova imprime
+    uma senha gerada e pede para trocar no primeiro acesso — o que, sem isto,
+    era impossível. Quem convida um operador também escolhe a senha dele, então
+    sem troca a senha de todo mundo é conhecida por quem convidou.
+
+    A senha atual é exigida mesmo com o token válido: token roubado não deve
+    virar conta roubada.
+    """
+    with unscoped_session(reason="auth:change-password") as session:
+        user = session.get(User, ctx.user_id)
+        if user is None or not verify_password(payload.current_password, user.password_hash):
+            raise AuthenticationError("Senha atual incorreta")
+        if verify_password(payload.new_password, user.password_hash):
+            raise ConflictError("A nova senha é igual à atual")
+        user.password_hash = hash_password(payload.new_password)
+        user.password_changed_at = datetime.now(UTC)
+        session.flush()
+
+    with tenant_session(ctx.tenant_id) as session:
+        audit.record(
+            session,
+            action="user.password_changed",
+            resource_type="user",
+            resource_id=ctx.user_id,
+            context=ctx,
+        )
+
+    # Um token novo junto com a resposta: a troca invalida o que o chamador
+    # tinha na mão, e devolver só 204 o deixaria deslogado sem motivo.
+    token = create_access_token(
+        user_id=ctx.user_id,
+        tenant_id=ctx.tenant_id,
+        role=ctx.role.value,
+        is_platform_admin=ctx.is_platform_admin,
+    )
+    return schemas.TokenResponse(
+        access_token=token,
+        expires_in_minutes=settings.access_token_ttl_minutes,
+        tenant_id=ctx.tenant_id,
+        role=ctx.role.value,
+    )
+
+
 @router.get("/me", response_model=schemas.MeResponse)
 def me(ctx: TenantContext = Depends(get_current_context)) -> schemas.MeResponse:
     with unscoped_session(reason="auth:me") as session:

@@ -24,6 +24,7 @@ from app.api.v1 import (
     company_brain,
     health,
     integrations,
+    knowledge,
     messages,
     prospects,
     public,
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
         public,
         agents,
         integrations,
+        knowledge,
         admin,
     ):
         v1.include_router(module.router)
