@@ -14,6 +14,7 @@ from app.orchestrator.executors.base import AgentExecutor, ExecutionResult
 from app.orchestrator.executors.conversation import ConversationExecutor
 from app.orchestrator.executors.echo import echo_executor
 from app.orchestrator.executors.outreach import OutreachExecutor
+from app.orchestrator.executors.qualification import QualificationExecutor
 from app.orchestrator.executors.research import ResearchExecutor
 
 logger = logging.getLogger("ia_sdr.agents")
@@ -33,7 +34,8 @@ def register_default_executors() -> None:
     register_executor(AgentKind.RESEARCH.value, ResearchExecutor())
     register_executor(AgentKind.OUTREACH.value, OutreachExecutor())
     register_executor(AgentKind.CONVERSATION.value, ConversationExecutor())
-    logger.info("Research, Outreach e Conversation registrados com execução real")
+    register_executor(AgentKind.QUALIFICATION.value, QualificationExecutor())
+    logger.info("Os quatro agentes do MVP registrados com execução real")
 
 
 __all__ = [
@@ -41,6 +43,7 @@ __all__ = [
     "ExecutionResult",
     "ConversationExecutor",
     "OutreachExecutor",
+    "QualificationExecutor",
     "ResearchExecutor",
     "echo_executor",
     "register_default_executors",

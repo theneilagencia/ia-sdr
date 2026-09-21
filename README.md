@@ -15,8 +15,8 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 **Sprint 1 (Foundation) implementado e testado**: autenticação, tenants,
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
-criptografia de credenciais e painel de plataforma. 39 endpoints, 22 tabelas,
-84 testes contra PostgreSQL de verdade.
+criptografia de credenciais e painel de plataforma. 42 endpoints, 22 tabelas,
+94 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
@@ -28,8 +28,10 @@ abordagem ancorada na pesquisa — e para no rascunho: disparar email escrito
 por IA sem ninguém ter lido o primeiro é como se queima um domínio. O
 **Conversation Agent** responde quando o lead responde — e escala para humano
 quando a resposta não está na base, quando o assunto é preço ou jurídico, ou
-quando ele próprio recusa. O agente de qualificação segue no executor de eco
-até ter sua vez.
+quando ele próprio recusa. E o **Qualification Agent** avalia o lead critério
+a critério contra a campanha — com dois freios no código, não no prompt:
+critério cumprido sem evidência é rebaixado, e confiança baixa não vira
+"qualificado". Os quatro agentes do MVP estão ligados.
 
 Não há web app ainda: só a API.
 
@@ -135,6 +137,8 @@ O que está coberto:
   teto diário
 - `test_conversation_agent.py` — escalonamento para humano, descadastro
   obedecido no ato e recusa do modelo tratada como sinal, não como erro
+- `test_qualification_agent.py` — os freios contra falso positivo: evidência
+  obrigatória, piso de confiança, e campanha sem critérios que não qualifica
 
 ## Estrutura
 

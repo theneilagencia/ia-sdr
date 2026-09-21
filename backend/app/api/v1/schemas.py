@@ -285,6 +285,38 @@ class MessageResponse(ORMModel):
     created_at: datetime
 
 
+class MeetingCreate(BaseModel):
+    scheduled_at: datetime
+    duration_minutes: int = Field(default=30, ge=5, le=480)
+    location: str | None = None
+    owner_user_id: uuid.UUID | None = None
+    notes: str | None = None
+
+
+class MeetingResponse(ORMModel):
+    id: uuid.UUID
+    prospect_id: uuid.UUID
+    campaign_id: uuid.UUID | None
+    owner_user_id: uuid.UUID | None
+    scheduled_at: datetime
+    duration_minutes: int
+    status: str
+    location: str | None
+    notes: str | None
+    created_at: datetime
+
+
+class QualificationResponse(ORMModel):
+    id: uuid.UUID
+    prospect_id: uuid.UUID
+    conversation_id: uuid.UUID | None
+    outcome: str
+    criteria_results: dict
+    rationale: str | None
+    confidence: int
+    created_at: datetime
+
+
 class FunnelResponse(BaseModel):
     """Os números da tela inicial: quantos entraram e até onde chegaram."""
 

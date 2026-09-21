@@ -17,6 +17,7 @@ from app.db.models.engagement import (
     Message,
     MessageDirection,
     MessageStatus,
+    Qualification,
 )
 from app.db.models.sales import Campaign, Company, Contact, Prospect, ProspectStatus, Score
 from app.rbac.roles import Permission
@@ -270,6 +271,85 @@ def list_messages(
             .join(Conversation, Message.conversation_id == Conversation.id)
             .where(Conversation.prospect_id == prospect_id)
             .order_by(Message.created_at.desc())
+        ).scalars()
+    )
+
+
+@router.get("/{prospect_id}/qualifications", response_model=list[schemas.QualificationResponse])
+def list_qualifications(
+    prospect_id: uuid.UUID,
+    ctx: TenantContext = Depends(require(Permission.PROSPECT_READ)),
+    db: Session = Depends(get_db),
+):
+    if db.get(Prospect, prospect_id) is None:
+        raise NotFound("Prospect não encontrado")
+    return list(
+        db.execute(
+            select(Qualification)
+            .where(Qualification.prospect_id == prospect_id)
+            .order_by(Qualification.created_at.desc())
+        ).scalars()
+    )
+
+
+@router.post(
+    "/{prospect_id}/meetings",
+    response_model=schemas.MeetingResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def book_meeting(
+    prospect_id: uuid.UUID,
+    payload: schemas.MeetingCreate,
+    ctx: TenantContext = Depends(require(Permission.MEETING_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """Agenda a reunião — a conversão que a plataforma existe para produzir.
+
+    Hoje o horário vem de quem marca; a integração de calendário, no Sprint 4,
+    entra por este mesmo caminho.
+    """
+    prospect = db.get(Prospect, prospect_id)
+    if prospect is None:
+        raise NotFound("Prospect não encontrado")
+
+    reuniao = Meeting(
+        tenant_id=ctx.tenant_id,
+        prospect_id=prospect_id,
+        campaign_id=prospect.campaign_id,
+        owner_user_id=payload.owner_user_id or ctx.user_id,
+        scheduled_at=payload.scheduled_at,
+        duration_minutes=payload.duration_minutes,
+        location=payload.location,
+        notes=payload.notes,
+    )
+    db.add(reuniao)
+    prospect.status = ProspectStatus.MEETING_BOOKED.value
+    db.flush()
+
+    audit.record(
+        db,
+        action="meeting.booked",
+        resource_type="meeting",
+        resource_id=reuniao.id,
+        payload={"prospect_id": str(prospect_id), "scheduled_at": payload.scheduled_at.isoformat()},
+        context=ctx,
+    )
+    return reuniao
+
+
+@router.get("/{prospect_id}/meetings", response_model=list[schemas.MeetingResponse])
+def list_meetings(
+    prospect_id: uuid.UUID,
+    ctx: TenantContext = Depends(require(Permission.MEETING_READ)),
+    db: Session = Depends(get_db),
+):
+    if db.get(Prospect, prospect_id) is None:
+        raise NotFound("Prospect não encontrado")
+    return list(
+        db.execute(
+            select(Meeting)
+            .where(Meeting.prospect_id == prospect_id)
+            .order_by(Meeting.scheduled_at.desc())
         ).scalars()
     )
 

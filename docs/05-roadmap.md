@@ -44,6 +44,10 @@ Feito:
   responde a partir da base de conhecimento do tenant e escala para humano
   quando a resposta não está lá, quando o assunto é preço/jurídico/prazo ou
   quando o modelo recusa. Descadastro é obedecido no ato
+- **Qualification Agent** (`app/orchestrator/executors/qualification.py`):
+  avalia critério a critério contra a campanha. Critério cumprido sem
+  evidência é rebaixado pelo código, e confiança baixa não vira "qualificado"
+- **Reunião** (`POST /api/v1/prospects/{id}/meetings`): fecha o funil
 
 A fazer:
 
@@ -63,8 +67,7 @@ A fazer:
 
 ## Sprint 4 — Conversion
 
-- Qualificação automática contra os critérios da campanha
-- Calendário e agendamento de reuniões
+- Integração de calendário (o agendamento manual já existe e é o mesmo caminho)
 - Integração de CRM (HubSpot, Salesforce, Pipedrive)
 - Dashboard do funil e de consumo
 - Billing: assinatura, cobrança por uso e faturas
