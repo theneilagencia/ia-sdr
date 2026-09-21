@@ -34,9 +34,10 @@ class IntegrationProvider(StrEnum):
     OUTLOOK = "outlook"
     SMTP = "smtp"
     GOOGLE_CALENDAR = "google_calendar"
-    HUBSPOT = "hubspot"
-    SALESFORCE = "salesforce"
-    PIPEDRIVE = "pipedrive"
+    #: O CRM é o RAVI, que já existe e já é o sistema de registro do lead. Esta
+    #: plataforma não tem CRM próprio nem vai ter: duas bases com o mesmo lead
+    #: divergem em uma semana, e a partir daí ninguém sabe qual está certa.
+    RAVI = "ravi"
 
 
 class AIAgent(Base, TenantScoped, TimestampMixin):
