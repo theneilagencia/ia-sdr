@@ -5,8 +5,11 @@ services:
       POSTGRES_USER: ia_sdr
       POSTGRES_PASSWORD: ia_sdr
       POSTGRES_DB: ia_sdr
+    # A API fala com o banco pela rede interna do compose; esta porta serve
+    # só para você abrir um cliente SQL do host. 5433 por padrão, porque a
+    # 5432 costuma já estar ocupada por um Postgres local — mude com DB_PORT.
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -25,7 +28,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     # Migrations rodam na subida: o schema e as políticas de RLS vêm juntos.
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 

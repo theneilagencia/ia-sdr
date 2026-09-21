@@ -48,6 +48,27 @@ cp .env.example .env            # ajuste DATABASE_URL
 Atalhos no `Makefile`: `make install`, `make migrate`, `make seed`, `make run`,
 `make test`, `make lint`.
 
+### Se o `docker compose up` falhar
+
+**`Bind for 0.0.0.0:5432 failed: port is already allocated`** — você já tem um
+Postgres ocupando a porta. O compose publica o banco em **5433** por padrão
+justamente por isso; se a 5433 também estiver ocupada, escolha outra:
+
+    DB_PORT=5434 docker compose up --build
+
+A API não depende dessa porta — ela fala com o banco pela rede interna do
+compose. A porta só existe para você abrir um cliente SQL a partir do host.
+`API_PORT` funciona do mesmo jeito para a API.
+
+**`failed to resolve host 'db'`** — sobrou container de uma subida que falhou
+no meio, sem rede. Limpe e suba de novo:
+
+    docker compose down --remove-orphans
+    docker compose up --build
+
+**`Cannot connect to the Docker daemon`** — o daemon não está rodando
+(`colima start`, ou abra o Docker Desktop).
+
 ## Testes
 
 ```bash
