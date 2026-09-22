@@ -153,10 +153,19 @@ verdade é código que ainda não existe.
 
 ## Transversal (quando a operação exigir)
 
-- **Telas que faltam no web app**: cadências e a conexão com o RAVI. Company
-  Brain, base de conhecimento, equipe ✅; campanhas, import de lista e disparo de
-  agente ✅; conversas e detalhe do prospect ✅; painel da plataforma ✅. Toda a
-  API por trás das duas que faltam existe
+- **Telas do web app ✅ — não falta nenhuma.** Funil e consumo, revisão e envio,
+  conversas com a thread, prospects com import e detalhe, campanhas, disparo de
+  agente, cadências, Company Brain, base de conhecimento, equipe, configurações
+  (IA, email, volume e CRM) e o painel da plataforma
+
+  Na cadência, a ordem da tela é a ordem real da operação: escrever os toques,
+  ativar, inscrever. Ela **nasce desativada** — quem acabou de escrever ainda vai
+  reler, e meia cadência ativa dispara mesmo assim — e a inscrição fica barrada
+  com explicação enquanto ela estiver desativada, porque a API recusa entrada em
+  cadência que não anda e um botão que sempre dá erro é pior do que nenhum botão.
+  O "avançar agora" diz que o toque **foi para a fila**, não que o rascunho está
+  pronto: quem escreve é o agente de abordagem, depois, e prometer o rascunho
+  mandaria a pessoa olhar uma fila vazia
 
   A caixa de entrada põe quem escreveu e não foi respondido no topo, porque é o
   único item da lista com prazo. Na conversa, o humano assume com os mesmos

@@ -1,22 +1,33 @@
-import { api, type AISettings, type EmailAccount, type EmailPreset, type SendingPolicy } from "@/lib/api";
+import {
+  api,
+  type AISettings,
+  type CrmSettings,
+  type EmailAccount,
+  type EmailPreset,
+  type SendingPolicy,
+} from "@/lib/api";
 
 import Nav from "../nav";
 import AIForm from "./ai-form";
+import CrmForm from "./crm-form";
 import EmailForm from "./email-form";
 import SendingForm from "./sending-form";
 
 /**
  * Tudo que uma empresa precisa configurar antes de operar, numa página só.
  *
- * As três seções são independentes: dá para conectar o email sem ter a chave
- * da IA e vice-versa, e a página diz, em cada uma, o que falta.
+ * As seções são independentes: dá para conectar o email sem ter a chave da IA e
+ * vice-versa, e a página diz, em cada uma, o que falta. O CRM é o único
+ * realmente opcional — sem ele a plataforma funciona inteira, só não empurra o
+ * lead para o RAVI.
  */
 export default async function SettingsPage() {
-  const [ia, email, presets, volume] = await Promise.all([
+  const [ia, email, presets, volume, crm] = await Promise.all([
     api<AISettings>("/api/v1/settings/ai"),
     api<EmailAccount>("/api/v1/settings/email"),
     api<EmailPreset[]>("/api/v1/settings/email/presets"),
     api<SendingPolicy>("/api/v1/settings/sending"),
+    api<CrmSettings>("/api/v1/settings/crm"),
   ]);
 
   return (
@@ -32,6 +43,7 @@ export default async function SettingsPage() {
         <AIForm estado={ia} />
         <EmailForm estado={email} presets={presets} />
         <SendingForm politica={volume} />
+        <CrmForm estado={crm} />
       </main>
     </>
   );

@@ -234,7 +234,14 @@ def test_connection(
     except httpx.TimeoutException:
         return False, f"O RAVI não respondeu em {int(TIMEOUT)} segundos."
     except (httpx.HTTPError, OSError) as erro:
-        return False, f"Não foi possível alcançar o RAVI: {erro}"
+        # O erro cru ("[Errno 111] Connection refused") não diz nada a quem está
+        # preenchendo o campo, e o engano mais comum é um só: colar o endereço do
+        # painel em vez do da API. A frase aponta isso e guarda o detalhe técnico
+        # no fim, para quem for procurar no log.
+        return False, (
+            f"Não foi possível alcançar o RAVI em {url}. Confira se é o endereço da "
+            f"API do RAVI, e não o do painel onde vocês entram. Detalhe: {erro}"
+        )
 
     if resposta.status_code >= 400:
         return False, _traduzir(resposta)

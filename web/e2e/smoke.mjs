@@ -143,9 +143,12 @@ try {
 
   await page.goto(`${WEB}/settings`);
   await page.waitForSelector('input[name="api_key"]', { timeout: 10000 });
+  const cards = await page.locator("section.card h3").allInnerTexts();
   checar(
-    (await page.locator("section.card h3").allInnerTexts()).length === 3,
-    "configurações mostra IA, email e volume",
+    ["Inteligência artificial", "Email de envio", "Volume de envio", "CRM (RAVI)"].every((titulo) =>
+      cards.some((t) => t.includes(titulo)),
+    ),
+    `configurações mostra IA, email, volume e CRM: ${JSON.stringify(cards)}`,
   );
   await page.locator('input[value="smtp"]').check();
   checar(
@@ -429,6 +432,125 @@ try {
     (await outra.locator('[data-secao="empresa"]').count()) === 0 &&
       (await outra.locator(".empty").innerText()).includes("opera a plataforma"),
     "sem a marca, o painel explica em vez de listar empresa de ninguém",
+  );
+
+  // Cadência: escrever os toques, ativar, inscrever e avançar. A ordem é a real
+  // — a API recusa inscrever em cadência desativada, e a tela respeita isso.
+  await page.goto(`${WEB}/sequences`);
+  await hidratada();
+  const nomeCadencia = `Cadência ${Date.now()}`;
+  const novaCadencia = page.locator("section.card", { hasText: "Nova cadência" });
+  await novaCadencia.locator('input[name="name"]').fill(nomeCadencia);
+  await novaCadencia.locator('select[name="campaign_id"]').selectOption({ index: 1 });
+  const toques = novaCadencia.locator('textarea[name="passo_instruction"]');
+  await toques.nth(0).fill("Entrar pelo gatilho da pesquisa e pedir 15 minutos");
+  await toques.nth(1).fill("Trazer um caso parecido e repetir o pedido, mais curto");
+  await novaCadencia.locator('button[type="submit"]').click();
+  checar(
+    await ate(async () => (await novaCadencia.locator("p.ok, p.erro").count()) > 0),
+    "criar cadência responde",
+  );
+
+  await page.reload();
+  await hidratada();
+  const cadencia = page.locator('[data-secao="cadencia"]', { hasText: nomeCadencia });
+  checar(
+    (await cadencia.locator(".tag").first().innerText()) === "desativada",
+    "a cadência nasce desativada, para ninguém disparar meia cadência",
+  );
+  const passosNaTela = await cadencia.locator(".passos li").allInnerTexts();
+  checar(
+    passosNaTela.length === 2 &&
+      passosNaTela[0].includes("abordagem inicial") &&
+      passosNaTela[1].includes("+3 dias"),
+    "o primeiro toque sai na hora e o segundo espera",
+  );
+  await cadencia.locator("summary", { hasText: "Inscrever prospects" }).click();
+  checar(
+    (await cadencia.locator('input[name="prospect_ids"]').count()) === 0,
+    "cadência desativada não oferece inscrição — a API recusaria",
+  );
+
+  await cadencia.locator('button:has-text("Ativar")').click();
+  checar(
+    await ate(async () => (await cadencia.locator("span.ok, span.erro").count()) > 0),
+    "ativar a cadência responde",
+  );
+
+  // Um prospect novo para a cadência: os que a fumaça já usou têm reunião
+  // marcada, e reunião é regra de parada — a cadência recusaria, com razão.
+  const campanhaDaCadencia = await page
+    .locator('[data-secao="cadencia"]', { hasText: nomeCadencia })
+    .locator(".meta")
+    .first()
+    .innerText();
+  await page.goto(`${WEB}/prospects`);
+  await hidratada();
+  await page.setInputFiles('input[name="file"]', {
+    name: "cadencia.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(
+      "Empresa,Nome,E-mail\nTerraplanagem Oeste,Marina Lopes,marina@terraoeste.com.br\n",
+      "utf8",
+    ),
+  });
+  await page.selectOption('select[name="campaign_id"]', { index: 1 });
+  await page.locator('section.card button[type="submit"]').click();
+  checar(
+    await ate(async () => (await page.locator("p.ok, p.erro").count()) > 0),
+    `prospect novo importado para a campanha da cadência (${campanhaDaCadencia.split(" · ")[0]})`,
+  );
+
+  await page.goto(`${WEB}/sequences`);
+  await hidratada();
+  const cadenciaAtiva = page.locator('[data-secao="cadencia"]', { hasText: nomeCadencia });
+  await cadenciaAtiva.locator("summary", { hasText: "Inscrever prospects" }).click();
+  await cadenciaAtiva
+    .locator('label.opcao', { hasText: "Marina Lopes" })
+    .locator("input")
+    .check();
+  await cadenciaAtiva.locator('button:has-text("Inscrever os marcados")').click();
+  checar(
+    await ate(async () => (await cadenciaAtiva.locator("p.ok, p.erro").count()) > 0),
+    "inscrever prospect responde",
+  );
+  await page.reload();
+  await hidratada();
+  const comGente = page.locator('[data-secao="cadencia"]', { hasText: nomeCadencia });
+  checar(
+    (await comGente.locator("tbody tr").count()) === 1,
+    "o inscrito aparece com o passo em que está",
+  );
+  const avancar = page.locator(".cota", { hasText: "Avançar agora" });
+  await avancar.locator('button[type="submit"]').click();
+  checar(
+    await ate(async () =>
+      (await avancar.locator("p.ok, p.erro").innerText()).includes("fila"),
+    ),
+    "o toque vencido vira trabalho na fila do agente de abordagem",
+  );
+
+  // Conexão com o RAVI: o que importa é que ela recusa credencial que não
+  // funciona em vez de salvar às cegas — a empresa acharia o CRM ligado
+  // enquanto a fila acumula falha em silêncio.
+  await page.goto(`${WEB}/settings`);
+  await page.waitForSelector("h1");
+  const crm = page.locator("section.card", { hasText: "CRM (RAVI)" });
+  checar(
+    (await crm.locator(".estado").innerText()).includes("Não conectado"),
+    "o card do RAVI diz que nenhum lead sobe enquanto não conectar",
+  );
+  await crm.locator('input[name="base_url"]').fill("http://127.0.0.1:9/api");
+  await crm.locator('input[name="ravi_tenant_id"]').fill("apymine");
+  await crm.locator('input[name="token"]').fill("token-de-teste-123");
+  await crm.locator('button:has-text("Conectar")').click();
+  checar(
+    await ate(async () => (await crm.locator("p.erro").count()) > 0),
+    "conectar com endereço inalcançável recusa em vez de salvar",
+  );
+  checar(
+    (await crm.locator("p.erro").innerText()).includes("painel"),
+    "a recusa aponta o engano mais comum: o endereço do painel em vez do da API",
   );
 } catch (erro) {
   falhas.push(`exceção: ${erro.message}`);

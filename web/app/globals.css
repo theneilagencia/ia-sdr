@@ -180,3 +180,9 @@ td .meta { display: block; color: var(--muted); font-size: 12px; }
    sem o nome de ninguém. */
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .dobra .campos small { color: var(--muted); font-weight: 400; }
+
+/* Os toques de uma cadência, na ordem em que saem. */
+.passos { margin: 0 0 14px; padding-left: 20px; font-size: 14px; }
+.passos li { margin-bottom: 6px; }
+.passos strong { color: var(--accent); }
+.dobra .opcoes { margin-bottom: 4px; }

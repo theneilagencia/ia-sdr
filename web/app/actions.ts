@@ -927,3 +927,217 @@ export async function alternarEmpresaDaPlataforma(
   revalidatePath("/platform");
   return resultado;
 }
+
+// ------------------------------------------------------- conexão com o RAVI
+function corpoCrm(form: FormData) {
+  return {
+    base_url: String(form.get("base_url") ?? "").trim(),
+    token: String(form.get("token") ?? ""),
+    ravi_tenant_id: String(form.get("ravi_tenant_id") ?? "").trim(),
+    default_stage: texto(form, "default_stage"),
+  };
+}
+
+export async function testarRavi(_: Resultado, form: FormData): Promise<Resultado> {
+  try {
+    return await api<{ ok: boolean; message: string }>("/api/v1/settings/crm/test", {
+      method: "POST",
+      body: corpoCrm(form),
+    });
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
+}
+
+export async function salvarRavi(_: Resultado, form: FormData): Promise<Resultado> {
+  // A API testa antes de salvar e recusa credencial que não funciona: salvar sem
+  // testar deixaria a empresa achando que o CRM está ligado enquanto a fila
+  // acumula falha em silêncio.
+  const resultado = await executar(
+    () => api("/api/v1/settings/crm", { method: "PUT", body: corpoCrm(form) }),
+    "Conectado. Os leads qualificados passam a subir para o RAVI.",
+  );
+  revalidatePath("/settings");
+  return resultado;
+}
+
+export async function desligarRavi(): Promise<void> {
+  await api("/api/v1/settings/crm", { method: "DELETE" });
+  revalidatePath("/settings");
+}
+
+// --------------------------------------------------------------- cadências
+/**
+ * Os passos de uma cadência, a partir das linhas repetidas do formulário.
+ *
+ * A espera do primeiro passo é ignorada pela API por definição — ele é a
+ * abordagem inicial, e agendar o primeiro contato para daqui a três dias só
+ * confundiria quem montou a cadência. Passo sem instrução não entra: o segundo
+ * email igual ao primeiro é pior que nenhum.
+ */
+function passos(form: FormData) {
+  const instrucoes = form.getAll("passo_instruction").map(String);
+  const esperas = form.getAll("passo_wait_days").map(String);
+  const saida: { instruction: string; wait_days: number }[] = [];
+  instrucoes.forEach((instrucao, i) => {
+    const texto = instrucao.trim();
+    if (!texto) return;
+    const dias = Number((esperas[i] ?? "").trim() || 3);
+    saida.push({ instruction: texto, wait_days: saida.length === 0 ? 0 : dias });
+  });
+  return saida;
+}
+
+export async function criarCadencia(_: Resultado, form: FormData): Promise<Resultado> {
+  const etapas = passos(form);
+  if (etapas.length === 0) {
+    return { ok: false, message: "Escreva pelo menos o primeiro toque." };
+  }
+  const campanha = String(form.get("campaign_id") ?? "");
+  if (!campanha) return { ok: false, message: "Escolha a campanha desta cadência." };
+
+  const resultado = await executar(
+    () =>
+      api("/api/v1/sequences", {
+        method: "POST",
+        body: {
+          campaign_id: campanha,
+          name: String(form.get("name") ?? "").trim(),
+          steps: etapas,
+          // Nasce desativada: quem acabou de escrever os toques ainda vai
+          // reler. Ativar é um clique, e é um clique consciente.
+          is_active: false,
+        },
+      }),
+    `Cadência criada com ${etapas.length} ${etapas.length === 1 ? "toque" : "toques"}, desativada. Revise e ative.`,
+  );
+  revalidatePath("/sequences");
+  return resultado;
+}
+
+export async function salvarCadencia(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("sequence_id"));
+  const etapas = passos(form);
+  if (etapas.length === 0) {
+    return { ok: false, message: "Uma cadência precisa de pelo menos um toque." };
+  }
+  const resultado = await executar(
+    () =>
+      api(`/api/v1/sequences/${id}`, {
+        method: "PATCH",
+        body: { name: String(form.get("name") ?? "").trim(), steps: etapas },
+      }),
+    // Editar passo vale para quem ainda não chegou nele: a inscrição guarda em
+    // que passo está, não o texto que já saiu.
+    "Salvo. Vale para quem ainda não chegou nestes toques.",
+  );
+  revalidatePath("/sequences");
+  return resultado;
+}
+
+export async function alternarCadencia(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("sequence_id"));
+  const ativar = String(form.get("is_active")) === "true";
+  const resultado = await executar(
+    () => api(`/api/v1/sequences/${id}`, { method: "PATCH", body: { is_active: ativar } }),
+    ativar
+      ? "Cadência ativa. Os toques vencidos passam a virar rascunho."
+      : "Cadência desativada. Ninguém recebe o próximo toque; o histórico fica.",
+  );
+  revalidatePath("/sequences");
+  return resultado;
+}
+
+export async function apagarCadencia(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("sequence_id"));
+  const resultado = await executar(
+    () => api(`/api/v1/sequences/${id}`, { method: "DELETE" }),
+    "Cadência apagada.",
+  );
+  revalidatePath("/sequences");
+  return resultado;
+}
+
+export async function inscreverNaCadencia(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("sequence_id"));
+  const escolhidos = form.getAll("prospect_ids").map(String).filter(Boolean);
+  if (escolhidos.length === 0) {
+    return { ok: false, message: "Escolha quem entra na cadência." };
+  }
+
+  try {
+    const r = await api<{
+      enrolled: unknown[];
+      skipped: { reason?: string }[];
+    }>(`/api/v1/sequences/${id}/enroll`, {
+      method: "POST",
+      body: { prospect_ids: escolhidos },
+    });
+    revalidatePath("/sequences");
+
+    // Quem não entrou e por quê, junto: selecionar cem leads e perder a
+    // operação inteira porque três já estavam na cadência seria hostil.
+    const partes = [
+      `${r.enrolled.length} ${r.enrolled.length === 1 ? "inscrito" : "inscritos"}`,
+    ];
+    if (r.skipped.length) {
+      const motivos = [...new Set(r.skipped.map((s) => s.reason ?? "sem motivo"))];
+      partes.push(
+        `${r.skipped.length} de fora (${motivos.join("; ")})`,
+      );
+    }
+    return { ok: r.enrolled.length > 0, message: `${partes.join(" · ")}.` };
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
+}
+
+export async function pararInscricao(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("enrollment_id"));
+  const resultado = await executar(
+    () => api(`/api/v1/sequences/enrollments/${id}/stop`, { method: "POST" }),
+    "Fora da cadência. Os outros inscritos seguem.",
+  );
+  revalidatePath("/sequences");
+  return resultado;
+}
+
+export async function avancarCadencias(_: Resultado, _form: FormData): Promise<Resultado> {
+  try {
+    const r = await api<{
+      gerados: number;
+      parados: number;
+      concluidos: number;
+      adiados: number;
+    }>("/api/v1/sequences/tick", { method: "POST" });
+    revalidatePath("/sequences");
+    revalidatePath("/drafts");
+
+    // O tick é o que o worker faz sozinho; aqui serve para não esperar o
+    // relógio enquanto se monta a cadência, e para ter onde olhar quando
+    // alguém pergunta por que o follow-up não saiu.
+    // `gerados` conta job enfileirado, não rascunho escrito: o texto aparece em
+    // Revisão depois que o trabalhador roda o agente de abordagem. Dizer
+    // "rascunho em Revisão" aqui mandaria a pessoa olhar uma fila que ainda
+    // está vazia.
+    const partes: string[] = [];
+    if (r.gerados)
+      partes.push(
+        `${r.gerados} ${r.gerados === 1 ? "toque foi" : "toques foram"} para a fila; o agente de abordagem escreve e o rascunho aparece em Revisão`,
+      );
+    if (r.parados) partes.push(`${r.parados} ${r.parados === 1 ? "parada" : "paradas"} pelas regras`);
+    if (r.concluidos) partes.push(`${r.concluidos} ${r.concluidos === 1 ? "concluída" : "concluídas"}`);
+    if (r.adiados) partes.push(`${r.adiados} ${r.adiados === 1 ? "adiada" : "adiadas"} (campanha pausada)`);
+    return {
+      ok: r.gerados > 0,
+      message: partes.length
+        ? `${partes.join(" · ")}.`
+        : "Nada vencido agora — nenhum toque estava na hora.",
+    };
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
+}

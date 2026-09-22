@@ -20,6 +20,7 @@ export default async function Nav() {
           <Link href="/prospects">Prospects</Link>
           <Link href="/campaigns">Campanhas</Link>
           <Link href="/agents">Agentes</Link>
+          <Link href="/sequences">Cadências</Link>
           <Link href="/brain">Cérebro</Link>
           <Link href="/knowledge">Conhecimento</Link>
           <Link href="/team">Equipe</Link>

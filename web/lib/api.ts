@@ -405,3 +405,35 @@ export type SystemHealth = {
     created_at: string;
   }[];
 };
+
+/** A conexão com o RAVI, sem o token — nunca o token. */
+export type CrmSettings = {
+  configured: boolean;
+  base_url: string | null;
+  ravi_tenant_id: string | null;
+  token_hint: string | null;
+  status: string;
+  last_error: string | null;
+};
+
+export type Sequence = {
+  id: string;
+  campaign_id: string;
+  name: string;
+  steps: { order?: number; wait_days?: number; instruction?: string }[];
+  is_active: boolean;
+  created_at: string;
+  active_enrollments: number;
+};
+
+export type Enrollment = {
+  id: string;
+  sequence_id: string;
+  prospect_id: string;
+  status: string;
+  current_step: number;
+  next_run_at: string | null;
+  last_step_at: string | null;
+  stop_reason: string | null;
+  created_at: string;
+};
