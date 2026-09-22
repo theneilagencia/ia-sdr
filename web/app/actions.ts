@@ -894,6 +894,7 @@ const LIMITES = [
   "users",
   "email_accounts",
   "ai_units_per_month",
+  "ai_cost_usd_per_month",
   "knowledge_documents",
 ] as const;
 

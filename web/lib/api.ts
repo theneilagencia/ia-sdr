@@ -152,6 +152,8 @@ export type Usage = {
   ai_units_used: number;
   ai_units_limit: number;
   estimated_cost_usd: number;
+  /** Teto de custo real do mês, em dólares. `-1` é sem teto. */
+  estimated_cost_limit_usd: number;
   by_kind: Record<
     string,
     { units: number; quantity: number; cost_usd: number }

@@ -166,6 +166,51 @@ def test_run_e_rejeitado_quando_a_cota_acaba(make_tenant):
     assert [r.status for r in runs] == ["rejected"]
 
 
+def test_run_e_rejeitado_quando_o_teto_em_dolar_e_atingido(make_tenant, monkeypatch):
+    """O freio em dólar para o agente antes de gastar mais.
+
+    E para sem chamar o modelo: um teto que só é conferido depois da chamada não
+    é teto, é relatório.
+    """
+    from sqlalchemy import select
+
+    from app.db.models.ai import AgentRun
+    from app.db.models.platform import Tenant
+    from app.orchestrator.executors.base import ExecutionResult
+    from app.orchestrator.runner import _EXECUTORS
+    from app.services import usage as consumo
+
+    t = make_tenant()
+    campanha = _seed(t["tenant_id"], marca="Mineracao")
+    with tenant_session(t["tenant_id"]) as session:
+        session.get(Tenant, t["tenant_id"]).limit_overrides = {"ai_cost_usd_per_month": 1}
+        consumo.record_usage(
+            session,
+            tenant_id=t["tenant_id"],
+            kind=consumo.UsageKind.RESEARCH,
+            quantity=0,  # execução que falhou: cobra dólar, não cobra unidade
+            cost_micro_usd=1_200_000,
+        )
+
+    executou = []
+
+    def entrega(session, context, envelope):
+        executou.append(1)
+        return ExecutionResult(output={"ok": True}, model="claude-opus-5")
+
+    envelope = new_job(tenant_id=t["tenant_id"], agent="research", campaign_id=campanha)
+    monkeypatch.setitem(_EXECUTORS, "research", entrega)
+    with pytest.raises(LimitExceeded) as exc:
+        with tenant_session(t["tenant_id"]) as session:
+            run_job(session, envelope)
+
+    assert exc.value.details["kind"] == "cost"
+    assert executou == [], "o modelo não deveria ter sido chamado"
+    with tenant_session(t["tenant_id"]) as session:
+        runs = session.execute(select(AgentRun)).scalars().all()
+    assert [r.status for r in runs] == ["rejected"]
+
+
 def test_entrega_repetida_do_mesmo_job_nao_executa_duas_vezes(make_tenant):
     """Job de agente que passa de quinze minutos volta para a fila **rodando**.
 

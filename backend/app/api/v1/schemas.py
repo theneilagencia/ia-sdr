@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.db.models.platform import Plan
 from app.rbac.roles import Role
@@ -820,3 +820,23 @@ class AdminTenantUpdate(BaseModel):
     subscription_status: str | None = None
     is_active: bool | None = None
     limit_overrides: dict | None = None
+
+    @field_validator("limit_overrides")
+    @classmethod
+    def _limites_sao_inteiros(cls, valor: dict | None) -> dict | None:
+        """Override é número inteiro, e é aqui que isso se verifica.
+
+        Não é preciosismo de tipo: o override entra direto na comparação de cota.
+        Um `"muito"` salvo aqui não erra no painel — erra depois, em toda execução
+        de agente daquela empresa, como erro 500 que ninguém liga a um campo
+        digitado no suporte três dias antes. `-1` é ilimitado, e é o menor valor
+        que faz sentido.
+        """
+        if valor is None:
+            return None
+        for chave, bruto in valor.items():
+            if isinstance(bruto, bool) or not isinstance(bruto, int):
+                raise ValueError(f"o limite de {chave} precisa ser um número inteiro")
+            if bruto < -1:
+                raise ValueError(f"o limite de {chave} não pode ser menor que -1")
+        return valor

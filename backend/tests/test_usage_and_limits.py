@@ -56,6 +56,89 @@ def test_cota_de_ia_bloqueia_antes_de_gastar(make_tenant):
     assert exc.value.details["limit"] == 5
 
 
+def test_teto_em_dolar_trava_o_agente(make_tenant):
+    """O outro freio, que mede outra coisa.
+
+    Unidade é a moeda que o cliente compra; dólar é o que a Anthropic cobra. Sem
+    o segundo, a única proteção contra gasto fora de padrão era o teto por
+    execução — e mil execuções dentro do teto somam mil vezes o teto.
+    """
+    t = make_tenant()
+    with tenant_session(t["tenant_id"]) as session:
+        session.get(Tenant, t["tenant_id"]).limit_overrides = {"ai_cost_usd_per_month": 10}
+        usage.record_usage(
+            session,
+            tenant_id=t["tenant_id"],
+            kind=usage.UsageKind.RESEARCH,
+            cost_micro_usd=9_000_000,  # US$ 9 de US$ 10
+        )
+
+    with tenant_session(t["tenant_id"]) as session:
+        usage.check_ai_budget(session, t["tenant_id"], 1)  # ainda tem folga
+
+    with tenant_session(t["tenant_id"]) as session:
+        usage.record_usage(
+            session,
+            tenant_id=t["tenant_id"],
+            kind=usage.UsageKind.RESEARCH,
+            cost_micro_usd=1_500_000,  # passou
+        )
+
+    with tenant_session(t["tenant_id"]) as session:
+        with pytest.raises(LimitExceeded) as exc:
+            usage.check_ai_budget(session, t["tenant_id"], 1)
+    assert exc.value.details["kind"] == "cost"
+    assert exc.value.details["limit_usd"] == 10
+    assert exc.value.details["spent_usd"] == pytest.approx(10.5)
+
+
+def test_gasto_de_execucao_que_falhou_conta_no_teto_em_dolar(make_tenant):
+    """É por isto que o freio em dólar existe.
+
+    Execução que falha depois de chamar o modelo gera evento com **zero
+    unidade** e custo real. A cota em unidades nunca vê esse gasto: um agente
+    que falha em série gastaria o mês inteiro sem consumir uma única unidade.
+    """
+    t = make_tenant()
+    with tenant_session(t["tenant_id"]) as session:
+        session.get(Tenant, t["tenant_id"]).limit_overrides = {"ai_cost_usd_per_month": 2}
+        for _ in range(3):
+            usage.record_usage(
+                session,
+                tenant_id=t["tenant_id"],
+                kind=usage.UsageKind.RESEARCH,
+                quantity=0,  # falhou: não entrega, não cobra unidade
+                cost_micro_usd=800_000,
+            )
+
+    with tenant_session(t["tenant_id"]) as session:
+        resumo = usage.usage_summary(session, t["tenant_id"])
+        # Nenhuma unidade consumida, US$ 2,40 gastos.
+        assert resumo["ai_units_used"] == 0
+        assert resumo["estimated_cost_usd"] == pytest.approx(2.4)
+        assert resumo["estimated_cost_limit_usd"] == 2
+
+        with pytest.raises(LimitExceeded) as exc:
+            usage.check_ai_budget(session, t["tenant_id"], 1)
+    assert exc.value.details["kind"] == "cost"
+
+
+def test_sem_teto_contratado_o_dolar_nao_trava(make_tenant):
+    """O default não inventa preço: quanto vale gastar é decisão de quem opera."""
+    t = make_tenant()
+    with tenant_session(t["tenant_id"]) as session:
+        usage.record_usage(
+            session,
+            tenant_id=t["tenant_id"],
+            kind=usage.UsageKind.RESEARCH,
+            cost_micro_usd=50_000_000,  # US$ 50
+        )
+
+    with tenant_session(t["tenant_id"]) as session:
+        assert usage.effective_limits(session, t["tenant_id"])["ai_cost_usd_per_month"] == -1
+        usage.check_ai_budget(session, t["tenant_id"], 1)  # não trava
+
+
 def test_plano_starter_limita_uma_campanha(client, make_tenant, auth_headers):
     t = make_tenant(plan=Plan.STARTER.value)
     headers = auth_headers(t["email"], t["password"])
@@ -220,6 +303,7 @@ def test_todo_limite_do_plano_tem_onde_ser_verificado():
         "knowledge_documents": "limits.check_can_add_document (POST /knowledge/documents*)",
         "prospects_per_month": "prospects._check_import_budget (POST /prospects/import*)",
         "ai_units_per_month": "usage.check_ai_budget (orchestrator.run_job)",
+        "ai_cost_usd_per_month": "usage.check_ai_budget (orchestrator.run_job)",
     }
 
     declarados = set(PLAN_LIMITS[Plan.STARTER].as_dict()) - {"features"}

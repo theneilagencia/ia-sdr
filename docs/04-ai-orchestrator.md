@@ -86,6 +86,14 @@ regras que existem porque cada chamada gasta dinheiro de verdade:
   padrão), conferido **depois de cada turno** — inclusive entre as retomadas de
   turno pausado da busca na web. Estourou, a execução é recusada ali, sem
   comprar o turno seguinte.
+- **Teto de custo por empresa no mês** (`ai_cost_usd_per_month`, limite de plano
+  com override contratual), conferido junto com a cota de unidades, antes de
+  chamar o modelo. São freios que medem coisas diferentes: unidade é a moeda que
+  o cliente compra, dólar é o que a Anthropic cobra — e execução que falha gasta
+  dólar sem consumir unidade. A regra é "já passou, não começa outra", porque o
+  custo de uma execução só existe depois dela; o excesso possível é de uma
+  execução, e essa está limitada pelo teto acima. Nasce ilimitado: o número é
+  decisão comercial de quem opera.
 - **Gasto de execução que falha não desaparece.** Token queimado antes da falha
   continua tendo custado: os tokens vão para o `agent_run` e o custo real vira
   evento de consumo com **zero unidade** — o cliente não paga cota por trabalho

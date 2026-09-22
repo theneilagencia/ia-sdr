@@ -161,3 +161,19 @@ def test_painel_devolve_os_limites_para_poder_editar_sem_apagar(
     )
     assert na_lista["limit_overrides"] == {"campaigns": 7, "users": -1}
     assert na_lista["effective_limits"]["campaigns"] == 7
+
+    # Override que não é inteiro é recusado **aqui**. Salvo, ele não erraria no
+    # painel: erraria depois, em toda execução de agente daquela empresa, como um
+    # 500 que ninguém liga a um campo digitado no suporte três dias antes.
+    for ruim in ({"campaigns": "muito"}, {"campaigns": 1.5}, {"campaigns": -5}):
+        recusado = client.patch(
+            f"/api/v1/admin/tenants/{t['tenant_id']}",
+            headers=headers,
+            json={"limit_overrides": ruim},
+        )
+        assert recusado.status_code == 422, f"{ruim} deveria ter sido recusado"
+
+    # E o que estava guardado continua lá, intacto.
+    depois = client.get("/api/v1/admin/tenants", headers=headers).json()
+    atual = next(e for e in depois if e["id"] == str(t["tenant_id"]))
+    assert atual["limit_overrides"] == {"campaigns": 7, "users": -1}

@@ -410,6 +410,7 @@ try {
   const xyz = page.locator('[data-secao="empresa"]', { hasText: "Empresa XYZ" });
   await xyz.locator("summary").click();
   await xyz.locator('input[name="limite_campaigns"]').fill("7");
+  await xyz.locator('input[name="limite_ai_cost_usd_per_month"]').fill("25");
   await xyz.locator('button:has-text("Salvar")').click();
   checar(
     await ate(async () => (await xyz.locator("p.ok, p.erro").count()) > 0),
@@ -424,6 +425,16 @@ try {
   checar(
     (await depois.locator('input[name="limite_campaigns"]').inputValue()) === "7",
     "o override de limite volta na recarga",
+  );
+  checar(
+    (await depois.locator('input[name="limite_ai_cost_usd_per_month"]').inputValue()) === "25",
+    "o teto de custo em dólar volta na recarga",
+  );
+  // O teto contratado aparece ao lado do gasto: é a leitura que responde
+  // "esta empresa está perto de travar por custo?".
+  checar(
+    (await depois.locator(".meta").first().innerText()).includes("de US$"),
+    "o painel mostra o gasto do mês contra o teto contratado",
   );
 
   const outra = await browser.newPage();

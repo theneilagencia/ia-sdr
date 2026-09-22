@@ -18,6 +18,16 @@ export default async function Home() {
   ]);
 
   const limite = uso.ai_units_limit < 0 ? "ilimitado" : uso.ai_units_limit.toLocaleString("pt-BR");
+  // O teto em dólar só aparece quando existe: dizer "sem teto" a quem não
+  // contratou teto é informação que não muda nada para quem lê.
+  const tetoEmDolar =
+    uso.estimated_cost_limit_usd > 0
+      ? uso.estimated_cost_limit_usd.toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "USD",
+          maximumFractionDigits: 0,
+        })
+      : null;
 
   return (
     <>
@@ -92,7 +102,9 @@ export default async function Home() {
                 currency: "USD",
               })}
             </div>
-            <div className="k">custo estimado</div>
+            <div className="k">
+              {tetoEmDolar ? `custo estimado · teto ${tetoEmDolar}` : "custo estimado"}
+            </div>
           </div>
         </div>
       </main>

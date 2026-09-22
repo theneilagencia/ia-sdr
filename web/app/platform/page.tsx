@@ -124,8 +124,14 @@ export default async function PlatformPage() {
               {empresa.slug} · {empresa.users} {empresa.users === 1 ? "pessoa" : "pessoas"} ·{" "}
               {empresa.campaigns} {empresa.campaigns === 1 ? "campanha" : "campanhas"} ·{" "}
               {empresa.ai_units_this_month.toLocaleString("pt-BR")} unidades no mês ·{" "}
-              {dinheiro(empresa.estimated_cost_usd)} · entrou em{" "}
-              {new Date(empresa.created_at).toLocaleDateString("pt-BR")}
+              {/* O gasto ao lado do teto contratado: é a única leitura que
+                  responde "esta empresa está perto de travar por custo?". */}
+              {dinheiro(empresa.estimated_cost_usd)}
+              {typeof empresa.effective_limits?.ai_cost_usd_per_month === "number" &&
+              empresa.effective_limits.ai_cost_usd_per_month > 0
+                ? ` de ${dinheiro(empresa.effective_limits.ai_cost_usd_per_month)}`
+                : null}{" "}
+              · entrou em {new Date(empresa.created_at).toLocaleDateString("pt-BR")}
             </div>
             {/* Os recursos do plano respondem uma pergunta de suporte direta:
                 "por que este cliente não consegue qualificar?" — porque o plano

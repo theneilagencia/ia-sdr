@@ -244,13 +244,19 @@ verdade é código que ainda não existe.
   32 dos 118 arquivos do backend divergem do formato canônico. Rodar `ruff format`
   e passar a checá-lo no CI é mecânico — ficou fora deste PR de propósito, porque
   um diff de 32 arquivos no meio de uma revisão atrapalha quem revisa
-- **Freio em dólar, não só em unidade.** A cota do plano conta unidades — a moeda
-  interna, que o cliente compra — e execução que falha, agora que o custo dela é
-  registrado, não consome unidade nenhuma de propósito. Falta o outro freio: um
-  teto de **custo real por tenant no mês**, que pare a empresa cujos agentes
-  falham em série. Hoje o teto por execução (US$ 0,50) limita o estrago de cada
-  chamada, e o painel da plataforma mostra o custo do mês; o corte automático
-  ainda é manual
+- **Freio em dólar, não só em unidade ✅.** A cota do plano conta unidades — a
+  moeda interna, que o cliente compra — e execução que falha não consome unidade
+  nenhuma, de propósito: o cliente não paga cota por trabalho que não foi
+  entregue. Só que o dólar foi gasto. Agora existe `ai_cost_usd_per_month`,
+  verificado junto com a cota de unidades antes de rodar qualquer agente, editável
+  por contrato no painel e visível nas duas telas (o consumo do mês mostra o teto
+  ao lado do gasto; o painel mostra "US$ X de US$ Y" por empresa).
+
+  A regra é "já passou, não começa outra", e não "cabe mais uma": o custo de uma
+  execução só existe depois dela. O excesso possível é de uma execução, e essa
+  está limitada pelo teto por execução (US$ 0,50). **Nasce ilimitado nos três
+  planos** — quanto vale a pena gastar com cada cliente é decisão comercial de
+  quem opera, não número para um default inventar
 - Secrets manager externo (hoje a chave Fernet vive no `.env` do servidor)
 - Rate limiting distribuído (Redis) — hoje é por processo, o que basta para uma
   réplica só

@@ -14,6 +14,7 @@ const LIMITES: { chave: string; rotulo: string }[] = [
   { chave: "users", rotulo: "Pessoas" },
   { chave: "email_accounts", rotulo: "Contas de email" },
   { chave: "ai_units_per_month", rotulo: "Unidades de IA por mês" },
+  { chave: "ai_cost_usd_per_month", rotulo: "Custo de IA por mês (US$)" },
   { chave: "knowledge_documents", rotulo: "Documentos na base" },
 ];
 
@@ -57,6 +58,13 @@ export function EditarEmpresa({ empresa }: { empresa: AdminTenant }) {
           Em branco vale o que o plano dá — o número cinza ao lado. <code>-1</code> é
           ilimitado. É o valor que a cota consulta, e é ele que responde &ldquo;por que
           este cliente travou&rdquo;.
+        </p>
+        <p className="ajuda">
+          O custo em dólar é outro freio, e mede outra coisa: unidade é o que o cliente
+          compra, dólar é o que a Anthropic cobra. Vale para o gasto que a unidade não
+          pega — execução que falha depois de chamar o modelo cobra e não consome
+          unidade. Chegando ao teto, os agentes desta empresa param até o mês virar ou
+          você subir o número.
         </p>
         {LIMITES.map((limite) => {
           const doPlano = empresa.effective_limits?.[limite.chave];
