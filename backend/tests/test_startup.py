@@ -30,6 +30,7 @@ def producao(monkeypatch):
     monkeypatch.setattr(settings, "jwt_secret", JWT_FORTE)
     monkeypatch.setattr(settings, "secrets_encryption_key", FERNET_VALIDA)
     monkeypatch.setattr(settings, "public_base_url", "https://app.exemplo.com")
+    monkeypatch.setattr(settings, "app_base_url", "https://app.exemplo.com")
     monkeypatch.setattr(settings, "cors_origins", ["https://app.exemplo.com"])
     return settings
 
@@ -95,6 +96,20 @@ def test_url_publica_sem_tls_impede_o_boot(producao, monkeypatch):
     monkeypatch.setattr(producao, "public_base_url", "http://app.exemplo.com")
 
     with pytest.raises(InsecureConfiguration, match="PUBLIC_BASE_URL"):
+        verify_production_secrets()
+
+
+@pytest.mark.parametrize("url", ["http://localhost:3000", "http://app.exemplo.com"])
+def test_url_do_app_ruim_impede_o_boot(producao, monkeypatch, url):
+    """O link de convite é uma credencial de uso único dentro de uma URL.
+
+    Em `localhost`, nenhum convite abre — e a pessoa convidada não tem como
+    saber que o problema não é ela. Em `http://`, o token de aceite viaja em
+    claro para qualquer um no caminho.
+    """
+    monkeypatch.setattr(producao, "app_base_url", url)
+
+    with pytest.raises(InsecureConfiguration, match="APP_BASE_URL"):
         verify_production_secrets()
 
 

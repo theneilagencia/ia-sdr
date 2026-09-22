@@ -1,9 +1,10 @@
 # Modelo de dados
 
-PostgreSQL 16, um banco, Row Level Security. 22 tabelas no Sprint 1 — três
-globais e 19 com `tenant_id`.
+PostgreSQL 16, um banco, Row Level Security. 25 tabelas — duas de identidade e
+23 com `tenant_id` (a lista está em
+`backend/app/db/models/__init__.py::TENANT_SCOPED_TABLES`).
 
-## Globais
+## Identidade
 
 | Tabela        | Papel                                                        |
 |---------------|--------------------------------------------------------------|
@@ -11,15 +12,20 @@ globais e 19 com `tenant_id`.
 | `users`       | Identidade global — o mesmo email pode servir a vários tenants |
 | `memberships` | Usuário × tenant × papel. É aqui que o acesso é decidido      |
 
+`memberships` carrega `tenant_id` e tem política de RLS como qualquer tabela do
+cliente (`0008_rls_memberships`): quem decide o acesso é justamente a tabela que
+menos pode vazar. Está aqui pelo papel que cumpre, não por ser global.
+
 `users` é global de propósito: um consultor que atende três clientes tem uma
 senha, não três. O que é por tenant é o **vínculo**, não a identidade.
 
 ## Por tenant
 
 ```
-Plataforma      audit_logs · usage_events
+Plataforma      memberships · invitations · audit_logs · usage_events · jobs
 Comercial       companies · contacts · campaigns · prospects · research · scores
-Engajamento     sequences · conversations · messages · qualifications · meetings
+Engajamento     sequences · sequence_enrollments · conversations · messages
+                qualifications · meetings
 Conhecimento    company_profiles · knowledge_documents · knowledge_chunks
 IA              ai_agents · agent_runs
 Integrações     integrations

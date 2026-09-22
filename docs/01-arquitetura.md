@@ -47,7 +47,7 @@ Platform
 ```
 
 O **Tenant** é a empresa cliente (`Tenant: Apy Mine`, `tnt_001`). Tudo que
-pertence ao cliente carrega `tenant_id` — a regra vale para as 19 tabelas
+pertence ao cliente carrega `tenant_id` — a regra vale para as 23 tabelas
 listadas em `backend/app/db/models/__init__.py::TENANT_SCOPED_TABLES`.
 
 ## Camadas

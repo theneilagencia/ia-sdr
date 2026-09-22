@@ -92,24 +92,49 @@ class TenantUpdate(BaseModel):
     settings: dict | None = None
 
 
-class MemberCreate(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=10, max_length=128)
-    full_name: str = Field(default="", max_length=200)
-    role: Role = Role.OPERATOR
-
-
 class MemberResponse(BaseModel):
     user_id: uuid.UUID
     email: EmailStr
     full_name: str
     role: Role
     is_active: bool
-    #: Se a pessoa já tinha conta na plataforma, a senha enviada no convite foi
-    #: **ignorada** — ela entra com a que já usa. Sem este campo a tela manda
-    #: entregar uma senha que não abre nada, e a pessoa convidada fica trancada
-    #: fora sem ninguém entender por quê.
-    already_had_account: bool = False
+
+
+class InvitationCreate(BaseModel):
+    email: EmailStr
+    role: Role = Role.OPERATOR
+
+
+class InvitationResponse(BaseModel):
+    """Um convite pendente, como a tela de equipe o mostra.
+
+    Não há campo dizendo se aquele email já tem conta na plataforma — era
+    justamente o que a criação direta de membro devolvia, e era enumeração da
+    base de usuários entregue a quem convida.
+    """
+
+    id: uuid.UUID
+    email: EmailStr
+    role: Role
+    expires_at: datetime
+    created_at: datetime
+
+
+class InvitationCreated(InvitationResponse):
+    #: O link aparece **uma vez**, na resposta da criação. Guardamos o hash do
+    #: token, não o token: um convite pendente lido no banco não abre porta.
+    #: Quem convida copia e entrega pelo canal que quiser.
+    accept_url: str
+
+
+class AcceptInviteRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+    #: Sem mínimo aqui de propósito. Conta nova exige dez caracteres, e isso é
+    #: verificado no serviço — que devolve a **mesma** recusa de token inválido.
+    #: Um 422 de tamanho diferenciaria "este email já tem conta" de "não tem", e
+    #: seria a enumeração voltando pela porta de trás.
+    password: str = Field(min_length=1, max_length=128)
+    full_name: str = Field(default="", max_length=200)
 
 
 # ------------------------------------------------------- base de conhecimento

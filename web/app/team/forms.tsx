@@ -4,9 +4,16 @@ import { useActionState } from "react";
 
 import MarcaDeHidratacao from "../hydrated";
 
-import type { Member } from "@/lib/api";
+import type { Invitation, Member } from "@/lib/api";
 
-import { alternarMembro, convidarMembro, mudarPapel, removerMembro, trocarSenha } from "../actions";
+import {
+  alternarMembro,
+  convidarMembro,
+  mudarPapel,
+  removerMembro,
+  revogarConvite,
+  trocarSenha,
+} from "../actions";
 
 const PAPEIS = [
   { valor: "owner", rotulo: "owner — tudo, inclusive cobrança" },
@@ -100,28 +107,19 @@ export function Convidar() {
   const [resultado, convidar, convidando] = useActionState(convidarMembro, null);
 
   return (
-    <section className="card">
+    <section className="card" data-secao="convidar">
       <MarcaDeHidratacao />
       <h3>Convidar</h3>
       <p className="ajuda">
-        Você escolhe a senha inicial e ela pode trocar depois, nesta mesma tela. Entregue
-        por um canal seguro — por enquanto não há email de convite.
+        Você não escolhe a senha de ninguém: o convite gera um link, e quem entra define a
+        própria senha ao aceitar. Se a pessoa já tem conta na plataforma, ela entra com a
+        senha que já usa e ganha acesso a esta empresa também.
       </p>
       <form action={convidar} className="campos">
         <div className="dupla">
           <label>
             Email
             <input name="email" type="email" required />
-          </label>
-          <label>
-            Nome
-            <input name="full_name" />
-          </label>
-        </div>
-        <div className="dupla">
-          <label>
-            Senha inicial
-            <input name="password" type="password" minLength={10} required />
           </label>
           <label>
             Papel
@@ -135,13 +133,110 @@ export function Convidar() {
           </label>
         </div>
         <button className="primary" type="submit" disabled={convidando}>
-          {convidando ? "Convidando…" : "Convidar"}
+          {convidando ? "Convidando…" : "Gerar link de convite"}
         </button>
       </form>
       {resultado ? (
-        <p className={resultado.ok ? "ok" : "erro"}>{resultado.message}</p>
+        <>
+          <p className={resultado.ok ? "ok" : "erro"}>{resultado.message}</p>
+          {resultado.link ? (
+            <>
+              {/* Campo em vez de texto solto porque o que se faz com um link é
+                  copiá-lo: `readOnly` e seleção no clique poupam a pessoa de
+                  arrastar o mouse sobre 60 caracteres sem errar um. */}
+              <input
+                className="link-de-convite"
+                data-campo="link-de-convite"
+                readOnly
+                value={resultado.link}
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <p className="ajuda">
+                Copie agora: por segurança este link não é guardado nem mostrado de novo.
+                Perdeu? Convide o mesmo email outra vez — o link novo substitui este.
+              </p>
+            </>
+          ) : null}
+        </>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * Convites pendentes.
+ *
+ * Existem na tela porque um convite pendente já ocupa vaga do plano: sem esta
+ * lista, quem administra vê "2 de 2 pessoas" com um membro só e não tem como
+ * descobrir para quem foi o link que falta aceitar.
+ */
+export function Pendentes({
+  convites,
+  podeAdministrar,
+}: {
+  convites: Invitation[];
+  podeAdministrar: boolean;
+}) {
+  return (
+    <section className="card" data-secao="convites-pendentes">
+      <h3>Convites pendentes</h3>
+      {convites.length === 0 ? (
+        <p className="ajuda">Nenhum convite esperando aceite.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>email</th>
+              <th>papel</th>
+              <th>expira</th>
+              {podeAdministrar ? <th /> : null}
+            </tr>
+          </thead>
+          <tbody>
+            {convites.map((c) => (
+              <LinhaDoConvite key={c.id} convite={c} podeAdministrar={podeAdministrar} />
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+function LinhaDoConvite({
+  convite,
+  podeAdministrar,
+}: {
+  convite: Invitation;
+  podeAdministrar: boolean;
+}) {
+  const [resultado, revogar, revogando] = useActionState(revogarConvite, null);
+  const expira = new Date(convite.expires_at);
+
+  return (
+    <tr data-convite={convite.email}>
+      <td>
+        {convite.email}
+        {resultado ? <p className={resultado.ok ? "ok" : "erro"}>{resultado.message}</p> : null}
+      </td>
+      <td>
+        <span className="tag">{convite.role}</span>
+      </td>
+      <td>
+        <span className="ajuda">{expira.toLocaleDateString("pt-BR")}</span>
+      </td>
+      {podeAdministrar ? (
+        <td>
+          <form action={revogar} className="inline">
+            <input type="hidden" name="id" value={convite.id} />
+            <input type="hidden" name="email" value={convite.email} />
+            <button className="ghost" type="submit" disabled={revogando}>
+              {revogando ? "…" : "Revogar"}
+            </button>
+          </form>
+        </td>
+      ) : null}
+    </tr>
   );
 }
 

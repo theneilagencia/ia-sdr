@@ -263,14 +263,28 @@ verdade é código que ainda não existe.
   executado" e o job era marcado como concluído. O trabalho sumia e a tela dizia
   que estava tudo bem
 
-- **Convite com aceite.** Hoje a identidade é global e um admin anexa uma pessoa
-  à empresa dele por email. Quando o email já tem conta, a senha do convite é
-  ignorada (a tela diz isso) — mas quem convida também descobre, pela resposta,
-  que aquele endereço já existe na plataforma e sob qual nome. É enumeração de
-  base de usuários, de severidade baixa e comum no mercado; o conserto certo é um
-  fluxo de convite que a pessoa aceita, não um remendo na resposta
+- **Convite com aceite ✅.** O fluxo antigo fazia duas coisas erradas de uma vez.
+  A senha inicial de uma pessoa era digitada por outra — e passava pelo navegador,
+  pelo histórico e pelo canal por onde fosse entregue. E a resposta, para explicar
+  que a senha seria ignorada quando o email já tinha conta, dizia exatamente isso:
+  enumeração da base de usuários entregue de graça a quem convida.
+
+  Agora `POST /tenants/me/invitations` devolve **uma vez** um link
+  (`/convite/<token>`, 32 bytes de aleatório, SHA-256 no banco, validade de 7
+  dias, uso único), e quem entra escolhe a senha ao aceitar. Email novo: a senha
+  digitada nasce com a conta. Email que já tem conta: a senha tem de ser a dela —
+  o convite anexa o vínculo, não abre a conta de ninguém. Token inválido,
+  expirado, já usado e senha errada devolvem **a mesma frase**, porque distinguir
+  devolveria a enumeração pela porta do aceite.
+
+  Convite pendente ocupa vaga do plano (senão o limite só apareceria para quem
+  aceitasse por último), aparece na tela de Equipe e é revogável. Reconvidar o
+  mesmo email substitui o pendente em vez de somar outro link válido — e a
+  verificação de limite sabe disso, senão corrigir o papel de um convite seria
+  recusado pelo convite que a correção ia apagar. `POST /tenants/me/members`
+  deixou de existir
 - **Formatação uniforme.** O CI roda `ruff check`, não `ruff format --check`, e
-  32 dos 118 arquivos do backend divergem do formato canônico. Rodar `ruff format`
+  42 dos 124 arquivos do backend divergem do formato canônico. Rodar `ruff format`
   e passar a checá-lo no CI é mecânico — ficou fora deste PR de propósito, porque
   um diff de 32 arquivos no meio de uma revisão atrapalha quem revisa
 - **Freio em dólar, não só em unidade ✅.** A cota do plano conta unidades — a

@@ -308,16 +308,10 @@ def test_apagar_documento_leva_as_fatias(client, make_tenant, auth_headers):
     )
 
 
-def test_viewer_le_mas_nao_escreve(client, make_tenant, auth_headers):
+def test_viewer_le_mas_nao_escreve(client, make_tenant, auth_headers, membro):
     t = make_tenant()
-    headers = auth_headers(t["email"], t["password"])
-    email = f"viewer-{uuid.uuid4().hex[:8]}@example.com"
-    client.post(
-        "/api/v1/tenants/me/members",
-        json={"email": email, "password": "senha-do-viewer-1", "role": "viewer"},
-        headers=headers,
-    )
-    do_viewer = auth_headers(email, "senha-do-viewer-1")
+    viewer = membro(t, role="viewer")
+    do_viewer = auth_headers(viewer["email"], viewer["password"])
 
     assert client.get("/api/v1/knowledge/documents", headers=do_viewer).status_code == 200
     assert (

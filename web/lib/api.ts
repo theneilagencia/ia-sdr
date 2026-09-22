@@ -212,6 +212,16 @@ export type SendingPolicy = {
 /** O que as telas de configuração devolvem: deu certo, e o que dizer. */
 export type Resultado = { ok: boolean; message: string } | null;
 
+/**
+ * O resultado de convidar alguém, que tem um dado a mais: o link.
+ *
+ * `link` só vem no sucesso, e só nesta resposta — depois dela o backend guarda
+ * apenas o hash do token. A tela mostra e avisa que não mostra de novo.
+ */
+export type ResultadoDoConvite =
+  | { ok: boolean; message: string; link?: string }
+  | null;
+
 export type Allowance = {
   limit: number;
   used: number;
@@ -251,6 +261,21 @@ export type KnowledgeDocument = {
   char_count: number;
   chunk_count: number;
   error: string | null;
+  created_at: string;
+};
+
+/**
+ * Um convite que ainda pode ser aceito.
+ *
+ * Sem `accept_url`: o link aparece **uma vez**, na resposta de quem convidou, e
+ * a listagem não o traz de volta. Se trouxesse, um convite pendente seria uma
+ * credencial que qualquer pessoa com acesso de leitura poderia pegar da tela.
+ */
+export type Invitation = {
+  id: string;
+  email: string;
+  role: "owner" | "admin" | "operator" | "viewer";
+  expires_at: string;
   created_at: string;
 };
 

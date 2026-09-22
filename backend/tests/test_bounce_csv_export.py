@@ -440,17 +440,11 @@ def test_exportacao_nao_traz_dado_de_outra_empresa(client, make_tenant, auth_hea
     assert "Só da A" not in str(pacote)
 
 
-def test_operator_nao_exporta_a_base(client, make_tenant, auth_headers):
+def test_operator_nao_exporta_a_base(client, make_tenant, auth_headers, membro):
     """Levar a base inteira embora é decisão de quem responde pela empresa."""
     t = make_tenant()
-    headers = auth_headers(t["email"], t["password"])
-    email = f"op-{uuid.uuid4().hex[:8]}@example.com"
-    client.post(
-        "/api/v1/tenants/me/members",
-        json={"email": email, "password": "senha-do-operador-1", "role": "operator"},
-        headers=headers,
-    )
-    do_operator = auth_headers(email, "senha-do-operador-1")
+    operador = membro(t, role="operator")
+    do_operator = auth_headers(operador["email"], operador["password"])
 
     assert client.get("/api/v1/tenants/me/export", headers=do_operator).status_code == 403
 

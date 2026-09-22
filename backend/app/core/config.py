@@ -76,6 +76,12 @@ class Settings(BaseSettings):
     #: vai em todo email: se estiver errada, o link não abre.
     public_base_url: str = "http://localhost:8000"
 
+    #: Onde o **web app** responde. É a base do link de convite, que abre uma
+    #: tela, não um endpoint. Em produção é o mesmo domínio da API — um domínio
+    #: só, dividido por caminho pelo proxy —, mas em desenvolvimento são portas
+    #: diferentes, e um link de convite apontando para a API daria 404.
+    app_base_url: str = "http://localhost:3000"
+
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
 
     @property

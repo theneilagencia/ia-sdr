@@ -1,9 +1,13 @@
 """Troca de senha e gestão de membros.
 
-Duas coisas que faltavam e que se tocam: o provisionamento de uma empresa nova
-imprime uma senha gerada e pede para trocar no primeiro acesso, e quem convida
-um operador escolhe a senha dele. Sem troca de senha, a senha de todo mundo é
+O provisionamento de uma empresa nova imprime uma senha gerada e pede para
+trocar no primeiro acesso: sem troca de senha, a senha do owner é para sempre
 conhecida por quem provisionou.
+
+Quem entra depois nunca tem senha escolhida por outra pessoa — os testes usam a
+fixture `membro`, que passa pelo convite e pelo aceite, o mesmo caminho da tela.
+Aqui o que se verifica é o depois: mudar papel, suspender, remover, e as travas
+que impedem uma empresa de ficar sem ninguém que possa administrar.
 """
 
 from __future__ import annotations
@@ -15,19 +19,6 @@ SENHA_NOVA = "senha-nova-de-verdade-123"
 
 def _login(client, email, senha):
     return client.post("/api/v1/auth/login", json={"email": email, "password": senha})
-
-
-def _membro(client, headers, *, role="operator", senha="senha-do-operador-1"):
-    import uuid as _uuid
-
-    email = f"membro-{_uuid.uuid4().hex[:8]}@example.com"
-    r = client.post(
-        "/api/v1/tenants/me/members",
-        json={"email": email, "password": senha, "full_name": "Membro", "role": role},
-        headers=headers,
-    )
-    assert r.status_code == 201, r.text
-    return r.json()["user_id"], email, senha
 
 
 # ------------------------------------------------------------- troca de senha
@@ -111,10 +102,11 @@ def test_senha_curta_nao_passa_da_validacao(client, make_tenant, auth_headers):
 
 
 # ----------------------------------------------------------------- membros
-def test_muda_papel_do_membro(client, make_tenant, auth_headers):
+def test_muda_papel_do_membro(client, make_tenant, auth_headers, membro):
     t = make_tenant()
     headers = auth_headers(t["email"], t["password"])
-    user_id, email, senha = _membro(client, headers)
+    pessoa = membro(t)
+    user_id, email, senha = pessoa["user_id"], pessoa["email"], pessoa["password"]
 
     r = client.patch(
         f"/api/v1/tenants/me/members/{user_id}", json={"role": "admin"}, headers=headers
@@ -127,10 +119,11 @@ def test_muda_papel_do_membro(client, make_tenant, auth_headers):
     assert client.get("/api/v1/tenants/me/members", headers=do_membro).status_code == 200
 
 
-def test_desativar_membro_tira_o_acesso(client, make_tenant, auth_headers):
+def test_desativar_membro_tira_o_acesso(client, make_tenant, auth_headers, membro):
     t = make_tenant()
     headers = auth_headers(t["email"], t["password"])
-    user_id, email, senha = _membro(client, headers)
+    pessoa = membro(t)
+    user_id, email, senha = pessoa["user_id"], pessoa["email"], pessoa["password"]
     do_membro = auth_headers(email, senha)
     assert client.get("/api/v1/prospects/funnel", headers=do_membro).status_code == 200
 
@@ -142,11 +135,14 @@ def test_desativar_membro_tira_o_acesso(client, make_tenant, auth_headers):
     assert client.get("/api/v1/prospects/funnel", headers=do_membro).status_code == 403
 
 
-def test_remover_membro_tira_o_vinculo_e_nao_a_identidade(client, make_tenant, auth_headers):
+def test_remover_membro_tira_o_vinculo_e_nao_a_identidade(
+    client, make_tenant, auth_headers, membro
+):
     """`users` é global: a mesma pessoa pode trabalhar em outras empresas."""
     t = make_tenant()
     headers = auth_headers(t["email"], t["password"])
-    user_id, email, senha = _membro(client, headers)
+    pessoa = membro(t)
+    user_id, email, senha = pessoa["user_id"], pessoa["email"], pessoa["password"]
 
     assert (
         client.delete(f"/api/v1/tenants/me/members/{user_id}", headers=headers).status_code == 204
@@ -174,12 +170,13 @@ def test_nao_se_rebaixa_nem_se_desativa(client, make_tenant, auth_headers):
     )
 
 
-def test_ultimo_owner_nao_e_rebaixado(client, make_tenant, auth_headers):
+def test_ultimo_owner_nao_e_rebaixado(client, make_tenant, auth_headers, membro):
     t = make_tenant()
     headers = auth_headers(t["email"], t["password"])
     # Um admin para fazer o pedido, e o owner original como alvo.
-    admin_id, admin_email, admin_senha = _membro(client, headers, role="admin")
-    do_admin = auth_headers(admin_email, admin_senha)
+    pessoa = membro(t, role="admin")
+    admin_id = pessoa["user_id"]
+    do_admin = auth_headers(pessoa["email"], pessoa["password"])
 
     r = client.patch(
         f"/api/v1/tenants/me/members/{t['user_id']}", json={"role": "admin"}, headers=do_admin
@@ -202,11 +199,11 @@ def test_ultimo_owner_nao_e_rebaixado(client, make_tenant, auth_headers):
     )
 
 
-def test_operator_nao_mexe_em_membro(client, make_tenant, auth_headers):
+def test_operator_nao_mexe_em_membro(client, make_tenant, auth_headers, membro):
     t = make_tenant()
-    headers = auth_headers(t["email"], t["password"])
-    user_id, email, senha = _membro(client, headers)
-    do_operator = auth_headers(email, senha)
+    pessoa = membro(t)
+    user_id = pessoa["user_id"]
+    do_operator = auth_headers(pessoa["email"], pessoa["password"])
 
     assert (
         client.patch(
@@ -224,61 +221,3 @@ def test_membro_de_outra_empresa_nao_e_encontrado(client, make_tenant, auth_head
         f"/api/v1/tenants/me/members/{b['user_id']}", json={"role": "viewer"}, headers=headers_a
     )
     assert r.status_code == 404
-
-
-def test_convidar_quem_ja_tem_conta_nao_troca_a_senha_dela(client, make_tenant, auth_headers):
-    """Identidade é global; senha é da pessoa, não de quem convida.
-
-    Aplicar a senha do convite a uma conta que já existe deixaria uma empresa
-    trocando a senha de alguém que trabalha em outra — o contrário de
-    isolamento. A resposta diz que já existia, para a tela não mandar entregar
-    uma senha que não abre nada.
-    """
-    primeira = make_tenant()
-    segunda = make_tenant()
-    senha_original = primeira["password"]
-
-    r = client.post(
-        "/api/v1/tenants/me/members",
-        headers=auth_headers(segunda["email"], segunda["password"]),
-        json={
-            "email": primeira["email"],
-            "password": "senha-que-deve-ser-ignorada",
-            "full_name": "Outro Nome",
-            "role": "operator",
-        },
-    )
-    assert r.status_code == 201, r.text
-    assert r.json()["already_had_account"] is True
-
-    # A senha antiga continua valendo, e a do convite não vale.
-    assert (
-        client.post(
-            "/api/v1/auth/login",
-            json={"email": primeira["email"], "password": senha_original},
-        ).status_code
-        == 200
-    )
-    assert (
-        client.post(
-            "/api/v1/auth/login",
-            json={"email": primeira["email"], "password": "senha-que-deve-ser-ignorada"},
-        ).status_code
-        == 401
-    )
-
-
-def test_convite_de_conta_nova_diz_que_e_nova(client, make_tenant, auth_headers):
-    t = make_tenant()
-    r = client.post(
-        "/api/v1/tenants/me/members",
-        headers=auth_headers(t["email"], t["password"]),
-        json={
-            "email": "pessoa-nova@example.com",
-            "password": "senha-forte-12345",
-            "full_name": "Pessoa Nova",
-            "role": "viewer",
-        },
-    )
-    assert r.status_code == 201, r.text
-    assert r.json()["already_had_account"] is False

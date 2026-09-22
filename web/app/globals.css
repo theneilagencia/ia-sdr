@@ -204,3 +204,14 @@ td .meta { display: block; color: var(--muted); font-size: 12px; }
    retorno alta queima o domínio de quem envia. */
 .saidas { color: var(--warn); font-size: 14px; margin: -4px 0 16px; }
 .saidas strong { font-variant-numeric: tabular-nums; }
+
+/* O link do convite, que aparece uma única vez. Monoespaçado e em largura
+   cheia para caber inteiro na tela: um link truncado é um link copiado pela
+   metade, e o erro só apareceria do outro lado, para quem não pode consertar. */
+.link-de-convite {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  margin-bottom: 8px;
+  background: var(--accent-soft);
+}

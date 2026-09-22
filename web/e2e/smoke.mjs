@@ -210,6 +210,107 @@ try {
     "o próprio usuário não tem seletor de papel",
   );
 
+  // O convite inteiro, ponta a ponta: o link sai aqui, e quem entra é outra
+  // pessoa, em outro navegador. Fazer o aceite na mesma aba do owner provaria
+  // nada — o cookie dele estaria lá, e a tela funcionaria mesmo se o fluxo
+  // público estivesse quebrado.
+  const pendentes = () =>
+    page.locator('[data-secao="convites-pendentes"] tbody tr').count();
+  const pendentesAntes = await pendentes();
+  const convidadaEmail = `convidada-${Date.now()}@example.com`;
+  const convidar = page.locator('[data-secao="convidar"]');
+  await convidar.locator('input[name="email"]').fill(convidadaEmail);
+  await convidar.locator("select").selectOption("operator");
+  await convidar.locator('button[type="submit"]').click();
+  const linkNaTela = convidar.locator('[data-campo="link-de-convite"]');
+  checar(
+    await ate(async () => (await linkNaTela.count()) > 0),
+    "convidar devolve o link de aceite",
+  );
+  const linkDoConvite = (await linkNaTela.count()) > 0 ? await linkNaTela.inputValue() : "";
+  checar(linkDoConvite.includes("/convite/"), "o link aponta para a tela de aceite");
+
+  await page.reload();
+  await hidratada();
+  checar(
+    (await page.locator('[data-campo="link-de-convite"]').count()) === 0,
+    "o link não volta na recarga: ele aparece uma vez",
+  );
+  checar(
+    (await pendentes()) === pendentesAntes + 1,
+    "o convite pendente aparece na lista, ocupando a vaga do plano",
+  );
+  checar(
+    (await page.locator(`[data-convite="${convidadaEmail}"]`).count()) === 1,
+    "a lista de pendentes diz para quem o link foi gerado",
+  );
+
+  if (linkDoConvite) {
+    // Contexto novo = navegador novo: nenhum cookie do owner atravessa.
+    const outroNavegador = await browser.newContext();
+    const convidada = await outroNavegador.newPage();
+    // O host do link vem do backend (`APP_BASE_URL`), que em produção é o mesmo
+    // domínio; aqui só o caminho importa.
+    await convidada.goto(`${WEB}${new URL(linkDoConvite).pathname}`);
+    await convidada.waitForSelector('[data-hidratado="1"]', {
+      state: "attached",
+      timeout: 20000,
+    });
+    checar(
+      (await convidada.locator("h1").innerText()).includes("convite"),
+      "o link abre a tela de aceite sem exigir login",
+    );
+    await convidada.fill('input[name="full_name"]', "Pessoa Convidada");
+    await convidada.fill('input[name="password"]', "senha-da-convidada-123");
+    await convidada.click('button[type="submit"]');
+    let entrou = true;
+    try {
+      await convidada.waitForURL(`${WEB}/`, { timeout: 20000 });
+    } catch {
+      entrou = false;
+      console.error(
+        `  diagnóstico: aceite não entrou — ${await convidada
+          .locator("p.erro")
+          .allInnerTexts()}`,
+      );
+    }
+    checar(entrou, "aceitar o convite já entra na plataforma");
+    if (entrou) {
+      checar(
+        (await convidada.locator("h1").innerText()).includes("trabalhando"),
+        "quem aceitou cai no funil da empresa que convidou",
+      );
+    }
+    await outroNavegador.close();
+
+    await page.reload();
+    await hidratada();
+    checar(
+      (await page.locator("tbody tr", { hasText: convidadaEmail }).count()) >= 1,
+      "quem aceitou passa a constar na equipe",
+    );
+    checar(
+      (await page.locator(`[data-convite="${convidadaEmail}"]`).count()) === 0,
+      "o convite aceito sai da lista de pendentes",
+    );
+  }
+
+  // Revogar: o caminho de quem convidou o email errado.
+  const errada = `errada-${Date.now()}@example.com`;
+  await page.locator('[data-secao="convidar"] input[name="email"]').fill(errada);
+  await page.locator('[data-secao="convidar"] button[type="submit"]').click();
+  checar(
+    await ate(async () => (await page.locator(`[data-convite="${errada}"]`).count()) === 1),
+    "o convite errado aparece para poder ser revogado",
+  );
+  await page
+    .locator(`[data-convite="${errada}"] button:has-text("Revogar")`)
+    .click();
+  checar(
+    await ate(async () => (await page.locator(`[data-convite="${errada}"]`).count()) === 0),
+    "revogar tira o convite e devolve a vaga",
+  );
+
   // As telas que fazem o funil andar: campanha, lista e disparo. O caminho é
   // encadeado de propósito — a campanha recebe a lista, e a lista alimenta o
   // seletor de alvo do agente. Se um elo quebra, o teste aponta qual.

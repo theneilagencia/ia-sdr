@@ -49,6 +49,11 @@ services:
       # Base do link de descadastro que vai em todo email. Errada, o link não
       # abre — e email frio sem saída queima o domínio da empresa.
       PUBLIC_BASE_URL: https://${DOMAIN:?defina DOMAIN no .env}
+      # Base do link de convite, que abre uma **tela**, não um endpoint. Aqui é o
+      # mesmo domínio da API porque o Caddy divide um domínio só por caminho
+      # (/api/* para a API, o resto para o web); em desenvolvimento são portas
+      # diferentes, e é por isso que são dois ajustes e não um.
+      APP_BASE_URL: https://${DOMAIN}
       CORS_ORIGINS: '["https://${DOMAIN}"]'
       # Chave da plataforma. Fica vazia por padrão: cada empresa configura a
       # própria pela tela de Configurações, e o fallback abaixo é o interruptor

@@ -19,8 +19,8 @@ from app.db.models.knowledge import CompanyProfile
 from app.db.models.platform import Membership, Plan, SubscriptionStatus, Tenant, User
 from app.db.session import tenant_session, unscoped_session
 from app.rbac.roles import Role, permissions_for
-from app.services import audit
-from app.tenancy.context import TenantContext
+from app.services import audit, invitations
+from app.tenancy.context import TenantContext, system_context, use_context
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -141,6 +141,55 @@ def login(payload: schemas.LoginRequest) -> schemas.TokenResponse:
             tenant_id=tenant.id,
             role=membership.role,
         )
+
+
+@router.post("/invitations/accept", response_model=schemas.TokenResponse)
+def accept_invitation(payload: schemas.AcceptInviteRequest) -> schemas.TokenResponse:
+    """Aceita um convite e entra — sem login antes, porque pode não haver conta.
+
+    É público por necessidade: quem clica no link ainda não é membro de nada.
+    Aceitar exige a senha **do dono do email**: se a conta é nova, a senha
+    informada nasce com ela; se já existe, tem de ser a que a pessoa usa. Essa
+    exigência é o que separa um convite de uma chave — quem convida vê o link uma
+    vez e, sem a senha, não anexa nem abre a conta de mais ninguém.
+
+    Por isso a sessão sai daqui em qualquer um dos dois casos: a prova de posse é
+    a mesma que o login pede.
+    """
+    aceite = invitations.aceitar(
+        payload.token, password=payload.password, full_name=payload.full_name
+    )
+
+    with use_context(system_context(aceite.tenant_id, source="public")), tenant_session(
+        aceite.tenant_id
+    ) as book:
+        audit.record(
+            book,
+            action="member.invite_accepted",
+            resource_type="user",
+            resource_id=aceite.user_id,
+            payload={
+                "email": aceite.email,
+                "role": aceite.role,
+                # Quem administra precisa distinguir "entrou gente nova na
+                # plataforma" de "alguém que já usava outra empresa entrou aqui".
+                "conta_criada": aceite.conta_criada,
+            },
+            context=system_context(aceite.tenant_id, source="public"),
+        )
+
+    token = create_access_token(
+        user_id=aceite.user_id,
+        tenant_id=aceite.tenant_id,
+        role=aceite.role,
+        is_platform_admin=aceite.is_platform_admin,
+    )
+    return schemas.TokenResponse(
+        access_token=token,
+        expires_in_minutes=settings.access_token_ttl_minutes,
+        tenant_id=aceite.tenant_id,
+        role=aceite.role,
+    )
 
 
 @router.post("/switch-tenant", response_model=schemas.TokenResponse)

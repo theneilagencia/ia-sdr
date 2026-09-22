@@ -12,12 +12,12 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_context, get_db, require
 from app.api.v1 import schemas
+from app.core.config import settings
 from app.core.errors import ConflictError, NotFound
-from app.core.security import hash_password
 from app.db.models.platform import Membership, Tenant, User
 from app.db.session import unscoped_session
 from app.rbac.roles import Permission, Role
-from app.services import audit, export, limits
+from app.services import audit, export, invitations, limits
 from app.tenancy.context import TenantContext
 
 router = APIRouter(prefix="/tenants", tags=["tenant"])
@@ -87,60 +87,100 @@ def list_members(
     ]
 
 
+@router.get("/me/invitations", response_model=list[schemas.InvitationResponse])
+def list_invitations(
+    ctx: TenantContext = Depends(require(Permission.USER_READ)),
+    db: Session = Depends(get_db),
+) -> list[schemas.InvitationResponse]:
+    """Os convites que ainda podem ser aceitos.
+
+    Sem esta lista, um convite pendente é invisível: ninguém sabe que a vaga do
+    plano já está ocupada, nem para quem o link foi mandado.
+    """
+    return [
+        schemas.InvitationResponse(
+            id=c.id,
+            email=c.email,
+            role=Role(c.role),
+            expires_at=c.expires_at,
+            created_at=c.created_at,
+        )
+        for c in invitations.pendentes(db, ctx.tenant_id)
+    ]
+
+
 @router.post(
-    "/me/members", response_model=schemas.MemberResponse, status_code=status.HTTP_201_CREATED
+    "/me/invitations",
+    response_model=schemas.InvitationCreated,
+    status_code=status.HTTP_201_CREATED,
 )
-def add_member(
-    payload: schemas.MemberCreate,
+def invite_member(
+    payload: schemas.InvitationCreate,
     ctx: TenantContext = Depends(require(Permission.USER_WRITE)),
     db: Session = Depends(get_db),
-) -> schemas.MemberResponse:
-    limits.check_can_add_user(db, ctx.tenant_id)
+) -> schemas.InvitationCreated:
+    """Convida alguém para esta empresa e devolve o link, uma vez.
 
-    with unscoped_session(reason="tenant:add-member") as identity:
-        user = identity.execute(
-            select(User).where(User.email == payload.email.lower())
-        ).scalar_one_or_none()
-        # A identidade é global: uma pessoa pode servir várias empresas com a
-        # mesma conta. Quando ela já existe, a senha do convite não é aplicada —
-        # trocar a senha de alguém porque outra empresa o convidou seria o
-        # contrário de isolamento — e a resposta precisa dizer isso.
-        ja_existia = user is not None
-        if user is None:
-            user = User(
-                email=payload.email.lower(),
-                password_hash=hash_password(payload.password),
-                full_name=payload.full_name,
-            )
-            identity.add(user)
-            identity.flush()
-        existing = identity.execute(
-            select(Membership)
-            .where(Membership.tenant_id == ctx.tenant_id)
-            .where(Membership.user_id == user.id)
-        ).scalar_one_or_none()
-        if existing is not None:
-            raise ConflictError("Usuário já faz parte deste tenant")
-        identity.add(Membership(tenant_id=ctx.tenant_id, user_id=user.id, role=payload.role.value))
-        identity.flush()
-        result = schemas.MemberResponse(
-            user_id=user.id,
-            email=user.email,
-            full_name=user.full_name,
-            role=payload.role,
-            is_active=True,
-            already_had_account=ja_existia,
-        )
+    Substitui a criação direta de membro, que tinha dois problemas de uma vez: a
+    senha inicial de outra pessoa passava pela mão de quem convidava, e a
+    resposta precisava dizer se aquele email já existia na plataforma — para
+    explicar que a senha seria ignorada. Agora quem escolhe a senha é quem entra,
+    e a resposta é a mesma para qualquer email.
 
+    O link não é enviado por email daqui: o email configurado na empresa é o
+    canal de prospecção dela, com aquecimento e teto diário, e gastar essa cota
+    com mensagem interna seria trocar reputação de domínio por conveniência.
+    """
+    limits.check_can_add_user(db, ctx.tenant_id, email=payload.email)
+
+    convite, token = invitations.criar(
+        db,
+        tenant_id=ctx.tenant_id,
+        email=payload.email,
+        role=payload.role,
+        invited_by=ctx.user_id,
+    )
     audit.record(
         db,
-        action="member.added",
-        resource_type="user",
-        resource_id=result.user_id,
-        payload={"role": payload.role.value},
+        action="member.invited",
+        resource_type="invitation",
+        resource_id=convite.id,
+        payload={"email": convite.email, "role": convite.role},
         context=ctx,
     )
-    return result
+    base = settings.app_base_url.rstrip("/")
+    return schemas.InvitationCreated(
+        id=convite.id,
+        email=convite.email,
+        role=Role(convite.role),
+        expires_at=convite.expires_at,
+        created_at=convite.created_at,
+        accept_url=f"{base}/convite/{token}",
+    )
+
+
+@router.delete("/me/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_invitation(
+    invitation_id: uuid.UUID,
+    ctx: TenantContext = Depends(require(Permission.USER_WRITE)),
+    db: Session = Depends(get_db),
+) -> None:
+    """Cancela um convite que ainda não foi aceito.
+
+    É o que transforma "mandei para o email errado" em um clique, em vez de uma
+    credencial válida circulando por sete dias.
+    """
+    convite = invitations.revogar(db, ctx.tenant_id, invitation_id)
+    if convite is None:
+        raise NotFound("Convite não encontrado ou já aceito")
+    audit.record(
+        db,
+        action="member.invite_revoked",
+        resource_type="invitation",
+        resource_id=invitation_id,
+        payload={"email": convite.email},
+        context=ctx,
+    )
 
 
 @router.patch("/me/members/{user_id}", response_model=schemas.MemberResponse)

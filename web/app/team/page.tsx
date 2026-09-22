@@ -1,18 +1,19 @@
-import { api, type Me, type Member } from "@/lib/api";
+import { api, type Invitation, type Me, type Member } from "@/lib/api";
 
 import Nav from "../nav";
-import { Convidar, LinhaDoMembro, TrocarSenha } from "./forms";
+import { Convidar, LinhaDoMembro, Pendentes, TrocarSenha } from "./forms";
 
 /**
- * Equipe e papéis.
+ * Equipe, convites e papéis.
  *
- * Só existia por API, o que significava que convidar alguém exigia `curl` — e
- * que a senha de todo mundo era escolhida por quem convidou, sem forma de
- * trocar. As duas coisas ficam nesta tela.
+ * Só existia por API, o que significava que convidar alguém exigia `curl`. E o
+ * convite de antes criava a conta na hora, com uma senha digitada por quem
+ * convidava: agora o que sai daqui é um link, e a senha é de quem entra.
  */
 export default async function TeamPage() {
-  const [membros, eu] = await Promise.all([
+  const [membros, convites, eu] = await Promise.all([
     api<Member[]>("/api/v1/tenants/me/members"),
+    api<Invitation[]>("/api/v1/tenants/me/invitations"),
     api<Me>("/api/v1/auth/me"),
   ]);
   const podeAdministrar = eu.role === "owner" || eu.role === "admin";
@@ -24,8 +25,11 @@ export default async function TeamPage() {
       <main className="shell">
         <h1>Equipe</h1>
         <p className="lede">
-          {membros.length} {membros.length === 1 ? "pessoa" : "pessoas"} nesta empresa.
-          Quem revisa e aprova texto de IA precisa ser <strong>operator</strong> ou acima;{" "}
+          {membros.length} {membros.length === 1 ? "pessoa" : "pessoas"} nesta empresa
+          {convites.length > 0
+            ? `, mais ${convites.length} ${convites.length === 1 ? "convite" : "convites"} esperando aceite`
+            : ""}
+          . Quem revisa e aprova texto de IA precisa ser <strong>operator</strong> ou acima;{" "}
           <strong>viewer</strong> só olha.
         </p>
 
@@ -51,6 +55,7 @@ export default async function TeamPage() {
           </tbody>
         </table>
 
+        <Pendentes convites={convites} podeAdministrar={podeAdministrar} />
         {podeAdministrar ? <Convidar /> : null}
         <TrocarSenha email={eu.email} />
       </main>

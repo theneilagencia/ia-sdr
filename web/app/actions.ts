@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
-import { api, ApiError, type Resultado } from "@/lib/api";
+import { api, ApiError, type Resultado, type ResultadoDoConvite } from "@/lib/api";
 import { clearToken, setToken } from "@/lib/session";
 
 type TokenResponse = { access_token: string; expires_in_minutes: number };
@@ -327,36 +327,72 @@ export async function apagarDocumento(form: FormData) {
 }
 
 // ------------------------------------------------------------------- membros
-export async function convidarMembro(_: Resultado, form: FormData): Promise<Resultado> {
+/**
+ * Convidar é emitir um link, não criar senha para outra pessoa.
+ *
+ * O resultado carrega `link` porque ele existe **uma vez**: a API devolve o
+ * token nesta resposta e guarda só o hash. Recarregar a tela não traz o link de
+ * volta — e é isso que faz dele credencial de uso único em vez de dado de
+ * cadastro.
+ */
+export async function convidarMembro(
+  _: ResultadoDoConvite,
+  form: FormData,
+): Promise<ResultadoDoConvite> {
   const email = String(form.get("email") ?? "").trim();
   try {
-    // A identidade é global nesta plataforma: uma pessoa pode servir várias
-    // empresas com a mesma conta. Quando ela já tinha conta, a senha digitada
-    // aqui **não** foi aplicada — e mandar entregá-la deixaria a pessoa
-    // convidada tentando abrir a porta com uma chave que não é dela.
-    const membro = await api<{ already_had_account: boolean }>(
-      "/api/v1/tenants/me/members",
-      {
-        method: "POST",
-        body: {
-          email,
-          password: String(form.get("password") ?? ""),
-          full_name: String(form.get("full_name") ?? "").trim(),
-          role: String(form.get("role") ?? "operator"),
-        },
-      },
-    );
+    const convite = await api<{ accept_url: string }>("/api/v1/tenants/me/invitations", {
+      method: "POST",
+      body: { email, role: String(form.get("role") ?? "operator") },
+    });
     revalidatePath("/team");
     return {
       ok: true,
-      message: membro.already_had_account
-        ? `${email} entrou na equipe. Esta pessoa já tinha conta na plataforma: ela entra com a senha que já usa, e a senha digitada aqui foi ignorada.`
-        : `${email} entrou na equipe. Entregue a senha por um canal seguro — ela pode trocar depois.`,
+      message: `Convite para ${email}. Entregue este link por um canal seguro: ele vale 7 dias, serve uma vez, e a senha é escolhida por quem entra.`,
+      link: convite.accept_url,
     };
   } catch (erro) {
     if (erro instanceof ApiError) return { ok: false, message: erro.message };
     throw erro;
   }
+}
+
+export async function revogarConvite(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("id") ?? "");
+  const email = String(form.get("email") ?? "");
+  const resultado = await executar(
+    () => api(`/api/v1/tenants/me/invitations/${id}`, { method: "DELETE" }),
+    `Convite de ${email} revogado. O link para de funcionar agora, e a vaga do plano volta a ficar livre.`,
+  );
+  revalidatePath("/team");
+  return resultado;
+}
+
+/**
+ * Aceitar o convite: a pessoa prova quem é e já entra.
+ *
+ * Quando o email é novo na plataforma, a senha digitada aqui nasce com a conta.
+ * Quando já existe conta, a senha tem de ser a dela — o convite anexa o vínculo,
+ * não abre a conta de ninguém. A recusa é uma frase só para os dois casos, de
+ * propósito: distinguir contaria a quem convidou quem já usa a plataforma.
+ */
+export async function aceitarConvite(_: string | null, form: FormData): Promise<string | null> {
+  try {
+    const token = await api<TokenResponse>("/api/v1/auth/invitations/accept", {
+      method: "POST",
+      body: {
+        token: String(form.get("token") ?? ""),
+        password: String(form.get("password") ?? ""),
+        full_name: String(form.get("full_name") ?? "").trim(),
+      },
+      requireAuth: false,
+    });
+    await setToken(token.access_token, token.expires_in_minutes);
+  } catch (erro) {
+    if (erro instanceof ApiError) return erro.message;
+    throw erro;
+  }
+  redirect("/");
 }
 
 export async function mudarPapel(_: Resultado, form: FormData): Promise<Resultado> {

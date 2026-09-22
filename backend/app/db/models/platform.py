@@ -73,6 +73,34 @@ class User(Base, TimestampMixin):
     )
 
 
+class Invitation(Base, TenantScoped, TimestampMixin):
+    """Convite para entrar numa empresa, aceito por quem recebe.
+
+    O que muda em relação a criar a pessoa direto: **quem escolhe a senha é ela**.
+    Antes um admin digitava a senha de outra pessoa e descobria, pela resposta, se
+    aquele email já tinha conta na plataforma — enumeração de base de usuários, de
+    severidade baixa, mas cujo conserto certo nunca foi esconder a resposta: é não
+    precisar dela.
+
+    O token não é guardado, só o hash. Convite pendente lido no banco não abre
+    porta nenhuma — a mesma regra da senha. E `accepted_at` fica: saber que o
+    convite foi aceito, por qual email e quando, é parte do histórico de quem
+    entrou na empresa.
+    """
+
+    __tablename__ = "invitations"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    email: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    #: SHA-256 do token. Hash rápido, e de propósito: o token é aleatório de 32
+    #: bytes, então não há o que uma função lenta proteja aqui.
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Membership(Base, TimestampMixin):
     """Usuário X pertence ao tenant Y com o papel Z."""
 

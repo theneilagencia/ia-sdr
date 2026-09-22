@@ -287,22 +287,11 @@ def test_config_de_uma_empresa_nao_vaza_para_outra(client, make_tenant, auth_hea
     assert "Segredo" not in config["research"]["instructions"]
 
 
-def test_quem_so_le_nao_configura_agente(client, make_tenant, auth_headers):
+def test_quem_so_le_nao_configura_agente(client, make_tenant, auth_headers, membro):
     """Trocar o modelo é decisão de custo: não é para quem só acompanha."""
     t = make_tenant()
-    dono = auth_headers(t["email"], t["password"])
-    convite = client.post(
-        "/api/v1/tenants/me/members",
-        headers=dono,
-        json={
-            "email": f"viewer-{t['tenant_id']}@example.com",
-            "password": "senha-forte-123",
-            "role": "viewer",
-        },
-    )
-    assert convite.status_code == 201, convite.text
-
-    headers = auth_headers(f"viewer-{t['tenant_id']}@example.com", "senha-forte-123")
+    viewer = membro(t, role="viewer")
+    headers = auth_headers(viewer["email"], viewer["password"])
     assert client.get("/api/v1/agents/config", headers=headers).status_code == 200
     negado = client.put(
         "/api/v1/agents/config/research",

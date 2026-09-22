@@ -15,8 +15,8 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 **Sprint 1 (Foundation) implementado e testado**: autenticação, tenants,
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
-criptografia de credenciais e painel de plataforma. 65 endpoints, 23 tabelas,
-164 testes contra PostgreSQL de verdade.
+criptografia de credenciais e painel de plataforma. 106 endpoints, 25 tabelas,
+373 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
@@ -189,6 +189,11 @@ O que está coberto:
   compartilha código com outro
 - `test_auth_and_members.py` — troca de senha que encerra as sessões abertas, e
   as travas que impedem uma empresa de ficar sem ninguém que possa administrar
+- `test_invitations.py` — o convite que a pessoa aceita: o que o convite **não**
+  conta e o que o aceite exige. O teste central compara duas respostas campo a
+  campo — convidar um email que já tem conta e um que não existe em lugar nenhum
+  precisam ser indistinguíveis —, e o mesmo vale na outra ponta: senha errada de
+  conta existente devolve exatamente a recusa de senha curta em conta nova
 - `test_knowledge.py` — fatiamento, ingestão idempotente, escopo por campanha e
   a busca por relevância; inclusive o teste que confere que é o trecho certo
   que chega ao contexto do agente, e não o documento mais recente
@@ -208,7 +213,7 @@ O que está coberto:
   `MockTransport`: o token que nunca volta na resposta, o prospect sem nota que
   não sobe, o reenvio que não duplica, e um teste que usa o modelo do próprio
   Qualification Agent para a forma dos critérios não poder divergir em silêncio
-- `web/e2e/smoke.mjs` — browser de verdade: cinquenta e sete verificações cobrindo o
+- `web/e2e/smoke.mjs` — browser de verdade: noventa verificações cobrindo o
   caminho crítico de cada tela, inclusive o que é salvo no Company Brain voltar
   na recarga, o documento colado aparecer indexado, e o encadeamento que faz o
   funil andar — critério salvo na campanha, planilha do Excel em português
@@ -218,7 +223,9 @@ O que está coberto:
   prospect no funil, a marca de platform admin nos dois sentidos — quem a tem
   enxerga as empresas, quem não a tem não ganha nem o link —, a cadência que
   nasce desativada e recusa inscrição até ser ativada, e a conexão com o RAVI
-  que recusa credencial que não funciona em vez de salvar às cegas. O CRUD
+  que recusa credencial que não funciona em vez de salvar às cegas, e o convite
+  ponta a ponta — o link gerado numa aba e aceito em **outro navegador**, sem
+  cookie do administrador, porque aceitar na mesma aba não provaria nada. O CRUD
   completo das telas
   fica nos testes de backend — repetir tudo no browser só somaria tempo e
   superfície de intermitência. Pega o
@@ -230,7 +237,8 @@ O que está coberto:
 ```
 web/                  Next.js: funil, revisão e envio, conversas, prospects
                       com import de lista e detalhe, campanhas, agentes,
-                      cadências, Company Brain, base de conhecimento, equipe,
+                      cadências, Company Brain, base de conhecimento, equipe
+                      com convite por link e a tela pública de aceite,
                       configurações (IA, email, volume e CRM) e o painel da
                       plataforma
 backend/

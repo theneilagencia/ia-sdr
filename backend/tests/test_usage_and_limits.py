@@ -208,34 +208,43 @@ def test_cifragem_nao_e_deterministica():
 
 
 def test_limite_de_pessoas_bloqueia_o_convite(client, make_tenant, auth_headers):
-    """Starter dá duas pessoas: o owner e mais uma."""
+    """Starter dá duas pessoas: o owner e mais uma.
+
+    E **convite pendente conta**: sem isso, um plano de duas pessoas aceitaria
+    convites à vontade, e o limite só apareceria para quem tentasse aceitar por
+    último — que não teve nada a ver com a decisão de convidar.
+    """
     t = make_tenant(plan=Plan.STARTER.value)
     headers = auth_headers(t["email"], t["password"])
 
     primeira = client.post(
-        "/api/v1/tenants/me/members",
+        "/api/v1/tenants/me/invitations",
         headers=headers,
-        json={
-            "email": "segunda@example.com",
-            "password": "senha-forte-12345",
-            "full_name": "Segunda",
-            "role": "operator",
-        },
+        json={"email": "segunda@example.com", "role": "operator"},
     )
     assert primeira.status_code == 201, primeira.text
 
+    # A segunda vaga está ocupada por um convite que ninguém aceitou ainda.
     terceira = client.post(
-        "/api/v1/tenants/me/members",
+        "/api/v1/tenants/me/invitations",
         headers=headers,
-        json={
-            "email": "terceira@example.com",
-            "password": "senha-forte-12345",
-            "full_name": "Terceira",
-            "role": "viewer",
-        },
+        json={"email": "terceira@example.com", "role": "viewer"},
     )
     assert terceira.status_code == 402
     assert terceira.json()["error"]["code"] == "limit_exceeded"
+
+    # Revogar o pendente devolve a vaga.
+    convite_id = primeira.json()["id"]
+    assert (
+        client.delete(f"/api/v1/tenants/me/invitations/{convite_id}", headers=headers).status_code
+        == 204
+    )
+    de_novo = client.post(
+        "/api/v1/tenants/me/invitations",
+        headers=headers,
+        json={"email": "terceira@example.com", "role": "viewer"},
+    )
+    assert de_novo.status_code == 201, de_novo.text
 
 
 def test_limite_de_contas_de_email_bloqueia_a_segunda(client, make_tenant, auth_headers):
@@ -309,7 +318,7 @@ def test_todo_limite_do_plano_tem_onde_ser_verificado():
     #: Onde cada limite do plano é imposto hoje. Mudou de lugar? Atualize aqui.
     ONDE = {
         "campaigns": "limits.check_can_create_campaign (POST /campaigns)",
-        "users": "limits.check_can_add_user (POST /tenants/me/members)",
+        "users": "limits.check_can_add_user (POST /tenants/me/invitations)",
         "email_accounts": "limits.check_can_add_email_account (POST /integrations)",
         "knowledge_documents": "limits.check_can_add_document (POST /knowledge/documents*)",
         "prospects_per_month": "prospects._check_import_budget (POST /prospects/import*)",

@@ -138,6 +138,11 @@ De propósito, e a mensagem diz qual é o caso:
   um token válido para qualquer empresa.
 - **`PUBLIC_BASE_URL` sem HTTPS ou apontando para localhost.** É a base do link
   de descadastro que vai em todo email: errada, o link não abre.
+- **`APP_BASE_URL` sem HTTPS ou apontando para localhost.** É a base do link de
+  convite, que abre a tela de aceite. Errada, ninguém entra na empresa que
+  convidou; em `http://`, o token de aceite — que é uma credencial de uso único —
+  viaja em claro. O `docker-compose.prod.yml` deriva as duas do `DOMAIN`, então
+  isto só dá problema em instalação feita à mão.
 - **Role do banco com privilégio demais.** Se a aplicação conectasse como
   superusuário, o Row Level Security seria ignorado e as empresas enxergariam os
   dados umas das outras. É melhor não subir do que subir assim.

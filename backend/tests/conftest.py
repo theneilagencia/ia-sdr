@@ -132,6 +132,55 @@ def auth_headers(client):
 
 
 @pytest.fixture
+def membro(client, auth_headers):
+    """Põe alguém numa empresa pelo caminho de verdade: convite e aceite.
+
+    Criar membro com senha escolhida por outra pessoa não existe mais — era o
+    fluxo que revelava, na resposta, se aquele email já tinha conta na
+    plataforma. Os testes que só precisavam de "um operador nesta empresa"
+    passam por aqui, e de graça exercitam o fluxo novo inteiro.
+    """
+
+    def _membro(
+        tenant: dict,
+        *,
+        role: str = "operator",
+        email: str | None = None,
+        password: str = "senha-forte-12345",
+        full_name: str = "",
+    ) -> dict:
+        email = email or f"{role}-{uuid.uuid4().hex[:8]}@example.com"
+        headers = auth_headers(tenant["email"], tenant["password"])
+        convite = client.post(
+            "/api/v1/tenants/me/invitations",
+            headers=headers,
+            json={"email": email, "role": role},
+        )
+        assert convite.status_code == 201, convite.text
+        token = convite.json()["accept_url"].rsplit("/", 1)[-1]
+
+        aceite = client.post(
+            "/api/v1/auth/invitations/accept",
+            json={"token": token, "password": password, "full_name": full_name},
+        )
+        assert aceite.status_code == 200, aceite.text
+
+        # O `user_id` sai da listagem porque a resposta do aceite é um token de
+        # sessão, não um cadastro: quem acabou de entrar recebe o que precisa
+        # para entrar, e nada sobre a estrutura interna da empresa.
+        membros = client.get("/api/v1/tenants/me/members", headers=headers).json()
+        return {
+            "user_id": next(m["user_id"] for m in membros if m["email"] == email),
+            "email": email,
+            "password": password,
+            "role": role,
+            "access_token": aceite.json()["access_token"],
+        }
+
+    return _membro
+
+
+@pytest.fixture
 def db_for():
     """Sessão já escopada em um tenant, como a aplicação usa."""
     return tenant_session

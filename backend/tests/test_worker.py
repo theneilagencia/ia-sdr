@@ -16,7 +16,15 @@ from app.orchestrator.executors.outreach import OutreachBlocked
 from app.services import jobs
 from app.workers import runner
 
-AGORA = datetime(2026, 9, 22, 13, 0, tzinfo=UTC)
+# O relógio que estes testes controlam, sempre à frente do real.
+#
+# Era um instante fixo no código, e isso é uma bomba de tempo: o job é
+# enfileirado com `run_at = now()`, e a reserva só pega job cujo `run_at` já
+# passou. Enquanto o relógio da máquina estava antes daquele instante, tudo
+# passava; depois dele, `claim_next` devolvia `None` e dois testes quebravam sem
+# ninguém ter mexido em nada. Teste que falha pelo calendário ensina a ignorar
+# teste vermelho, que é o pior hábito que uma suíte pode criar.
+AGORA = datetime.now(UTC) + timedelta(hours=1)
 
 
 def _enfileirar(tenant_id, **kwargs):

@@ -33,6 +33,7 @@ from app.db.models.knowledge import (
 )
 from app.db.models.platform import (
     AuditLog,
+    Invitation,
     Membership,
     Plan,
     SubscriptionStatus,
@@ -60,6 +61,7 @@ from app.db.models.sales import (
 TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "audit_logs",
     "memberships",
+    "invitations",
     "usage_events",
     "companies",
     "contacts",
@@ -89,6 +91,7 @@ __all__ = [
     "AgentKind",
     "AgentRun",
     "AuditLog",
+    "Invitation",
     "Campaign",
     "CampaignStatus",
     "Company",
