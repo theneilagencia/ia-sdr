@@ -23,8 +23,9 @@ Revises: 0008_rls_memberships
 from __future__ import annotations
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
+
+from alembic import op
 
 revision = "0009_invitations"
 down_revision = "0008_rls_memberships"
@@ -38,7 +39,10 @@ def upgrade() -> None:
     op.create_table(
         "invitations",
         sa.Column(
-            "id", PGUUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")
+            "id",
+            PGUUID(as_uuid=True),
+            primary_key=True,
+            server_default=sa.text("gen_random_uuid()"),
         ),
         sa.Column(
             "tenant_id",
