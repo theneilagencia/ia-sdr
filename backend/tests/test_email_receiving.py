@@ -307,13 +307,13 @@ def test_caixa_lida_grava_o_que_parear(conversa_com_abordagem_enviada, monkeypat
             session, tenant_id=conversa_com_abordagem_enviada["tenant_id"]
         )
 
-    assert resultado == {
-        "fetched": 2,
-        "recorded": 1,
-        "ignored": 1,
-        "bounced": 0,
-        "failed": 0,
-    }
+    assert resultado["fetched"] == 2
+    assert resultado["recorded"] == 1
+    assert resultado["ignored"] == 1
+    assert resultado["bounced"] == 0 and resultado["failed"] == 0
+    # A conversa que recebeu mensagem **nesta** leitura, para o worker acionar o
+    # agente só nela. A que não recebeu nada não entra.
+    assert len(resultado["conversations"]) == 1
     # As duas foram processadas, então as duas podem ser marcadas como lidas.
     assert marcadas() == [0, 1]
 

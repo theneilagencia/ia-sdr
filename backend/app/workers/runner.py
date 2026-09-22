@@ -69,23 +69,16 @@ def _despachar_conversas(session, tenant_id: uuid.UUID, resultado: dict) -> None
 
     É aqui que o ciclo se fecha sozinho: o lead responde, o agente escreve a
     réplica, e ela entra na fila de revisão humana como qualquer outra.
-    """
-    if not resultado.get("recorded"):
-        return
-    from app.db.models.engagement import Conversation, Message, MessageDirection
 
-    conversas = (
-        session.execute(
-            select(Conversation.id)
-            .join(Message, Message.conversation_id == Conversation.id)
-            .where(Message.direction == MessageDirection.INBOUND.value)
-            .where(Message.created_at >= datetime.now(UTC) - timedelta(minutes=10))
-            .distinct()
-        )
-        .scalars()
-        .all()
-    )
-    for conversa_id in conversas:
+    Aciona **só as conversas que receberam mensagem nesta leitura**. A versão
+    anterior procurava toda conversa com mensagem de entrada nos últimos dez
+    minutos — e como a leitura roda a cada cinco, uma conversa já respondida
+    voltava para a fila: segundo rascunho para a mesma mensagem do lead, uma
+    unidade de IA gasta de novo, e duas réplicas parecidas esperando aprovação.
+    A deduplicação por chave não pegava isso: ela impede dois jobs iguais **na
+    fila**, não um job novo depois de o primeiro ter concluído.
+    """
+    for conversa_id in resultado.get("conversations") or []:
         jobs.enqueue(
             session,
             tenant_id=tenant_id,
@@ -111,23 +104,33 @@ def agendar_periodicos(agora: datetime | None = None) -> int:
         ]
 
     for tenant_id in tenants:
-        ctx = system_context(tenant_id, source="worker")
-        with use_context(ctx), tenant_session(tenant_id) as session:
-            for kind in (
-                JobKind.FETCH_INBOX,
-                JobKind.SEND_QUEUED,
-                JobKind.SEQUENCE_TICK,
-                JobKind.RAVI_SYNC,
-            ):
-                if jobs.enqueue(
-                    session,
-                    tenant_id=tenant_id,
-                    kind=kind,
-                    dedupe_key=kind.value,
-                    run_at=agora,
-                    max_attempts=1,  # periódico: falhou, o próximo ciclo tenta
+        # Guarda por empresa: sem isso, uma única empresa em estado ruim parava o
+        # agendamento de **todas as seguintes** — e como o processo reinicia e
+        # tenta na mesma ordem, quem vem depois dela nunca era agendado. Falha
+        # silenciosa e desigual: os clientes do fim da lista simplesmente param
+        # de ser atendidos.
+        try:
+            ctx = system_context(tenant_id, source="worker")
+            with use_context(ctx), tenant_session(tenant_id) as session:
+                for kind in (
+                    JobKind.FETCH_INBOX,
+                    JobKind.SEND_QUEUED,
+                    JobKind.SEQUENCE_TICK,
+                    JobKind.RAVI_SYNC,
                 ):
-                    criados += 1
+                    if jobs.enqueue(
+                        session,
+                        tenant_id=tenant_id,
+                        kind=kind,
+                        dedupe_key=kind.value,
+                        run_at=agora,
+                        max_attempts=1,  # periódico: falhou, o próximo ciclo tenta
+                    ):
+                        criados += 1
+        except Exception:  # noqa: BLE001 - ver comentário acima
+            logger.exception(
+                "periodicos.falha_ao_agendar", extra={"tenant_id": str(tenant_id)}
+            )
     return criados
 
 
@@ -148,14 +151,31 @@ def ciclo() -> dict:
         try:
             executar(tenant_id, kind, payload)
             with unscoped_session(reason="worker:concluir") as admin:
-                jobs.complete(admin, admin.get(Job, job_id))
+                registro = admin.get(Job, job_id)
+                if registro is not None:
+                    jobs.complete(admin, registro)
+                else:
+                    # O trabalho foi feito; só a linha do job sumiu. Contar como
+                    # falha seria mentir no log.
+                    logger.warning("job concluído mas a linha desapareceu: %s", job_id)
             executados += 1
         except Exception as exc:  # noqa: BLE001 - o worker não pode morrer por um job
             logger.exception(
                 "job falhou", extra={"job_id": str(job_id), "tenant_id": str(tenant_id)}
             )
-            with unscoped_session(reason="worker:registrar-falha") as admin:
-                jobs.fail(admin, admin.get(Job, job_id), f"{type(exc).__name__}: {exc}")
+            # O registro da falha também pode falhar — o job pode ter sido
+            # apagado no meio, e `admin.get` devolveria None. Uma exceção **dentro
+            # do handler** subiria e mataria o processo justamente quando algo já
+            # estava errado.
+            try:
+                with unscoped_session(reason="worker:registrar-falha") as admin:
+                    registro = admin.get(Job, job_id)
+                    if registro is not None:
+                        jobs.fail(admin, registro, f"{type(exc).__name__}: {exc}")
+                    else:
+                        logger.warning("job desapareceu antes de registrar a falha: %s", job_id)
+            except Exception:  # noqa: BLE001 - ver comentário acima
+                logger.exception("falha ao registrar falha do job %s", job_id)
             falhados += 1
 
     return {"requeued": retomados, "done": executados, "failed": falhados}
@@ -184,14 +204,25 @@ def main() -> int:  # pragma: no cover - laço de processo
     proximo_periodico = datetime.now(UTC)
 
     while not parar:
-        agora = datetime.now(UTC)
-        if agora >= proximo_periodico:
-            criados = agendar_periodicos(agora)
-            proximo_periodico = agora + INTERVALO_PERIODICO
-            if criados:
-                logger.info("trabalho periódico agendado", extra={"jobs": criados})
+        # O ciclo inteiro protegido: banco que reinicia, conexão cortada,
+        # failover — nada disso é motivo para o processo sair. Sob
+        # `restart: unless-stopped` ele voltaria, mas cada piscada do banco viraria
+        # um reinício, e reinício no meio de um job é o que produz job órfão. Aqui
+        # a piscada custa um ciclo.
+        try:
+            agora = datetime.now(UTC)
+            if agora >= proximo_periodico:
+                criados = agendar_periodicos(agora)
+                proximo_periodico = agora + INTERVALO_PERIODICO
+                if criados:
+                    logger.info("trabalho periódico agendado", extra={"jobs": criados})
 
-        resultado = ciclo()
+            resultado = ciclo()
+        except Exception:  # noqa: BLE001 - ver comentário acima
+            logger.exception("ciclo falhou; tentando de novo no próximo intervalo")
+            time.sleep(INTERVALO_CICLO)
+            continue
+
         if resultado["done"] or resultado["failed"]:
             logger.info("ciclo concluído", extra=resultado)
         else:

@@ -507,6 +507,12 @@ def fetch_inbox(
     host, porta = imap_settings(credenciais.get("provider", ""), integracao_config)
 
     contagem = {"recorded": 0, "ignored": 0, "bounced": 0, "failed": 0}
+    #: As conversas que receberam mensagem **nesta** leitura. O worker aciona o
+    #: agente de conversa a partir daqui: antes ele procurava toda conversa com
+    #: mensagem de entrada nos últimos dez minutos, e como a leitura roda a cada
+    #: cinco, uma conversa já respondida entrava de novo — segundo rascunho para
+    #: a mesma mensagem, e uma unidade de IA gasta duas vezes.
+    conversas_tocadas: list[str] = []
 
     def processar(bruto: bytes) -> bool:
         """Processa uma mensagem. Devolve se ela pode ser marcada como lida.
@@ -532,6 +538,7 @@ def fetch_inbox(
 
         if resultado is not None:
             contagem["recorded"] += 1
+            conversas_tocadas.append(str(resultado.conversation_id))
         elif recebido.bounce is not None:
             # Contar bounce como "ignorada" esconderia justamente o número que
             # a operação precisa vigiar: lista comprada tem taxa de retorno
@@ -545,4 +552,4 @@ def fetch_inbox(
         host, porta, credenciais["username"], credenciais["password"], limit, processar
     )
 
-    return {"fetched": lidas, **contagem}
+    return {"fetched": lidas, **contagem, "conversations": conversas_tocadas}

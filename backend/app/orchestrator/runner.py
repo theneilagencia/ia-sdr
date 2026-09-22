@@ -17,9 +17,11 @@ Duas decisões que valem explicar:
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError, NotFound
@@ -32,6 +34,8 @@ from app.orchestrator.executors.base import AgentExecutor, ExecutionResult
 from app.orchestrator.executors.echo import echo_executor
 from app.services import audit, usage
 from app.tenancy.context import TenantContext, use_context
+
+logger = logging.getLogger("ia_sdr.orchestrator")
 
 _EXECUTORS: dict[str, AgentExecutor] = {}
 
@@ -125,10 +129,43 @@ def _close_run(
         )
 
 
+def _run_existente(envelope: JobEnvelope) -> AgentRun | None:
+    """A execução que este mesmo envelope já produziu, se produziu.
+
+    O `job_id` do envelope é estável — sobrevive a requeue, porque vive no
+    payload do job. Isso torna a execução idempotente, e é o que protege o caso
+    real: um job de agente que passa de quinze minutos é considerado órfão pelo
+    `requeue_stale` e volta para a fila **enquanto ainda roda**. Sem esta
+    verificação, o segundo worker pesquisaria a mesma conta de novo, pagaria a
+    conta de novo e deixaria dois rascunhos quase iguais na fila de revisão.
+
+    Só uma execução que **falhou** pode ser refeita: é exatamente para isso que
+    a fila tem tentativas.
+    """
+    with tenant_session(envelope.tenant_id) as book:
+        return book.execute(
+            select(AgentRun)
+            .where(AgentRun.job_id == envelope.job_id)
+            .where(AgentRun.status != RunStatus.FAILED.value)
+            .limit(1)
+        ).scalar_one_or_none()
+
+
 def run_job(session: Session, envelope: JobEnvelope) -> AgentRun:
     """Executa um job dentro do contexto do tenant dono do envelope."""
     definition: AgentDefinition = AGENT_DEFINITIONS[envelope.agent]
     ctx = envelope.context()
+
+    with use_context(ctx):
+        anterior = _run_existente(envelope)
+    if anterior is not None:
+        logger.warning(
+            "agent.run.ja_executado job_id=%s status=%s — entrega repetida, não roda de novo",
+            envelope.job_id,
+            anterior.status,
+        )
+        return anterior
+
     run_id = uuid.uuid4()
 
     with use_context(ctx):

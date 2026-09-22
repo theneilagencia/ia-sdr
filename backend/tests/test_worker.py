@@ -241,10 +241,18 @@ def test_resposta_recebida_aciona_o_agente_de_conversa(empresa_com_conversa, mon
             )
         )
 
+    # A leitura diz **quais** conversas receberam mensagem agora; é isso que o
+    # worker aciona. Antes ele procurava por janela de tempo, e reacionava
+    # conversas já respondidas.
     monkeypatch.setattr(
         runner.email_receiver,
         "fetch_inbox",
-        lambda session, tenant_id, context=None: {"fetched": 1, "recorded": 1, "ignored": 0},
+        lambda session, tenant_id, context=None: {
+            "fetched": 1,
+            "recorded": 1,
+            "ignored": 0,
+            "conversations": [str(empresa_com_conversa["conversation_id"])],
+        },
     )
     runner.executar(tenant_id, JobKind.FETCH_INBOX.value, {})
 
@@ -262,7 +270,12 @@ def test_caixa_sem_resposta_nao_aciona_agente(empresa_com_conversa, monkeypatch)
     monkeypatch.setattr(
         runner.email_receiver,
         "fetch_inbox",
-        lambda session, tenant_id, context=None: {"fetched": 0, "recorded": 0, "ignored": 0},
+        lambda session, tenant_id, context=None: {
+            "fetched": 0,
+            "recorded": 0,
+            "ignored": 0,
+            "conversations": [],
+        },
     )
     runner.executar(tenant_id, JobKind.FETCH_INBOX.value, {})
 
@@ -353,3 +366,46 @@ def test_agente_desconhecido_nao_entra_na_fila(client, make_tenant, auth_headers
         json={"agent": "faxina"},
     )
     assert r.status_code == 400
+
+
+def test_conversa_ja_respondida_nao_volta_para_a_fila(empresa_com_conversa, monkeypatch):
+    """Segundo rascunho para a mesma mensagem é dinheiro e confusão.
+
+    O worker procurava toda conversa com mensagem de entrada nos últimos dez
+    minutos, e a leitura roda a cada cinco: bastava outro lead responder para a
+    conversa já respondida entrar de novo na fila do agente. A deduplicação por
+    chave não pegava — ela impede dois jobs iguais **na fila**, não um job novo
+    depois de o primeiro ter concluído.
+    """
+    tenant_id = empresa_com_conversa["tenant_id"]
+    with tenant_session(tenant_id) as session:
+        session.add(
+            Message(
+                tenant_id=tenant_id,
+                conversation_id=empresa_com_conversa["conversation_id"],
+                direction="inbound",
+                status="replied",
+                body="Respondi há pouco.",
+            )
+        )
+
+    # Esta leitura gravou mensagem para **outra** conversa (lista vazia aqui
+    # representa "nenhuma que interesse a esta"), mas a conversa antiga continua
+    # dentro da janela de dez minutos que o código usava.
+    monkeypatch.setattr(
+        runner.email_receiver,
+        "fetch_inbox",
+        lambda session, tenant_id, context=None: {
+            "fetched": 1,
+            "recorded": 1,
+            "ignored": 0,
+            "conversations": [],
+        },
+    )
+    runner.executar(tenant_id, JobKind.FETCH_INBOX.value, {})
+
+    with tenant_session(tenant_id) as session:
+        agentes = session.execute(
+            select(Job).where(Job.kind == JobKind.AGENT_RUN.value)
+        ).scalars().all()
+    assert agentes == [], "conversa sem mensagem nova foi reacionada"

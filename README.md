@@ -180,6 +180,9 @@ O que está coberto:
 - `test_rate_limit.py` — a janela deslizante, os baldes que não podem colidir
   entre empresas, as chaves que precisam sair da memória, e `limit=0` devolvendo
   429 em vez de estourar
+- `test_worker.py` — o ciclo que roda sem ninguém olhando: reserva sem dois
+  workers pegarem o mesmo job, backoff, job preso que volta para a fila, e a
+  conversa já respondida que **não** pode voltar para a fila do agente
 - `test_migrations.py` — as propriedades que ninguém verifica de olho: o banco
   migrado é o que os modelos descrevem (um `--autogenerate` agora não escreveria
   nada), as migrations formam uma linha só sem ramo, e nenhum erro da API

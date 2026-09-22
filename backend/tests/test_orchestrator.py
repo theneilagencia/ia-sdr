@@ -164,3 +164,52 @@ def test_run_e_rejeitado_quando_a_cota_acaba(make_tenant):
     with tenant_session(a["tenant_id"]) as session:
         runs = session.execute(select(AgentRun)).scalars().all()
     assert [r.status for r in runs] == ["rejected"]
+
+
+def test_entrega_repetida_do_mesmo_job_nao_executa_duas_vezes(make_tenant):
+    """Job de agente que passa de quinze minutos volta para a fila **rodando**.
+
+    O `requeue_stale` considera órfão o que não concluiu nesse prazo — e não tem
+    como saber se o worker morreu ou se a pesquisa ainda está buscando na web.
+    Sem idempotência, o segundo worker pesquisaria a mesma conta de novo, pagaria
+    de novo e deixaria dois rascunhos quase iguais esperando aprovação.
+
+    O `job_id` do envelope é estável (vive no payload do job e sobrevive ao
+    requeue), então ele é a chave: execução já feita é devolvida, não refeita.
+    """
+    from sqlalchemy import func, select
+
+    from app.db.models.ai import AgentRun
+    from app.db.models.platform import UsageEvent
+
+    t = make_tenant()
+    campanha = _seed(t["tenant_id"], marca="Mineracao")
+    envelope = new_job(
+        tenant_id=t["tenant_id"],
+        agent="research",
+        campaign_id=campanha,
+        user_id=t["user_id"],
+        entity_type="company",
+        entity_id=uuid.uuid4(),
+    )
+
+    with tenant_session(t["tenant_id"]) as session:
+        primeira = run_job(session, envelope)
+
+    # A mesma entrega, de novo — é o que o requeue produz.
+    with tenant_session(t["tenant_id"]) as session:
+        segunda = run_job(session, JobEnvelope.from_dict(envelope.to_dict()))
+
+    assert segunda.id == primeira.id, "o mesmo job produziu duas execuções"
+
+    with tenant_session(t["tenant_id"]) as session:
+        execucoes = session.execute(
+            select(func.count(AgentRun.id)).where(AgentRun.job_id == envelope.job_id)
+        ).scalar_one()
+        consumo = session.execute(
+            select(func.coalesce(func.sum(UsageEvent.units), 0))
+        ).scalar_one()
+
+    assert execucoes == 1
+    # E o consumo foi contado uma vez só: é aqui que a duplicata custa dinheiro.
+    assert consumo == 1
