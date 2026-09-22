@@ -34,13 +34,28 @@ MAX_CSV_BYTES = 5 * 1024 * 1024
 
 UNLIMITED = -1
 
+#: Saídas do funil. Elas continuam contando nos estágios que a pessoa **já
+#: atravessou**: o email voltou porque foi enviado, e o descadastro só existe
+#: porque alguém recebeu a mensagem e clicou no link dela. Sem isso a contagem
+#: de contatados *encolhia* conforme os retornos chegavam — o oposto do que o
+#: funil cumulativo promete — e a taxa de retorno, que é o número que queima o
+#: domínio de quem envia, não aparecia em lugar nenhum.
+#:
+#: `disqualified` é escrito por três caminhos: descadastro pelo link público,
+#: veredito do agente de qualificação e encerramento pelo agente de conversa.
+#: Todos exigem que a abordagem tenha saído.
+_SAIDAS = {"bounced", "disqualified"}
+
 #: Estágios já alcançados contam para trás no funil: quem foi qualificado
 #: também foi contatado. Sem isso, o funil só mostraria o estágio atual e
 #: pareceria que os números somem conforme as pessoas avançam.
 _REACHED = {
-    "researched": {"researched", "scored", "contacted", "engaged", "qualified", "meeting_booked"},
-    "scored": {"scored", "contacted", "engaged", "qualified", "meeting_booked"},
-    "contacted": {"contacted", "engaged", "qualified", "meeting_booked"},
+    "researched": {"researched", "scored", "contacted", "engaged", "qualified", "meeting_booked"}
+    | _SAIDAS,
+    "scored": {"scored", "contacted", "engaged", "qualified", "meeting_booked"} | _SAIDAS,
+    "contacted": {"contacted", "engaged", "qualified", "meeting_booked"} | _SAIDAS,
+    # Engajado é quem respondeu. Email que voltou não respondeu, e quem clicou
+    # em "não quero mais" também não — então as saídas não entram aqui.
     "engaged": {"engaged", "qualified", "meeting_booked"},
     "qualified": {"qualified", "meeting_booked"},
 }
@@ -492,6 +507,13 @@ def funnel(
     if campaign_id:
         bandas = bandas.where(Score.campaign_id == campaign_id)
 
+    def _agora_em(status: str) -> int:
+        """Quantos estão **neste** estado agora — as saídas, não os estágios."""
+        stmt = select(func.count(Prospect.id)).where(Prospect.status == status)
+        if campaign_id:
+            stmt = stmt.where(Prospect.campaign_id == campaign_id)
+        return int(db.execute(stmt).scalar_one())
+
     return schemas.FunnelResponse(
         campaign_id=campaign_id,
         prospects=_count(),
@@ -501,6 +523,8 @@ def funnel(
         engaged=_count("engaged"),
         qualified=_count("qualified"),
         meetings=int(db.execute(reunioes).scalar_one()),
+        bounced=_agora_em(ProspectStatus.BOUNCED.value),
+        disqualified=_agora_em(ProspectStatus.DISQUALIFIED.value),
         by_band={b: int(n) for b, n in db.execute(bandas).all() if b},
     )
 

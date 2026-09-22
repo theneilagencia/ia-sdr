@@ -419,6 +419,10 @@ def test_exportacao_leva_os_dados_e_deixa_os_segredos(client, make_tenant, auth_
     assert "config" not in pacote["data"]["integrations"][0]
     assert "sk-ant-teste" not in r.text
     assert "config" in pacote["excluded"]
+    # A coluna do segredo cifrado chama-se `credentials_encrypted`: o filtro de
+    # nome exato a deixava passar, e esta verificação — "a chave em texto claro
+    # não está aí" — passava mesmo assim, porque ela nunca estaria. O blob saía.
+    assert "credentials_encrypted" not in pacote["data"]["integrations"][0]
 
 
 def test_exportacao_nao_traz_dado_de_outra_empresa(client, make_tenant, auth_headers):
@@ -449,3 +453,37 @@ def test_operator_nao_exporta_a_base(client, make_tenant, auth_headers):
     do_operator = auth_headers(email, "senha-do-operador-1")
 
     assert client.get("/api/v1/tenants/me/export", headers=do_operator).status_code == 403
+
+
+def test_nenhuma_coluna_de_segredo_pode_sair_da_exportacao():
+    """A propriedade, não o exemplo.
+
+    A verificação anterior olhava um valor conhecido ("a chave sk-ant não está
+    no arquivo") e por isso não viu a coluna cifrada passando. Esta percorre
+    **toda** coluna de **toda** coleção exportada e falha se alguma parecer
+    segredo — inclusive uma que alguém adicione amanhã.
+    """
+    from app.services import export
+
+    suspeitas = ("credential", "secret", "password", "api_key", "token_hint")
+    vazando = [
+        f"{nome}.{coluna.name}"
+        for nome, modelo in export.COLECOES.items()
+        for coluna in modelo.__table__.columns
+        if any(s in coluna.name.lower() for s in suspeitas) and not export._e_segredo(coluna.name)
+    ]
+    assert vazando == [], f"colunas de segredo sairiam na exportação: {vazando}"
+
+
+def test_contadores_de_token_continuam_saindo():
+    """"token" não entra na lista de marcas de propósito.
+
+    `input_tokens`, `output_tokens` e `token_count` são contadores — e são
+    exatamente o que o cliente precisa levar para auditar o próprio consumo.
+    Bloqueá-los por causa da palavra seria trocar um vazamento por uma
+    exportação inútil.
+    """
+    from app.services import export
+
+    for coluna in ("input_tokens", "output_tokens", "max_output_tokens", "token_count"):
+        assert not export._e_segredo(coluna), coluna

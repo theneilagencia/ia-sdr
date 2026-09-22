@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     # Em produção, vem de um secrets manager.
     secrets_encryption_key: str = "dev-only-key-not-for-production"
 
+    #: Assina os links de descadastro. **Não rotacione**: o link não expira de
+    #: propósito — descadastro de dois anos atrás continua valendo — e trocar
+    #: este segredo mata todo link já enviado, transformando uma obrigação legal
+    #: numa página de erro. Vazio herda o `jwt_secret`, que é como as instalações
+    #: existentes já assinavam; a variável existe para que rotacionar o segredo
+    #: dos tokens de sessão (o que se faz depois de um vazamento) não leve os
+    #: links de descadastro junto.
+    unsubscribe_secret: str | None = None
+
     # IA. A chave é da plataforma e vive só no backend. Sem ela, os agentes
     # continuam registrando execução e consumo, mas com o executor de eco —
     # nenhuma chamada de modelo acontece.

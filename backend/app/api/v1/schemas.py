@@ -105,6 +105,11 @@ class MemberResponse(BaseModel):
     full_name: str
     role: Role
     is_active: bool
+    #: Se a pessoa já tinha conta na plataforma, a senha enviada no convite foi
+    #: **ignorada** — ela entra com a que já usa. Sem este campo a tela manda
+    #: entregar uma senha que não abre nada, e a pessoa convidada fica trancada
+    #: fora sem ninguém entender por quê.
+    already_had_account: bool = False
 
 
 # ------------------------------------------------------- base de conhecimento
@@ -570,6 +575,10 @@ class FetchInboxResult(BaseModel):
     #: número que a operação precisa vigiar: lista comprada tem taxa de
     #: retorno alta, e é ela que queima o domínio.
     bounced: int = 0
+    #: Mensagens que deram defeito no processamento. Continuam **não lidas** na
+    #: caixa, para a próxima leitura tentar de novo — e aparecem aqui para não
+    #: sumirem em silêncio.
+    failed: int = 0
 
 
 class SendQueuedResult(BaseModel):
@@ -593,6 +602,13 @@ class FunnelResponse(BaseModel):
     engaged: int
     qualified: int
     meetings: int
+    #: As saídas, no estado atual. Email que voltou é o número que queima o
+    #: domínio de quem envia; sem ele na tela, ninguém vigia o que mais importa
+    #: vigiar numa operação de email frio.
+    bounced: int = 0
+    #: Descadastro pelo link público, veredito do agente de qualificação ou
+    #: encerramento pelo de conversa — os três param a cadência.
+    disqualified: int = 0
     by_band: dict[str, int]
 
 

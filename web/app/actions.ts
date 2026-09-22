@@ -197,6 +197,7 @@ export async function buscarRespostas(_: Resultado, _form: FormData): Promise<Re
       recorded: number;
       ignored: number;
       bounced: number;
+      failed: number;
     }>(
       "/api/v1/messages/fetch-inbox",
       { method: "POST" },
@@ -212,6 +213,12 @@ export async function buscarRespostas(_: Resultado, _form: FormData): Promise<Re
               ? `, ${r.bounced} ${r.bounced === 1 ? "email voltou" : "emails voltaram"}`
               : "") +
             (r.ignored ? `, ${r.ignored} sem relação com campanha` : "") +
+            // Mensagem que deu defeito continua não lida na caixa e será
+            // tentada de novo. Omitir o número aqui esconderia justamente o
+            // caso em que alguém precisa ir olhar a caixa com os próprios olhos.
+            (r.failed
+              ? `, ${r.failed} com defeito (segue não lida na caixa, para nova tentativa)`
+              : "") +
             ".",
     };
   } catch (erro) {
@@ -322,9 +329,14 @@ export async function apagarDocumento(form: FormData) {
 // ------------------------------------------------------------------- membros
 export async function convidarMembro(_: Resultado, form: FormData): Promise<Resultado> {
   const email = String(form.get("email") ?? "").trim();
-  const resultado = await executar(
-    () =>
-      api("/api/v1/tenants/me/members", {
+  try {
+    // A identidade é global nesta plataforma: uma pessoa pode servir várias
+    // empresas com a mesma conta. Quando ela já tinha conta, a senha digitada
+    // aqui **não** foi aplicada — e mandar entregá-la deixaria a pessoa
+    // convidada tentando abrir a porta com uma chave que não é dela.
+    const membro = await api<{ already_had_account: boolean }>(
+      "/api/v1/tenants/me/members",
+      {
         method: "POST",
         body: {
           email,
@@ -332,11 +344,19 @@ export async function convidarMembro(_: Resultado, form: FormData): Promise<Resu
           full_name: String(form.get("full_name") ?? "").trim(),
           role: String(form.get("role") ?? "operator"),
         },
-      }),
-    `${email} entrou na equipe. Entregue a senha por um canal seguro — ela pode trocar depois.`,
-  );
-  revalidatePath("/team");
-  return resultado;
+      },
+    );
+    revalidatePath("/team");
+    return {
+      ok: true,
+      message: membro.already_had_account
+        ? `${email} entrou na equipe. Esta pessoa já tinha conta na plataforma: ela entra com a senha que já usa, e a senha digitada aqui foi ignorada.`
+        : `${email} entrou na equipe. Entregue a senha por um canal seguro — ela pode trocar depois.`,
+    };
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
 }
 
 export async function mudarPapel(_: Resultado, form: FormData): Promise<Resultado> {

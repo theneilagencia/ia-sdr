@@ -101,6 +101,11 @@ def add_member(
         user = identity.execute(
             select(User).where(User.email == payload.email.lower())
         ).scalar_one_or_none()
+        # A identidade é global: uma pessoa pode servir várias empresas com a
+        # mesma conta. Quando ela já existe, a senha do convite não é aplicada —
+        # trocar a senha de alguém porque outra empresa o convidou seria o
+        # contrário de isolamento — e a resposta precisa dizer isso.
+        ja_existia = user is not None
         if user is None:
             user = User(
                 email=payload.email.lower(),
@@ -124,6 +129,7 @@ def add_member(
             full_name=user.full_name,
             role=payload.role,
             is_active=True,
+            already_had_account=ja_existia,
         )
 
     audit.record(

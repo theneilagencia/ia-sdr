@@ -186,3 +186,8 @@ td .meta { display: block; color: var(--muted); font-size: 12px; }
 .passos li { margin-bottom: 6px; }
 .passos strong { color: var(--accent); }
 .dobra .opcoes { margin-bottom: 4px; }
+
+/* As saídas do funil. Cor de aviso porque é o que precisa ser vigiado: taxa de
+   retorno alta queima o domínio de quem envia. */
+.saidas { color: var(--warn); font-size: 14px; margin: -4px 0 16px; }
+.saidas strong { font-variant-numeric: tabular-nums; }

@@ -106,6 +106,16 @@ try {
     (await page.locator(".funnel .k").first().innerText()).length > 0,
     "funil renderiza com dados da API",
   );
+  // As saídas do funil só aparecem quando existem; o que precisa valer sempre é
+  // que a etiqueta de contatados exista para a taxa de retorno ter denominador.
+  // `allInnerTexts` devolve o texto **renderizado**, e o CSS põe os rótulos em
+  // maiúsculas — comparar com a string do código falharia sempre.
+  checar(
+    (await page.locator(".funnel .k").allInnerTexts())
+      .map((t) => t.toLowerCase())
+      .includes("contatados"),
+    "o funil traz o estágio de contatados",
+  );
 
   await page.goto(`${WEB}/drafts`);
   await page.waitForSelector(".cota", { timeout: 10000 });

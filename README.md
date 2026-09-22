@@ -170,7 +170,11 @@ O que está coberto:
 - `test_review_queue.py` — o portão humano: aprovar, recusar com motivo, e
   quem não pode aprovar
 - `test_startup.py` — as verificações de boot em produção: segredo de exemplo,
-  chave Fernet inválida e URL pública que o mundo não alcança
+  chave Fernet inválida e URL pública que o mundo não alcança; e o link de
+  descadastro sobrevivendo à rotação do `JWT_SECRET`
+- `test_rate_limit.py` — a janela deslizante, os baldes que não podem colidir
+  entre empresas, as chaves que precisam sair da memória, e `limit=0` devolvendo
+  429 em vez de estourar
 - `test_auth_and_members.py` — troca de senha que encerra as sessões abertas, e
   as travas que impedem uma empresa de ficar sem ninguém que possa administrar
 - `test_knowledge.py` — fatiamento, ingestão idempotente, escopo por campanha e
@@ -181,7 +185,10 @@ O que está coberto:
 - `test_sequences.py` — as regras de parada da cadência, que importam mais que
   a cadência: resposta, descadastro, reunião, qualificação
 - `test_bounce_csv_export.py` — bounce permanente versus temporário, planilha do
-  Excel em português e a exportação que não leva segredo junto
+  Excel em português e a exportação que não leva segredo junto. A verificação do
+  segredo é uma **propriedade**, não um exemplo: percorre toda coluna de toda
+  coleção exportada, porque a versão anterior olhava um valor conhecido ("a chave
+  não está no arquivo") e por isso não viu a coluna cifrada passando
 - `test_platform_admin.py` — a marca que destranca o painel da plataforma, e o
   que ela **não** concede: ver a conta de um cliente e ler as conversas dele são
   coisas diferentes, e há teste para provar que só a primeira está lá
@@ -189,7 +196,7 @@ O que está coberto:
   `MockTransport`: o token que nunca volta na resposta, o prospect sem nota que
   não sobe, o reenvio que não duplica, e um teste que usa o modelo do próprio
   Qualification Agent para a forma dos critérios não poder divergir em silêncio
-- `web/e2e/smoke.mjs` — browser de verdade: cinquenta e seis verificações cobrindo o
+- `web/e2e/smoke.mjs` — browser de verdade: cinquenta e sete verificações cobrindo o
   caminho crítico de cada tela, inclusive o que é salvo no Company Brain voltar
   na recarga, o documento colado aparecer indexado, e o encadeamento que faz o
   funil andar — critério salvo na campanha, planilha do Excel em português

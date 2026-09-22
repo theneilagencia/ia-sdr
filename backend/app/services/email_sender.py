@@ -19,6 +19,7 @@ vez de marcar como lixo.
 
 from __future__ import annotations
 
+import logging
 import smtplib
 import ssl
 import uuid
@@ -42,7 +43,13 @@ from app.db.models.sales import Contact, Prospect, ProspectStatus
 from app.db.session import tenant_session
 from app.services import audit, email_accounts
 from app.services.unsubscribe import link_for
-from app.tenancy.context import TenantContext, get_current_context_or_none, system_context
+from app.tenancy.context import (
+    TenantContext,
+    get_current_context_or_none,
+    system_context,
+)
+
+logger = logging.getLogger("ia_sdr.email")
 
 BUSINESS_START = 8
 BUSINESS_END = 18
@@ -99,9 +106,7 @@ def sent_today(session: Session, tenant_id: uuid.UUID, agora: datetime | None = 
     )
 
 
-def allowance_today(
-    session: Session, tenant: Tenant, agora: datetime | None = None
-) -> dict:
+def allowance_today(session: Session, tenant: Tenant, agora: datetime | None = None) -> dict:
     """Quantos emails esta empresa pode mandar hoje, e por quê esse número.
 
     Devolver o cálculo aberto é o que permite a tela dizer "hoje o limite é 15
@@ -117,9 +122,9 @@ def allowance_today(
         primeiro = first_send_at(session, tenant.id)
         dias = 0 if primeiro is None else (agora - primeiro).days
         dia_aquecimento = dias + 1
-        durante_aquecimento = int(politica["warmup_start"]) + int(
-            politica["warmup_daily_increment"]
-        ) * dias
+        durante_aquecimento = (
+            int(politica["warmup_start"]) + int(politica["warmup_daily_increment"]) * dias
+        )
         if durante_aquecimento < limite:
             limite = durante_aquecimento
             motivo = f"aquecimento do domínio, dia {dia_aquecimento}"
@@ -142,6 +147,19 @@ def within_business_hours(tenant: Tenant, agora: datetime | None = None) -> bool
     return local.weekday() < 5 and BUSINESS_START <= local.hour < BUSINESS_END
 
 
+def _uma_linha(valor: str) -> str:
+    """Cabeçalho é de uma linha por definição.
+
+    A biblioteca de email recusa `\r` e `\n` num cabeçalho — o que barra
+    injeção, e é bom — mas recusa levantando `ValueError`. O assunto é escrito
+    por um modelo, e modelo às vezes devolve duas linhas: a exceção subia pelo
+    envio, a mensagem ficava "aprovada" para sempre e, por ser a mais antiga da
+    fila, travava a fila inteira daquela empresa na próxima tentativa. Aqui o
+    valor é achatado antes de virar cabeçalho.
+    """
+    return " ".join(valor.split())
+
+
 def _build(
     *,
     remetente: str,
@@ -155,15 +173,15 @@ def _build(
     # Message-ID explícito: é por ele que a resposta do lead volta a ser ligada
     # a esta conversa. Deixar o servidor gerar significaria não saber qual foi.
     mensagem["Message-ID"] = make_msgid(domain=remetente.split("@")[-1])
-    mensagem["From"] = f"{nome_remetente} <{remetente}>" if nome_remetente else remetente
-    mensagem["To"] = destinatario
-    mensagem["Subject"] = assunto
+    nome = _uma_linha(nome_remetente) if nome_remetente else None
+    mensagem["From"] = f"{nome} <{remetente}>" if nome else remetente
+    mensagem["To"] = _uma_linha(destinatario)
+    mensagem["Subject"] = _uma_linha(assunto) or "(sem assunto)"
     # O botão nativo de cancelar inscrição do Gmail e do Outlook.
     mensagem["List-Unsubscribe"] = f"<{link_descadastro}>"
     mensagem["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     mensagem.set_content(
-        f"{corpo}\n\n--\nSe preferir não receber mais mensagens, "
-        f"cancele aqui: {link_descadastro}"
+        f"{corpo}\n\n--\nSe preferir não receber mais mensagens, cancele aqui: {link_descadastro}"
     )
     return mensagem
 
@@ -196,9 +214,7 @@ def _traduzir(exc: Exception, credenciais: dict) -> str:
     )
 
 
-def _record_failure(
-    tenant_id: uuid.UUID, message_id: uuid.UUID, tecnico: str, humano: str
-) -> None:
+def _record_failure(tenant_id: uuid.UUID, message_id: uuid.UUID, tecnico: str, humano: str) -> None:
     """Grava a falha em transação própria, para ela não sumir no rollback.
 
     Duas versões do mesmo erro: a técnica serve para quem vai depurar, a
@@ -239,9 +255,7 @@ def send_message(
     if mensagem.direction != MessageDirection.OUTBOUND.value:
         raise SendBlocked("Só mensagem de saída é enviada")
     if mensagem.status != MessageStatus.QUEUED.value:
-        raise SendBlocked(
-            f"Mensagem está em '{mensagem.status}': só o que foi aprovado é enviado"
-        )
+        raise SendBlocked(f"Mensagem está em '{mensagem.status}': só o que foi aprovado é enviado")
 
     conversa = session.get(Conversation, mensagem.conversation_id)
     prospect = session.get(Prospect, conversa.prospect_id) if conversa else None
@@ -361,7 +375,29 @@ def send_queued(
         except SendFailed as exc:
             # Falha de transporte não para a fila: pode ser só um destinatário.
             bloqueados.append({"message_id": str(mensagem.id), "reason": exc.message})
+        except Exception as exc:  # noqa: BLE001 - ver comentário
+            # Qualquer outra falha é desta mensagem, não da fila. Deixar subir
+            # abortava o lote e devolvia 500: a mensagem continuava "aprovada",
+            # era a mais antiga na próxima tentativa, e travava o envio daquela
+            # empresa para sempre. Uma mensagem defeituosa não pode calar as
+            # outras — e o erro precisa aparecer com nome e sobrenome.
+            logger.exception("send_queued.mensagem_com_defeito message_id=%s", mensagem.id)
+            session.rollback()
+            _record_failure(
+                tenant_id,
+                mensagem.id,
+                f"{type(exc).__name__}: {exc}",
+                "Esta mensagem tem um defeito que impediu o envio; o erro está no log.",
+            )
+            bloqueados.append(
+                {
+                    "message_id": str(mensagem.id),
+                    "reason": "Defeito nesta mensagem; ela saiu da fila e o erro está no log.",
+                }
+            )
 
-    return {"sent": enviados, "blocked": bloqueados, "allowance": allowance_today(
-        session, session.get(Tenant, tenant_id), agora
-    )}
+    return {
+        "sent": enviados,
+        "blocked": bloqueados,
+        "allowance": allowance_today(session, session.get(Tenant, tenant_id), agora),
+    }

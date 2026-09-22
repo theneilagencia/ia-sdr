@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import uuid
 
 import pytest
 
@@ -123,3 +124,44 @@ def test_cors_local_em_producao_avisa_mas_nao_impede(producao, monkeypatch, capl
         verify_production_secrets()
 
     assert "localhost:3000" in caplog.text
+
+
+def test_link_de_descadastro_sobrevive_a_rotacao_do_jwt(monkeypatch):
+    """Rotacionar o JWT_SECRET não pode matar descadastro já enviado.
+
+    O link não expira de propósito, e rotacionar o segredo dos tokens de sessão
+    é o que se faz depois de um vazamento. Enquanto os dois compartilhavam o
+    mesmo segredo, a segunda ação desfazia a primeira — e quem clicasse num link
+    antigo recebia "link inválido" no lugar de sair da lista.
+    """
+    from app.core.config import settings
+    from app.services import unsubscribe
+
+    tenant, contato = uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(settings, "unsubscribe_secret", "segredo-proprio-do-descadastro")
+    token = unsubscribe.make_token(tenant, contato)
+
+    # O JWT roda; o link continua valendo.
+    monkeypatch.setattr(settings, "jwt_secret", "outro-segredo-completamente-diferente")
+    assert unsubscribe.parse_token(token) == (tenant, contato)
+
+
+def test_sem_segredo_proprio_o_descadastro_herda_o_jwt(monkeypatch):
+    """Instalação que nunca configurou a variável continua funcionando.
+
+    É como os links já emitidos foram assinados; trocar isso de uma vez quebraria
+    exatamente o que a separação existe para proteger.
+    """
+    from app.core.config import settings
+    from app.services import unsubscribe
+
+    tenant, contato = uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(settings, "unsubscribe_secret", None)
+    monkeypatch.setattr(settings, "jwt_secret", "o-segredo-de-sempre")
+    token = unsubscribe.make_token(tenant, contato)
+    assert unsubscribe.parse_token(token) == (tenant, contato)
+
+    # E um token assinado com outro segredo não passa.
+    monkeypatch.setattr(settings, "jwt_secret", "segredo-trocado")
+    with pytest.raises(unsubscribe.InvalidUnsubscribeToken):
+        unsubscribe.parse_token(token)

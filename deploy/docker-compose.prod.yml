@@ -43,6 +43,9 @@ services:
       DATABASE_ADMIN_URL: postgresql+psycopg://${DB_ADMIN_USER}:${DB_ADMIN_PASSWORD}@db:5432/${DB_NAME}
       JWT_SECRET: ${JWT_SECRET:?gere com openssl rand -base64 48}
       SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?gere uma chave Fernet}
+      # Vazio herda o JWT_SECRET, que é como as instalações antigas assinavam.
+      # Preenchido, os links de descadastro sobrevivem à rotação do JWT_SECRET.
+      UNSUBSCRIBE_SECRET: ${UNSUBSCRIBE_SECRET:-}
       # Base do link de descadastro que vai em todo email. Errada, o link não
       # abre — e email frio sem saída queima o domínio da empresa.
       PUBLIC_BASE_URL: https://${DOMAIN:?defina DOMAIN no .env}

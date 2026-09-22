@@ -47,6 +47,10 @@ APP_DB_PASSWORD=$(segredo 24)
 
 JWT_SECRET=$(segredo 48)
 SECRETS_ENCRYPTION_KEY=$(segredo 32)
+# Segredo próprio para os links de descadastro: eles não expiram, e rotacionar o
+# JWT_SECRET depois de um vazamento não pode levar consigo todo descadastro já
+# enviado.
+UNSUBSCRIBE_SECRET=$(segredo 32)
 
 ANTHROPIC_API_KEY=
 AI_PLATFORM_KEY_FALLBACK=false

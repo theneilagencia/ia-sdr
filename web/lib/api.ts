@@ -91,6 +91,10 @@ export type Funnel = {
   engaged: number;
   qualified: number;
   meetings: number;
+  //: As saídas. O retorno de email é o número que queima o domínio de quem
+  //: envia; sem ele na tela, ninguém vigia o que mais importa vigiar.
+  bounced: number;
+  disqualified: number;
   by_band: Record<string, number>;
 };
 

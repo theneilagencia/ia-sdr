@@ -355,3 +355,72 @@ def test_link_adulterado_nao_descadastra_ninguem(client, pronto_para_enviar):
     assert resposta.status_code == 400
     with tenant_session(pronto_para_enviar["tenant_id"]) as session:
         assert session.get(Contact, pronto_para_enviar["contact_id"]).opted_out is False
+
+
+def test_assunto_de_duas_linhas_nao_trava_a_fila(pronto_para_enviar, enviados):
+    """Modelo às vezes devolve o assunto em duas linhas.
+
+    A biblioteca de email recusa `\\n` num cabeçalho — o que barra injeção — mas
+    recusa com `ValueError`, e a exceção subia pelo envio: a mensagem ficava
+    "aprovada", era a mais antiga da fila e travava o envio daquela empresa para
+    sempre. O assunto é achatado antes de virar cabeçalho.
+    """
+    with tenant_session(pronto_para_enviar["tenant_id"]) as session:
+        mensagem = session.get(Message, pronto_para_enviar["message_id"])
+        mensagem.subject = "Turnos em Sudbury\nBcc: intruso@exemplo.com"
+
+    _enviar(pronto_para_enviar)
+
+    assert len(enviados) == 1
+    saiu = enviados[0]
+    assert saiu["Subject"] == "Turnos em Sudbury Bcc: intruso@exemplo.com"
+    # E nada de cabeçalho injetado: a linha virou texto do assunto.
+    assert saiu["Bcc"] is None
+
+
+def test_uma_mensagem_defeituosa_nao_cala_as_outras(pronto_para_enviar, monkeypatch):
+    """Falha inesperada é daquela mensagem, não da fila.
+
+    Antes, qualquer exceção fora de `SendBlocked`/`SendFailed` abortava o lote e
+    devolvia 500 — e como a mensagem continuava "aprovada", a tentativa seguinte
+    parava na mesma. A defeituosa sai da fila marcada como falha; as outras vão.
+    """
+    cenario = pronto_para_enviar
+    with tenant_session(cenario["tenant_id"]) as session:
+        primeira = session.get(Message, cenario["message_id"])
+        boa = Message(
+            tenant_id=cenario["tenant_id"],
+            conversation_id=primeira.conversation_id,
+            direction="outbound",
+            status=MessageStatus.QUEUED.value,
+            subject="Segunda mensagem",
+            body="Esta precisa sair.",
+        )
+        session.add(boa)
+        session.flush()
+        id_boa = boa.id
+
+    saidas = []
+
+    def transporte(credenciais, mensagem):
+        if mensagem["Subject"] == "Turnos em Sudbury":
+            raise RuntimeError("defeito inesperado nesta mensagem")
+        saidas.append(mensagem)
+
+    monkeypatch.setattr(email_sender, "_transport", transporte)
+
+    with tenant_session(cenario["tenant_id"]) as session:
+        resultado = email_sender.send_queued(
+            session, tenant_id=cenario["tenant_id"], agora=HORA_BOA
+        )
+
+    assert resultado["sent"] == 1, resultado
+    assert len(saidas) == 1 and saidas[0]["Subject"] == "Segunda mensagem"
+    assert any("Defeito" in b["reason"] for b in resultado["blocked"]), resultado["blocked"]
+
+    with tenant_session(cenario["tenant_id"]) as session:
+        # A defeituosa não volta para a fila: sai como falha, com o erro guardado.
+        ruim = session.get(Message, cenario["message_id"])
+        assert ruim.status == MessageStatus.FAILED.value
+        assert "RuntimeError" in ruim.metrics["send_error"]
+        assert session.get(Message, id_boa).status == MessageStatus.SENT.value

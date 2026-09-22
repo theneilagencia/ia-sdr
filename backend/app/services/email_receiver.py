@@ -22,6 +22,7 @@ import email as email_lib
 import imaplib
 import logging
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.header import decode_header, make_header
@@ -435,11 +436,28 @@ def _registrar_bounce(
     return None
 
 
-def _fetch_raw(host: str, port: int, username: str, password: str, limite: int) -> list[bytes]:
-    """Busca os não lidos e os marca como lidos.
+def _ler_caixa(
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    limite: int,
+    processar: Callable[[bytes], bool],
+) -> int:
+    """Lê os não lidos e marca como lida **só** a mensagem já processada.
 
-    Marcar como lido é o que evita reprocessar a caixa inteira a cada leitura;
-    a duplicata ainda é barrada pelo Message-ID, mas de graça é melhor.
+    A ordem é o ponto. `fetch (RFC822)` marca `\\Seen` no ato, então a versão
+    anterior marcava a caixa inteira antes de gravar qualquer coisa: uma
+    mensagem malformada no meio do lote abortava o laço, e as outras — já
+    marcadas como lidas — nunca voltavam na busca seguinte, que só pede UNSEEN.
+    A resposta do lead desaparecia em silêncio, que é a pior falha que esta
+    plataforma pode ter.
+
+    Agora a leitura usa `BODY.PEEK[]`, que não marca nada, e quem decide marcar é
+    quem processou. Na dúvida, a mensagem continua não lida: reprocessar é de
+    graça — a duplicata é barrada pelo Message-ID — e perder não é.
+
+    Devolve quantas mensagens foram lidas da caixa.
     """
     try:
         # 15s: o dobro disso já deixa a requisição pendurada tempo demais, e
@@ -449,12 +467,15 @@ def _fetch_raw(host: str, port: int, username: str, password: str, limite: int) 
             imap.select("INBOX")
             _, dados = imap.search(None, "UNSEEN")
             ids = dados[0].split()[:limite]
-            brutos = []
+            lidas = 0
             for identificador in ids:
-                _, payload = imap.fetch(identificador, "(RFC822)")
-                if payload and isinstance(payload[0], tuple):
-                    brutos.append(payload[0][1])
-            return brutos
+                _, payload = imap.fetch(identificador, "(BODY.PEEK[])")
+                if not (payload and isinstance(payload[0], tuple)):
+                    continue
+                lidas += 1
+                if processar(payload[0][1]):
+                    imap.store(identificador, "+FLAGS", "\\Seen")
+            return lidas
     except imaplib.IMAP4.error as exc:
         raise InboxUnavailable(
             "O servidor recusou a leitura da caixa. Revise usuário e senha em "
@@ -485,27 +506,43 @@ def fetch_inbox(
     }
     host, porta = imap_settings(credenciais.get("provider", ""), integracao_config)
 
-    brutos = _fetch_raw(host, porta, credenciais["username"], credenciais["password"], limit)
+    contagem = {"recorded": 0, "ignored": 0, "bounced": 0, "failed": 0}
 
-    gravadas, ignoradas, devolvidas = 0, 0, 0
-    for bruto in brutos:
-        recebido = parse_email(bruto)
-        resultado = record_inbound(
-            session, tenant_id=tenant_id, recebido=recebido, context=context
-        )
+    def processar(bruto: bytes) -> bool:
+        """Processa uma mensagem. Devolve se ela pode ser marcada como lida.
+
+        A guarda é por mensagem de propósito: antes, qualquer falha aqui abortava
+        o lote inteiro — e como a caixa já tinha sido marcada como lida, as
+        outras respostas do lote desapareciam. Uma mensagem defeituosa não pode
+        levar as outras, e ela mesma fica não lida para ser tentada de novo.
+        """
+        try:
+            recebido = parse_email(bruto)
+            resultado = record_inbound(
+                session, tenant_id=tenant_id, recebido=recebido, context=context
+            )
+            # Commit por mensagem, e só então marcar como lida: o pior caso passa
+            # a ser reprocessar — barrado pelo Message-ID — em vez de perder.
+            session.commit()
+        except Exception:  # noqa: BLE001 - ver docstring
+            logger.exception("fetch_inbox.mensagem_com_defeito tenant=%s", tenant_id)
+            session.rollback()
+            contagem["failed"] += 1
+            return False
+
         if resultado is not None:
-            gravadas += 1
+            contagem["recorded"] += 1
         elif recebido.bounce is not None:
             # Contar bounce como "ignorada" esconderia justamente o número que
             # a operação precisa vigiar: lista comprada tem taxa de retorno
             # alta, e é ela que queima o domínio.
-            devolvidas += 1
+            contagem["bounced"] += 1
         else:
-            ignoradas += 1
+            contagem["ignored"] += 1
+        return True
 
-    return {
-        "fetched": len(brutos),
-        "recorded": gravadas,
-        "ignored": ignoradas,
-        "bounced": devolvidas,
-    }
+    lidas = _ler_caixa(
+        host, porta, credenciais["username"], credenciais["password"], limit, processar
+    )
+
+    return {"fetched": lidas, **contagem}

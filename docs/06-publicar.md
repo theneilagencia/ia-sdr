@@ -53,11 +53,20 @@ Se algo falhar, ele mostra o log da API e para. Rodar de novo é seguro.
 
 ### Guarde o `deploy/.env`
 
-O script grava ali as senhas do banco e duas chaves. Uma delas,
-`SECRETS_ENCRYPTION_KEY`, é o que decifra as credenciais de email e as chaves de
-API que as empresas salvarem. **Perder esse arquivo é perder o acesso a tudo
-isso** — não tem recuperação, por desenho. Copie para um gerenciador de senhas
-antes de seguir.
+O script grava ali as senhas do banco e três chaves:
+
+- **`SECRETS_ENCRYPTION_KEY`** decifra as credenciais de email e as chaves de API
+  que as empresas salvarem. **Perder esse arquivo é perder o acesso a tudo isso** —
+  não tem recuperação, por desenho.
+- **`JWT_SECRET`** assina os tokens de sessão. Rotacioná-lo derruba todas as
+  sessões abertas, o que é exatamente o que se quer depois de um vazamento.
+- **`UNSUBSCRIBE_SECRET`** assina os links de descadastro, que **não expiram**:
+  descadastro de dois anos atrás continua valendo. **Não rotacione este.** Se o
+  trocar, todo link já enviado passa a devolver "link inválido" — e honrar o
+  pedido de quem não quer mais receber email é obrigação legal, não cortesia. Ele
+  é separado do `JWT_SECRET` justamente para que a rotação de um não leve o outro.
+
+Copie o arquivo para um gerenciador de senhas antes de seguir.
 
 ## 5. Crie a primeira empresa
 

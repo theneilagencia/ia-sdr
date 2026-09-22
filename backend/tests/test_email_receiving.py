@@ -19,6 +19,33 @@ from app.services.email_receiver import InboxUnavailable, parse_email, record_in
 
 ORIGINAL_ID = "<abordagem-1@apymine.com>"
 
+#: Índices das mensagens que a caixa falsa marcou como lidas na última leitura.
+_MARCADAS: list[int] = []
+
+
+def _caixa_falsa(monkeypatch, mensagens: list[bytes]):
+    """Substitui a leitura IMAP, preservando a ordem que importa.
+
+    A caixa falsa entrega cada mensagem ao `processar` e **só** registra como
+    lida aquela para a qual ele devolveu `True`. É essa ordem — processar antes
+    de marcar — que impede a resposta de um lead de desaparecer quando outra
+    mensagem do mesmo lote dá defeito.
+    """
+    _MARCADAS.clear()
+
+    def ler(host, port, username, password, limite, processar):
+        for indice, bruto in enumerate(mensagens[:limite]):
+            if processar(bruto):
+                _MARCADAS.append(indice)
+        return len(mensagens[:limite])
+
+    monkeypatch.setattr(email_receiver, "_ler_caixa", ler)
+    return _MARCADAS
+
+
+def marcadas() -> list[int]:
+    return list(_MARCADAS)
+
 
 def _email_bruto(
     *, de: str, assunto: str, corpo: str, in_reply_to: str | None = None, msg_id: str = "<r1@lead>"
@@ -239,14 +266,14 @@ def test_sem_conta_configurada_a_leitura_avisa(make_tenant):
     assert "Nenhuma conta de email" in exc.value.message
 
 
-def test_caixa_lida_grava_o_que_parear(conversa_com_abordagem_enviada, monkeypatch):
-    """O caminho inteiro, com o IMAP substituído."""
+def _com_conta_de_email(tenant_id):
+    """A leitura exige conta configurada; sem isso a recusa vem antes do laço."""
     from app.services import email_accounts
 
-    with tenant_session(conversa_com_abordagem_enviada["tenant_id"]) as session:
+    with tenant_session(tenant_id) as session:
         email_accounts.store(
             session,
-            conversa_com_abordagem_enviada["tenant_id"],
+            tenant_id,
             provider="gmail",
             from_email="vendas@apymine.com",
             from_name="Vendas",
@@ -257,10 +284,14 @@ def test_caixa_lida_grava_o_que_parear(conversa_com_abordagem_enviada, monkeypat
             created_by=None,
         )
 
-    monkeypatch.setattr(
-        email_receiver,
-        "_fetch_raw",
-        lambda host, port, username, password, limite: [
+
+def test_caixa_lida_grava_o_que_parear(conversa_com_abordagem_enviada, monkeypatch):
+    """O caminho inteiro, com o IMAP substituído."""
+    _com_conta_de_email(conversa_com_abordagem_enviada["tenant_id"])
+
+    _caixa_falsa(
+        monkeypatch,
+        [
             _email_bruto(
                 de="alice@northernore.ca",
                 assunto="Re: Turnos",
@@ -276,4 +307,62 @@ def test_caixa_lida_grava_o_que_parear(conversa_com_abordagem_enviada, monkeypat
             session, tenant_id=conversa_com_abordagem_enviada["tenant_id"]
         )
 
-    assert resultado == {"fetched": 2, "recorded": 1, "ignored": 1, "bounced": 0}
+    assert resultado == {
+        "fetched": 2,
+        "recorded": 1,
+        "ignored": 1,
+        "bounced": 0,
+        "failed": 0,
+    }
+    # As duas foram processadas, então as duas podem ser marcadas como lidas.
+    assert marcadas() == [0, 1]
+
+
+def test_mensagem_com_defeito_nao_leva_as_outras_nem_se_perde(
+    conversa_com_abordagem_enviada, monkeypatch
+):
+    """A pior falha possível deste produto: a resposta do lead desaparecer.
+
+    `fetch (RFC822)` marcava a caixa inteira como lida antes de gravar qualquer
+    coisa, e o laço não tinha guarda por mensagem. Uma mensagem defeituosa no
+    meio do lote abortava o processamento — e as outras, já marcadas como lidas,
+    nunca voltavam na busca seguinte, que só pede UNSEEN.
+
+    Agora: a defeituosa é contada, **fica não lida** para a próxima tentativa, e
+    as outras seguem.
+    """
+    t = conversa_com_abordagem_enviada
+    boa = _email_bruto(
+        de="alice@northernore.ca",
+        assunto="Re: Turnos",
+        corpo="Pode ser quinta.",
+        in_reply_to=ORIGINAL_ID,
+    )
+    defeituosa = _email_bruto(de="alice@northernore.ca", assunto="ruim", corpo="x", msg_id="<d@x>")
+    _com_conta_de_email(t["tenant_id"])
+    marcadas_pela_caixa = _caixa_falsa(monkeypatch, [defeituosa, boa])
+
+    original = email_receiver.parse_email
+
+    def parse_com_defeito(bruto: bytes):
+        if bruto is defeituosa:
+            raise ValueError("mensagem que a biblioteca não consegue ler")
+        return original(bruto)
+
+    monkeypatch.setattr(email_receiver, "parse_email", parse_com_defeito)
+
+    with tenant_session(t["tenant_id"]) as session:
+        resultado = email_receiver.fetch_inbox(session, tenant_id=t["tenant_id"])
+
+    assert resultado["failed"] == 1
+    assert resultado["recorded"] == 1, resultado
+    # A defeituosa (índice 0) **não** foi marcada como lida; a boa (índice 1) sim.
+    assert marcadas_pela_caixa == [1]
+
+    with tenant_session(t["tenant_id"]) as session:
+        recebidas = list(
+            session.execute(
+                select(Message).where(Message.direction == "inbound")
+            ).scalars()
+        )
+    assert [m.body.strip() for m in recebidas] == ["Pode ser quinta."]

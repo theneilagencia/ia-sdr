@@ -35,6 +35,32 @@ export default async function Home() {
           ))}
         </div>
 
+        {funil.bounced > 0 || funil.disqualified > 0 ? (
+          /* As saídas ficam junto do funil, e não escondidas: a taxa de retorno
+             é o número que queima o domínio de quem envia, e quem não a vê
+             descobre pela reputação do domínio, meses depois. */
+          <p className="saidas">
+            {funil.bounced > 0 ? (
+              <>
+                <strong>{funil.bounced.toLocaleString("pt-BR")}</strong>{" "}
+                {funil.bounced === 1 ? "email voltou" : "emails voltaram"} (endereço
+                inválido)
+                {funil.contacted > 0
+                  ? ` — ${Math.round((funil.bounced / funil.contacted) * 100)}% dos contatados`
+                  : null}
+              </>
+            ) : null}
+            {funil.bounced > 0 && funil.disqualified > 0 ? " · " : null}
+            {funil.disqualified > 0 ? (
+              <>
+                <strong>{funil.disqualified.toLocaleString("pt-BR")}</strong>{" "}
+                {funil.disqualified === 1 ? "saiu" : "saíram"} (descadastro ou
+                desqualificação)
+              </>
+            ) : null}
+          </p>
+        ) : null}
+
         <h2>Aderência ao ICP</h2>
         {Object.keys(funil.by_band).length === 0 ? (
           <p className="empty">Nenhum prospect pontuado ainda.</p>

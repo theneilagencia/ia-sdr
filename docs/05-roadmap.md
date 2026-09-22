@@ -212,6 +212,16 @@ verdade é código que ainda não existe.
   ler as conversas dele são coisas diferentes, e a marca de platform admin só
   concede a primeira — há teste de backend para isso desde o item 1
 
+- **Convite com aceite.** Hoje a identidade é global e um admin anexa uma pessoa
+  à empresa dele por email. Quando o email já tem conta, a senha do convite é
+  ignorada (a tela diz isso) — mas quem convida também descobre, pela resposta,
+  que aquele endereço já existe na plataforma e sob qual nome. É enumeração de
+  base de usuários, de severidade baixa e comum no mercado; o conserto certo é um
+  fluxo de convite que a pessoa aceita, não um remendo na resposta
+- **Formatação uniforme.** O CI roda `ruff check`, não `ruff format --check`, e
+  32 dos 118 arquivos do backend divergem do formato canônico. Rodar `ruff format`
+  e passar a checá-lo no CI é mecânico — ficou fora deste PR de propósito, porque
+  um diff de 32 arquivos no meio de uma revisão atrapalha quem revisa
 - Secrets manager externo (hoje a chave Fernet vive no `.env` do servidor)
 - Rate limiting distribuído (Redis) — hoje é por processo, o que basta para uma
   réplica só

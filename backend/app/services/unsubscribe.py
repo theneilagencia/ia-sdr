@@ -7,6 +7,13 @@ domínio do cliente virar spam: quem não acha o link clica em "denunciar".
 O token é assinado com HMAC e carrega tenant e contato. Não expira de
 propósito — descadastro de dois anos atrás continua valendo — e não precisa
 de banco para ser verificado, só para ser aplicado.
+
+Por isso a assinatura usa um segredo **próprio** (`UNSUBSCRIBE_SECRET`), e não o
+dos tokens de sessão: rotacionar o `JWT_SECRET` é o que se faz depois de um
+vazamento, e se ele assinasse estes links, cada rotação transformaria todo
+descadastro já enviado numa página de erro. Sem a variável configurada, herda o
+`jwt_secret` — é como as instalações existentes já assinavam, e trocar isso de
+uma vez quebraria exatamente o que este arquivo existe para proteger.
 """
 
 from __future__ import annotations
@@ -25,8 +32,12 @@ class InvalidUnsubscribeToken(AppError):
     status_code = 400
 
 
+def _segredo() -> str:
+    return settings.unsubscribe_secret or settings.jwt_secret
+
+
 def _assinar(payload: str) -> str:
-    mac = hmac.new(settings.jwt_secret.encode(), payload.encode(), hashlib.sha256).digest()
+    mac = hmac.new(_segredo().encode(), payload.encode(), hashlib.sha256).digest()
     return base64.urlsafe_b64encode(mac).decode().rstrip("=")[:32]
 
 

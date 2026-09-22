@@ -224,3 +224,61 @@ def test_membro_de_outra_empresa_nao_e_encontrado(client, make_tenant, auth_head
         f"/api/v1/tenants/me/members/{b['user_id']}", json={"role": "viewer"}, headers=headers_a
     )
     assert r.status_code == 404
+
+
+def test_convidar_quem_ja_tem_conta_nao_troca_a_senha_dela(client, make_tenant, auth_headers):
+    """Identidade é global; senha é da pessoa, não de quem convida.
+
+    Aplicar a senha do convite a uma conta que já existe deixaria uma empresa
+    trocando a senha de alguém que trabalha em outra — o contrário de
+    isolamento. A resposta diz que já existia, para a tela não mandar entregar
+    uma senha que não abre nada.
+    """
+    primeira = make_tenant()
+    segunda = make_tenant()
+    senha_original = primeira["password"]
+
+    r = client.post(
+        "/api/v1/tenants/me/members",
+        headers=auth_headers(segunda["email"], segunda["password"]),
+        json={
+            "email": primeira["email"],
+            "password": "senha-que-deve-ser-ignorada",
+            "full_name": "Outro Nome",
+            "role": "operator",
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["already_had_account"] is True
+
+    # A senha antiga continua valendo, e a do convite não vale.
+    assert (
+        client.post(
+            "/api/v1/auth/login",
+            json={"email": primeira["email"], "password": senha_original},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/v1/auth/login",
+            json={"email": primeira["email"], "password": "senha-que-deve-ser-ignorada"},
+        ).status_code
+        == 401
+    )
+
+
+def test_convite_de_conta_nova_diz_que_e_nova(client, make_tenant, auth_headers):
+    t = make_tenant()
+    r = client.post(
+        "/api/v1/tenants/me/members",
+        headers=auth_headers(t["email"], t["password"]),
+        json={
+            "email": "pessoa-nova@example.com",
+            "password": "senha-forte-12345",
+            "full_name": "Pessoa Nova",
+            "role": "viewer",
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["already_had_account"] is False

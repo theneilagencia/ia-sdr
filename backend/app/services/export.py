@@ -41,9 +41,25 @@ from app.db.models.sales import Campaign, Company, Contact, Prospect, Research, 
 #: para ninguém; quando o teto é atingido, a resposta diz.
 MAX_LINHAS = 20_000
 
-#: Campos que nunca saem, esteja onde estiver. `config` e `credentials` de
-#: integração guardam o segredo cifrado do cliente.
-CAMPOS_PROIBIDOS = {"config", "credentials", "password_hash", "secret", "api_key"}
+#: Campos que nunca saem, esteja onde estiver — por nome exato.
+#: `config`, em integração, guarda a dica do token e a configuração da conexão.
+CAMPOS_PROIBIDOS = {"config"}
+
+#: E por pedaço de nome, que é o que faltava: a coluna do segredo cifrado chama-se
+#: `credentials_encrypted`, não `credentials`, e passava pelo filtro de nome exato
+#: sem que nada reclamasse. O teste que existia conferia a ausência da chave em
+#: texto claro — que de fato não estava lá, porque está cifrada — e por isso o
+#: blob saía na exportação enquanto o módulo prometia o contrário.
+#:
+#: "token" **não** entra na lista de propósito: `input_tokens`, `output_tokens`,
+#: `max_output_tokens` e `token_count` são contadores, e são exatamente o que o
+#: cliente precisa levar para auditar o próprio consumo.
+MARCAS_DE_SEGREDO = ("credential", "secret", "password", "api_key", "token_hint")
+
+
+def _e_segredo(nome: str) -> bool:
+    minusculo = nome.lower()
+    return minusculo in CAMPOS_PROIBIDOS or any(m in minusculo for m in MARCAS_DE_SEGREDO)
 
 
 def _valor(bruto):
@@ -60,7 +76,7 @@ def _linha(obj) -> dict:
     return {
         coluna.name: _valor(getattr(obj, coluna.name))
         for coluna in obj.__table__.columns
-        if coluna.name not in CAMPOS_PROIBIDOS
+        if not _e_segredo(coluna.name)
     }
 
 
@@ -73,35 +89,39 @@ def _coletar(session: Session, modelo, ordem=None) -> tuple[list[dict], bool]:
     return [_linha(o) for o in linhas[:MAX_LINHAS]], truncado
 
 
+#: O que a exportação leva, declarado no módulo e não escondido dentro da
+#: função: é a lista que uma verificação pode percorrer para provar que nenhuma
+#: coluna de segredo sai — inclusive uma adicionada amanhã.
+COLECOES = {
+    "company_profile": CompanyProfile,
+    "campaigns": Campaign,
+    "sequences": Sequence,
+    "sequence_enrollments": SequenceEnrollment,
+    "companies": Company,
+    "contacts": Contact,
+    "prospects": Prospect,
+    "research": Research,
+    "scores": Score,
+    "conversations": Conversation,
+    "messages": Message,
+    "qualifications": Qualification,
+    "meetings": Meeting,
+    "knowledge_documents": KnowledgeDocument,
+    "knowledge_chunks": KnowledgeChunk,
+    "integrations": Integration,
+    "agent_runs": AgentRun,
+    "usage_events": UsageEvent,
+    "audit_logs": AuditLog,
+}
+
+
 def export_tenant(session: Session, tenant_id: uuid.UUID) -> dict:
     """Tudo o que é deste tenant, menos os segredos dele."""
     tenant = session.get(Tenant, tenant_id)
 
-    colecoes = {
-        "company_profile": CompanyProfile,
-        "campaigns": Campaign,
-        "sequences": Sequence,
-        "sequence_enrollments": SequenceEnrollment,
-        "companies": Company,
-        "contacts": Contact,
-        "prospects": Prospect,
-        "research": Research,
-        "scores": Score,
-        "conversations": Conversation,
-        "messages": Message,
-        "qualifications": Qualification,
-        "meetings": Meeting,
-        "knowledge_documents": KnowledgeDocument,
-        "knowledge_chunks": KnowledgeChunk,
-        "integrations": Integration,
-        "agent_runs": AgentRun,
-        "usage_events": UsageEvent,
-        "audit_logs": AuditLog,
-    }
-
     dados: dict[str, list[dict]] = {}
     truncadas: list[str] = []
-    for nome, modelo in colecoes.items():
+    for nome, modelo in COLECOES.items():
         linhas, truncado = _coletar(session, modelo)
         dados[nome] = linhas
         if truncado:
@@ -120,6 +140,8 @@ def export_tenant(session: Session, tenant_id: uuid.UUID) -> dict:
         #: incompleta passaria por completa.
         "truncated": truncadas,
         "row_limit_per_collection": MAX_LINHAS,
-        "excluded": sorted(CAMPOS_PROIBIDOS),
+        # O que ficou de fora, dito no pacote: exportação que omite em silêncio
+        # faz o cliente acreditar que levou tudo.
+        "excluded": sorted(CAMPOS_PROIBIDOS) + [f"*{m}*" for m in MARCAS_DE_SEGREDO],
         "data": dados,
     }

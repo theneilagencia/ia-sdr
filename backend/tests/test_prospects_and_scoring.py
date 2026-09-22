@@ -370,3 +370,44 @@ def test_prospect_de_outra_empresa_nao_tem_detalhe(client):
     estranho = _register(client, "Outra Empresa", "estranho-detalhe@example.com")
     r = client.get(f"/api/v1/prospects/{alvo}", headers=_headers(estranho))
     assert r.status_code == 404
+
+
+def test_email_que_voltou_continua_contando_como_contatado(tenant_com_prospects, client):
+    """O funil cumulativo encolhia quando os retornos chegavam.
+
+    Email que voltou voltou porque foi enviado: tirar esse prospect de
+    "contatados" fazia o número **diminuir** com o tempo, exatamente o que a
+    contagem para trás existe para evitar. E a taxa de retorno — o número que
+    queima o domínio de quem envia — não aparecia em lugar nenhum.
+    """
+    reg, _ = tenant_com_prospects
+    tenant_id = reg["_tenant"]
+
+    with tenant_session(tenant_id) as session:
+        prospects = list(session.execute(select(Prospect)).scalars())
+        prospects[0].status = "contacted"
+        prospects[1].status = "bounced"
+
+    funil = client.get("/api/v1/prospects/funnel", headers=_headers(reg)).json()
+    assert funil["contacted"] == 2, funil
+    assert funil["researched"] == 2 and funil["scored"] == 2
+    # Mas não engajou: email que voltou não respondeu.
+    assert funil["engaged"] == 0
+    assert funil["bounced"] == 1
+
+
+def test_descadastrado_conta_como_contatado_e_aparece_como_saida(
+    tenant_com_prospects, client
+):
+    """Descadastro só existe porque a mensagem chegou e alguém clicou no link."""
+    reg, _ = tenant_com_prospects
+    tenant_id = reg["_tenant"]
+
+    with tenant_session(tenant_id) as session:
+        prospects = list(session.execute(select(Prospect)).scalars())
+        prospects[0].status = "disqualified"
+
+    funil = client.get("/api/v1/prospects/funnel", headers=_headers(reg)).json()
+    assert funil["contacted"] == 1
+    assert funil["disqualified"] == 1
+    assert funil["engaged"] == 0
