@@ -13,7 +13,12 @@ qualidade do texto que ele escreve:
 * **Respeita descadastro e limite diário.** Quem pediu para sair, sai. E a
   campanha tem teto diário: volume é o que separa prospecção de disparo em
   massa, e o teto vive na configuração da campanha, não na cabeça de quem
-  aperta o botão.
+  aperta o botão — contado dentro da campanha, para que uma não coma a cota da
+  outra.
+* **Confere as regras de parada no último momento.** Lead que já respondeu, já
+  marcou reunião, já foi desqualificado ou deu bounce não recebe abordagem
+  fria. A cadência verifica isso antes de enfileirar, mas entre a fila e a
+  execução passa tempo — e o disparo manual não passa pela cadência nenhuma.
 """
 
 from __future__ import annotations
@@ -28,15 +33,20 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ai.client import client_for
-from app.ai.pricing import cost_micro_usd
 from app.core.config import settings
 from app.core.errors import AppError, NotFound
 from app.db.models.engagement import Conversation, Message, MessageDirection, MessageStatus
 from app.db.models.sales import Campaign, Company, Contact, Prospect, Research, Score
 from app.orchestrator.context_builder import AgentContext, assert_same_tenant
 from app.orchestrator.envelope import JobEnvelope
-from app.orchestrator.executors.base import ExecutionResult
+from app.orchestrator.executors.base import (
+    ExecutionResult,
+    cobrando_a_falha,
+    custo_dentro_do_teto,
+    novo_consumo,
+)
 from app.orchestrator.executors.research import ResearchFailed, _accumulate
+from app.services.sequences import ESTAGIOS_TERMINAIS
 
 logger = logging.getLogger("ia_sdr.agents.outreach")
 
@@ -100,16 +110,12 @@ class OutreachExecutor:
 
         model = context.agent.get("model") or settings.ai_model_default
         prompt = self._build_prompt(context, contact, company, pesquisa, nota, passo, anteriores)
-        rascunho, usage = self._write(session, envelope, model, context, prompt)
 
-        custo = cost_micro_usd(
-            model,
-            input_tokens=usage["input_tokens"],
-            output_tokens=usage["output_tokens"],
-            cache_read_tokens=usage["cache_read_tokens"],
-            cache_write_tokens=usage["cache_write_tokens"],
-        )
-        mensagem = self._persist(session, envelope, prospect, contact, rascunho)
+        usage = novo_consumo()
+        with cobrando_a_falha(model, usage):
+            rascunho = self._write(session, envelope, model, context, prompt, usage)
+            custo = custo_dentro_do_teto(model, usage)
+            mensagem = self._persist(session, envelope, prospect, contact, rascunho)
 
         return ExecutionResult(
             output={
@@ -184,15 +190,25 @@ class OutreachExecutor:
             raise OutreachBlocked("Contato sem email: nada para escrever ainda")
         if campaign is not None and campaign.status == "paused":
             raise OutreachBlocked("Campanha pausada")
+        self._checar_regras_de_parada(session, prospect)
 
         teto = DEFAULT_DAILY_EMAILS
         if campaign is not None:
             teto = int((campaign.daily_limits or {}).get("emails", DEFAULT_DAILY_EMAILS))
 
+        # Contado **dentro da campanha**, porque o teto é dela. Contar o tenant
+        # inteiro fazia uma campanha consumir a cota da outra: duas campanhas de
+        # 50 na mesma empresa entregavam 50 no total, e uma campanha pequena
+        # (teto 5) travava a abordagem de todas as demais. O cliente veria
+        # "limite diário atingido" numa campanha que não mandou nada hoje.
         desde = datetime.now(UTC) - timedelta(days=1)
+        contagem = select(func.count(Message.id))
+        if campaign is not None:
+            contagem = contagem.join(
+                Conversation, Message.conversation_id == Conversation.id
+            ).where(Conversation.campaign_id == campaign.id)
         hoje = session.execute(
-            select(func.count(Message.id))
-            .where(Message.tenant_id == envelope.tenant_id)
+            contagem.where(Message.tenant_id == envelope.tenant_id)
             .where(Message.direction == MessageDirection.OUTBOUND.value)
             .where(Message.created_at >= desde)
         ).scalar_one()
@@ -200,6 +216,37 @@ class OutreachExecutor:
             raise OutreachBlocked(
                 "Limite diário de abordagens da campanha atingido",
                 details={"limit": teto, "today": int(hoje)},
+            )
+
+    def _checar_regras_de_parada(self, session: Session, prospect: Prospect) -> None:
+        """As mesmas regras da cadência, conferidas no último momento possível.
+
+        A cadência já as verifica antes de enfileirar o passo — mas entre o
+        enfileiramento e a execução passa tempo (fila, backoff, retomada de job
+        preso), e é justo nesse intervalo que o lead responde, marca reunião ou
+        cai como bounce. Pior: o disparo manual pela tela de agentes não passa
+        pela cadência nenhuma, então sem esta guarda um clique escreve abordagem
+        fria para quem já respondeu ou já saiu do funil.
+
+        O executor é o último ponto antes de gastar token e produzir rascunho.
+        Quem revisa a fila confia que o que está lá deveria ter sido escrito.
+        """
+        if prospect.status in ESTAGIOS_TERMINAIS:
+            raise OutreachBlocked(
+                f"Prospect está em {prospect.status}: a abordagem fria não se aplica mais",
+                details={"status": prospect.status},
+            )
+
+        respondeu = session.execute(
+            select(func.count(Message.id))
+            .join(Conversation, Message.conversation_id == Conversation.id)
+            .where(Conversation.prospect_id == prospect.id)
+            .where(Message.direction == MessageDirection.INBOUND.value)
+        ).scalar_one()
+        if respondeu:
+            raise OutreachBlocked(
+                "O lead já respondeu: quem continua a conversa é o Conversation Agent",
+                details={"inbound": int(respondeu)},
             )
 
     def _load_intel(
@@ -300,14 +347,9 @@ class OutreachExecutor:
         model: str,
         context: AgentContext,
         prompt: str,
-    ) -> tuple[OutreachDraft, dict]:
+        usage: dict,
+    ) -> OutreachDraft:
         client = self._client_factory(session, envelope.tenant_id)
-        usage = {
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "cache_read_tokens": 0,
-            "cache_write_tokens": 0,
-        }
         response = client.messages.parse(
             model=model,
             max_tokens=context.agent.get("max_output_tokens") or settings.ai_max_output_tokens,
@@ -327,7 +369,7 @@ class OutreachExecutor:
         rascunho = getattr(response, "parsed_output", None)
         if not isinstance(rascunho, OutreachDraft):
             raise ResearchFailed("A resposta do modelo não veio no formato esperado")
-        return rascunho, usage
+        return rascunho
 
     # ---------------------------------------------------------------- persistência
     def _persist(

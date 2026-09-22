@@ -213,3 +213,162 @@ def test_entrega_repetida_do_mesmo_job_nao_executa_duas_vezes(make_tenant):
     assert execucoes == 1
     # E o consumo foi contado uma vez só: é aqui que a duplicata custa dinheiro.
     assert consumo == 1
+
+
+def test_falha_que_nao_e_de_dominio_fecha_o_run(make_tenant, monkeypatch):
+    """O erro mais provável em produção não é de domínio.
+
+    É o SDK da Anthropic levantando o seu: corte de conexão, 429, 500 do outro
+    lado. O runner só tratava `AppError`, então esse erro passava por fora: o run
+    ficava em `running` para sempre e — por ser um run não-falho com o mesmo
+    `job_id` — a tentativa seguinte o devolvia como "já executado" e marcava o
+    job como concluído. O trabalho sumia em silêncio.
+    """
+    from sqlalchemy import select
+
+    from app.db.models.ai import AgentRun
+    from app.orchestrator.executors.base import ExecutionResult
+    from app.orchestrator.runner import _EXECUTORS
+
+    t = make_tenant()
+    campanha = _seed(t["tenant_id"], marca="Mineracao")
+    envelope = new_job(
+        tenant_id=t["tenant_id"],
+        agent="research",
+        campaign_id=campanha,
+        entity_type="company",
+        entity_id=uuid.uuid4(),
+    )
+
+    chamadas = []
+
+    def cai(session, context, envelope):
+        chamadas.append("caiu")
+        raise RuntimeError("Connection error.")
+
+    monkeypatch.setitem(_EXECUTORS, "research", cai)
+    with pytest.raises(RuntimeError):
+        with tenant_session(t["tenant_id"]) as session:
+            run_job(session, envelope)
+
+    with tenant_session(t["tenant_id"]) as session:
+        run = session.execute(select(AgentRun)).scalars().one()
+        assert run.status == "failed"
+        assert "RuntimeError" in (run.error or "")
+        assert run.finished_at is not None
+
+    def entrega(session, context, envelope):
+        chamadas.append("entregou")
+        return ExecutionResult(output={"ok": True}, model="claude-opus-5")
+
+    monkeypatch.setitem(_EXECUTORS, "research", entrega)
+    with tenant_session(t["tenant_id"]) as session:
+        segunda = run_job(session, JobEnvelope.from_dict(envelope.to_dict()))
+
+    # A tentativa seguinte faz o trabalho, em vez de herdar um run parado.
+    assert segunda.status == "succeeded"
+    assert chamadas == ["caiu", "entregou"]
+
+
+def test_run_abandonado_nao_vale_como_entrega(make_tenant, monkeypatch):
+    """Processo morto no meio deixa o run em `running`; ninguém o vai concluir.
+
+    Passado o prazo de órfão da fila, tratar esse run como entrega feita fazia o
+    job ser marcado como concluído sem nada ter acontecido.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select
+
+    from app.db.models.ai import AgentRun
+    from app.orchestrator.executors.base import ExecutionResult
+    from app.orchestrator.runner import _EXECUTORS
+
+    t = make_tenant()
+    campanha = _seed(t["tenant_id"], marca="Mineracao")
+    envelope = new_job(
+        tenant_id=t["tenant_id"],
+        agent="research",
+        campaign_id=campanha,
+        entity_type="company",
+        entity_id=uuid.uuid4(),
+    )
+
+    with tenant_session(t["tenant_id"]) as session:
+        session.add(
+            AgentRun(
+                tenant_id=t["tenant_id"],
+                job_id=envelope.job_id,
+                agent_kind="research",
+                status="running",
+                input={},
+                started_at=datetime.now(UTC) - timedelta(minutes=20),
+            )
+        )
+
+    executou = []
+
+    def entrega(session, context, envelope):
+        executou.append(1)
+        return ExecutionResult(output={"ok": True}, model="claude-opus-5")
+
+    monkeypatch.setitem(_EXECUTORS, "research", entrega)
+    with tenant_session(t["tenant_id"]) as session:
+        run = run_job(session, envelope)
+
+    assert executou == [1]
+    assert run.status == "succeeded"
+    with tenant_session(t["tenant_id"]) as session:
+        parado = session.execute(
+            select(AgentRun).where(AgentRun.status == "failed")
+        ).scalars().one()
+        assert "abandonado" in (parado.error or "")
+
+
+def test_run_que_ainda_esta_rodando_continua_protegido(make_tenant, monkeypatch):
+    """O outro lado: dentro do prazo, o run em curso ainda vale como entrega.
+
+    É a proteção original — o `requeue_stale` devolve à fila um job de agente que
+    passou de quinze minutos sem saber se o worker morreu ou se a busca na web
+    ainda está rodando. Dentro do prazo, refazer é pagar duas vezes.
+    """
+    from datetime import UTC, datetime
+
+    from app.db.models.ai import AgentRun
+    from app.orchestrator.executors.base import ExecutionResult
+    from app.orchestrator.runner import _EXECUTORS
+
+    t = make_tenant()
+    campanha = _seed(t["tenant_id"], marca="Mineracao")
+    envelope = new_job(
+        tenant_id=t["tenant_id"],
+        agent="research",
+        campaign_id=campanha,
+        entity_type="company",
+        entity_id=uuid.uuid4(),
+    )
+
+    with tenant_session(t["tenant_id"]) as session:
+        session.add(
+            AgentRun(
+                tenant_id=t["tenant_id"],
+                job_id=envelope.job_id,
+                agent_kind="research",
+                status="running",
+                input={},
+                started_at=datetime.now(UTC),
+            )
+        )
+
+    executou = []
+
+    def entrega(session, context, envelope):
+        executou.append(1)
+        return ExecutionResult(output={"ok": True}, model="claude-opus-5")
+
+    monkeypatch.setitem(_EXECUTORS, "research", entrega)
+    with tenant_session(t["tenant_id"]) as session:
+        run = run_job(session, envelope)
+
+    assert executou == [], "o run em curso deveria ter sido devolvido, não refeito"
+    assert run.status == "running"

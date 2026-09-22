@@ -28,13 +28,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.ai.client import client_for
-from app.ai.pricing import cost_micro_usd
 from app.core.config import settings
 from app.core.errors import AppError, NotFound
 from app.db.models.sales import Company, Contact, Research
 from app.orchestrator.context_builder import AgentContext, assert_same_tenant
 from app.orchestrator.envelope import JobEnvelope
-from app.orchestrator.executors.base import ExecutionResult
+from app.orchestrator.executors.base import (
+    CostCeilingExceeded,
+    ExecutionResult,
+    cobrando_a_falha,
+    custo_dentro_do_teto,
+    novo_consumo,
+)
 from app.services import scoring
 
 logger = logging.getLogger("ia_sdr.agents.research")
@@ -45,11 +50,6 @@ MAX_RESUMES = 5
 class ResearchFailed(AppError):
     code = "research_failed"
     status_code = 502
-
-
-class CostCeilingExceeded(AppError):
-    code = "cost_ceiling_exceeded"
-    status_code = 402
 
 
 class Finding(BaseModel):
@@ -158,22 +158,15 @@ class ResearchExecutor:
         model = context.agent.get("model") or settings.ai_model_default
         prompt = _build_prompt(context, company, contact)
 
-        response, usage = self._converse(session, envelope, model, context, prompt)
-        custo = cost_micro_usd(
-            model,
-            input_tokens=usage["input_tokens"],
-            output_tokens=usage["output_tokens"],
-            cache_read_tokens=usage["cache_read_tokens"],
-            cache_write_tokens=usage["cache_write_tokens"],
-        )
-        if custo > settings.ai_max_cost_micro_usd:
-            raise CostCeilingExceeded(
-                "Execução ultrapassou o teto de custo configurado",
-                details={"cost_micro_usd": custo, "ceiling": settings.ai_max_cost_micro_usd},
-            )
-
-        resultado = _extract(response)
-        pesquisa = self._persist(session, context, envelope, company, resultado)
+        # O acumulador nasce aqui e não dentro da conversa: é ele que permite
+        # à falha sair carregando o que já foi gasto até o ponto em que ela
+        # aconteceu — teto estourado, resposta fora do formato, o que for.
+        usage = novo_consumo()
+        with cobrando_a_falha(model, usage):
+            response = self._converse(session, envelope, model, context, prompt, usage)
+            custo = custo_dentro_do_teto(model, usage)
+            resultado = _extract(response)
+            pesquisa = self._persist(session, context, envelope, company, resultado)
 
         # A pesquisa vale para todos os prospects daquela conta na campanha:
         # pesquisar a mesma empresa uma vez por pessoa seria pagar várias
@@ -248,20 +241,18 @@ class ResearchExecutor:
         model: str,
         context: AgentContext,
         prompt: str,
-    ) -> tuple[Any, dict]:
+        usage: dict,
+    ) -> Any:
         client = self._client_factory(session, envelope.tenant_id)
         messages: list[dict] = [{"role": "user", "content": prompt}]
-        usage = {
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "cache_read_tokens": 0,
-            "cache_write_tokens": 0,
-        }
 
         for _ in range(MAX_RESUMES + 1):
             params = self._request_params(model, context, messages)
             response = client.messages.parse(output_format=ResearchOutput, **params)
             _accumulate(usage, getattr(response, "usage", None))
+            # Confere o teto antes de decidir continuar: turno pausado que
+            # já estourou o limite não ganha o turno seguinte.
+            custo_dentro_do_teto(model, usage)
 
             stop = getattr(response, "stop_reason", None)
             if stop == "refusal":
@@ -278,7 +269,7 @@ class ResearchExecutor:
                 # Turno longo de busca: devolve o turno pausado e continua.
                 messages.append({"role": "assistant", "content": response.content})
                 continue
-            return response, usage
+            return response
 
         raise ResearchFailed(
             f"A pesquisa continuou pausada após {MAX_RESUMES} retomadas",

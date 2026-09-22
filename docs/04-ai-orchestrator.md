@@ -71,17 +71,52 @@ Mesmo agente, três negócios, zero sobreposição.
 
 ## Estado atual da execução
 
-`AgentExecutor` é um ponto de extensão. No Sprint 1, o executor registrado não
-chama modelo nenhum — devolve um eco determinístico com o digest do contexto.
-O que está pronto e coberto por teste é **a fronteira em volta da chamada**:
-isolamento, cota, registro, consumo e auditoria. Ligar o modelo no Sprint 3 é
-registrar um executor:
+`AgentExecutor` é um ponto de extensão, e os quatro agentes já são executores de
+verdade: chamam o modelo com a chave **do tenant**, com saída estruturada e
+validada, e gravam o que produziram (pesquisa, rascunho, veredito). O executor de
+eco continua no código para desenvolvimento e teste, mas não é mais reserva
+silenciosa — fingir que trabalhou é pior do que dizer que falta configurar.
 
-```python
-register_executor("research", meu_executor_de_verdade)
-```
+### O que a plataforma garante em volta da chamada
 
-Nada mais no caminho muda.
+Isolamento, cota, registro, consumo e auditoria valem para todos, e mais quatro
+regras que existem porque cada chamada gasta dinheiro de verdade:
+
+- **Teto de custo por execução** (`ai_max_cost_micro_usd`, US$ 0,50 por
+  padrão), conferido **depois de cada turno** — inclusive entre as retomadas de
+  turno pausado da busca na web. Estourou, a execução é recusada ali, sem
+  comprar o turno seguinte.
+- **Gasto de execução que falha não desaparece.** Token queimado antes da falha
+  continua tendo custado: os tokens vão para o `agent_run` e o custo real vira
+  evento de consumo com **zero unidade** — o cliente não paga cota por trabalho
+  que não foi entregue, mas a margem do mês não mente.
+- **Recusa de política não é tentada de novo.** Descadastro, cota estourada,
+  teto de custo e isolamento de tenant (402/403/409) encerram o job na primeira
+  vez. A fila insistir aqui não conserta nada e, quando a recusa vem depois da
+  chamada ao modelo, a segunda tentativa paga a conta outra vez.
+- **Execução idempotente por `job_id`.** Job que passa de quinze minutos volta
+  para a fila enquanto ainda roda; sem isso, o segundo worker pesquisaria a
+  mesma conta e pagaria de novo. Passado esse prazo sem conclusão, o run conta
+  como **abandonado** — processo morto no meio não é entrega feita — e a
+  tentativa seguinte refaz o trabalho em vez de herdar um run parado.
+- **Toda exceção fecha o run.** Inclusive as que não são de domínio, que são
+  justamente as mais prováveis: o SDK da Anthropic levantando corte de conexão,
+  429 ou 500. Antes elas passavam por fora, o run ficava em `running` para
+  sempre e a tentativa seguinte o devolvia como "já executado" — o job era
+  marcado como concluído sem nada ter acontecido.
+
+### As regras de parada de cada agente
+
+Ficam no executor, e não só em quem despacha, porque o executor é o último ponto
+antes de gastar token e produzir rascunho — e o disparo manual pela tela não
+passa por cadência nenhuma:
+
+| Agente          | Não roda quando                                                      |
+|-----------------|----------------------------------------------------------------------|
+| `outreach`      | contato descadastrado ou sem email, campanha pausada, teto diário **da campanha** atingido, prospect em estágio terminal (qualificado, reunião, desqualificado, bounce) ou lead que já respondeu |
+| `conversation`  | conversa sem nenhuma mensagem do lead, ou última mensagem dele já respondida e enviada |
+| `qualification` | campanha sem critérios, ou contato descadastrado — descadastro não se desfaz por veredito de agente |
+| `research`      | alvo de outro tenant, alvo inexistente, contato sem empresa           |
 
 ## Company Brain
 

@@ -12,6 +12,7 @@ from app.db.models.engagement import Conversation, Message
 from app.db.models.jobs import Job, JobKind
 from app.db.models.sales import Campaign, Company, Contact, Prospect
 from app.db.session import tenant_session, unscoped_session
+from app.orchestrator.executors.outreach import OutreachBlocked
 from app.services import jobs
 from app.workers import runner
 
@@ -304,6 +305,60 @@ def test_agente_roda_no_tenant_do_job(make_tenant, monkeypatch):
         {"tenant_id": str(t["tenant_id"]), "agent": "research", "entity_id": str(uuid.uuid4())},
     )
     assert vistos == [t["tenant_id"]]
+
+
+def test_recusa_de_politica_nao_e_tentada_tres_vezes(make_tenant, monkeypatch):
+    """Descadastro não se desfaz em cinco minutos — nem a cota do mês.
+
+    A fila tratava toda exceção como falha transitória: três tentativas com
+    espera crescente. Para recusa de política isso só enche o log, e quando a
+    recusa acontece **depois** da chamada ao modelo (teto de custo estourado) a
+    segunda tentativa gasta de novo para ser recusada igual.
+    """
+    t = make_tenant()
+    _enfileirar(
+        t["tenant_id"],
+        kind=JobKind.AGENT_RUN,
+        payload={"tenant_id": str(t["tenant_id"]), "agent": "outreach"},
+        max_attempts=3,
+    )
+
+    def recusa(*_args, **_kwargs):
+        raise OutreachBlocked("Contato pediu para não ser abordado")
+
+    monkeypatch.setattr(runner, "run_job", recusa)
+    resultado = runner.ciclo()
+    assert resultado["failed"] == 1
+
+    with tenant_session(t["tenant_id"]) as session:
+        job = session.execute(
+            select(Job).where(Job.kind == JobKind.AGENT_RUN.value)
+        ).scalars().one()
+        assert job.status == "failed"
+        assert job.attempts == 1 and job.finished_at is not None
+
+
+def test_falha_de_verdade_continua_sendo_tentada(make_tenant, monkeypatch):
+    """O outro lado da regra: erro de rede merece a segunda tentativa."""
+    t = make_tenant()
+    _enfileirar(
+        t["tenant_id"],
+        kind=JobKind.AGENT_RUN,
+        payload={"tenant_id": str(t["tenant_id"]), "agent": "outreach"},
+        max_attempts=3,
+    )
+
+    def cai(*_args, **_kwargs):
+        raise TimeoutError("a Anthropic não respondeu")
+
+    monkeypatch.setattr(runner, "run_job", cai)
+    runner.ciclo()
+
+    with tenant_session(t["tenant_id"]) as session:
+        job = session.execute(
+            select(Job).where(Job.kind == JobKind.AGENT_RUN.value)
+        ).scalars().one()
+        assert job.status == "pending"
 
 
 # ------------------------------------------------------------------ pela API

@@ -13,6 +13,11 @@ Por isso o agente decide duas coisas além do texto:
 * **Descadastro.** Pedido de não receber mais é obedecido no ato, marcado no
   contato, e não depende de o texto seguinte ser bom.
 
+E há uma condição antes de qualquer uma das duas: **só responde quem tem
+pergunta na mesa**. Conversa em que o lead não escreveu nada, ou em que a última
+mensagem dele já foi respondida e enviada, não gera réplica — senão o agente
+conversa consigo mesmo, ou manda dois emails sobre a mesma frase.
+
 Como no Outreach, o que sai daqui é rascunho. Quem envia é o passo de envio.
 """
 
@@ -27,9 +32,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.client import client_for
-from app.ai.pricing import cost_micro_usd
 from app.core.config import settings
-from app.core.errors import NotFound
+from app.core.errors import AppError, NotFound
 from app.db.models.engagement import (
     Conversation,
     Message,
@@ -39,12 +43,36 @@ from app.db.models.engagement import (
 from app.db.models.sales import Contact, Prospect, ProspectStatus
 from app.orchestrator.context_builder import AgentContext, assert_same_tenant
 from app.orchestrator.envelope import JobEnvelope
-from app.orchestrator.executors.base import ExecutionResult
+from app.orchestrator.executors.base import (
+    ExecutionResult,
+    cobrando_a_falha,
+    custo_dentro_do_teto,
+    novo_consumo,
+)
 from app.orchestrator.executors.research import ResearchFailed, _accumulate
 
 logger = logging.getLogger("ia_sdr.agents.conversation")
 
 HISTORY_LIMIT = 20
+
+#: Mensagem nossa que já saiu (ou está a caminho). Rascunho e recusa não contam:
+#: enquanto ninguém aprovou, a última palavra na conversa continua sendo a do
+#: lead — e regerar a réplica precisa continuar possível.
+JA_SAIU = frozenset(
+    {
+        MessageStatus.QUEUED.value,
+        MessageStatus.SENT.value,
+        MessageStatus.DELIVERED.value,
+        MessageStatus.OPENED.value,
+    }
+)
+
+
+class ConversationBlocked(AppError):
+    """Não há o que responder — e isso não é erro de execução."""
+
+    code = "conversation_blocked"
+    status_code = 409
 
 
 class ConversationReply(BaseModel):
@@ -103,16 +131,14 @@ class ConversationExecutor:
 
         model = context.agent.get("model") or settings.ai_model_default
         prompt = self._build_prompt(context, contato, historico)
-        resposta, usage = self._answer(session, envelope, model, context, prompt)
 
-        custo = cost_micro_usd(
-            model,
-            input_tokens=usage["input_tokens"],
-            output_tokens=usage["output_tokens"],
-            cache_read_tokens=usage["cache_read_tokens"],
-            cache_write_tokens=usage["cache_write_tokens"],
-        )
-        mensagem = self._persist(session, envelope, conversa, prospect, contato, resposta)
+        usage = novo_consumo()
+        with cobrando_a_falha(model, usage):
+            resposta = self._answer(session, envelope, model, context, prompt, usage)
+            custo = custo_dentro_do_teto(model, usage)
+            mensagem = self._persist(
+                session, envelope, conversa, prospect, contato, resposta
+            )
 
         return ExecutionResult(
             output={**resposta.model_dump(), "message_id": str(mensagem.id)},
@@ -155,7 +181,45 @@ class ConversationExecutor:
         )[::-1]
         if not historico:
             raise ResearchFailed("Conversa sem mensagens: nada a responder")
+        self._checar_se_ha_o_que_responder(historico)
         return conversa, prospect, contato, historico
+
+    def _checar_se_ha_o_que_responder(self, historico: list[Message]) -> None:
+        """Só responde quem tem pergunta na mesa.
+
+        Duas situações que o código antigo tratava como normais:
+
+        * **Conversa sem nenhuma mensagem do lead.** O prompt pede para
+          "responder a última mensagem do lead" — e o histórico só tinha o
+          nosso próprio email frio. O agente respondia a si mesmo, e a réplica
+          ia para a fila de revisão como se o lead tivesse escrito algo.
+        * **Mensagem do lead já respondida e enviada.** Despachar a conversa de
+          novo (um clique repetido na tela, um job que voltou) produzia uma
+          segunda réplica para a mesma pergunta. Do lado do lead, dois emails
+          sobre a mesma frase dele.
+
+        Rascunho pendente não bloqueia: regerar uma réplica que ninguém aprovou
+        ainda é justamente o que quem revisa precisa poder fazer.
+        """
+        do_lead = [m for m in historico if m.direction == MessageDirection.INBOUND.value]
+        if not do_lead:
+            raise ConversationBlocked(
+                "Conversa sem mensagem do lead: não há o que responder"
+            )
+
+        ultima = do_lead[-1]
+        respondida = [
+            m
+            for m in historico
+            if m.direction == MessageDirection.OUTBOUND.value
+            and m.status in JA_SAIU
+            and m.created_at > ultima.created_at
+        ]
+        if respondida:
+            raise ConversationBlocked(
+                "A última mensagem do lead já foi respondida",
+                details={"message_id": str(respondida[-1].id)},
+            )
 
     # ---------------------------------------------------------------- modelo
     def _build_prompt(
@@ -200,14 +264,9 @@ class ConversationExecutor:
         model: str,
         context: AgentContext,
         prompt: str,
-    ) -> tuple[ConversationReply, dict]:
+        usage: dict,
+    ) -> ConversationReply:
         client = self._client_factory(session, envelope.tenant_id)
-        usage = {
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "cache_read_tokens": 0,
-            "cache_write_tokens": 0,
-        }
         response = client.messages.parse(
             model=model,
             max_tokens=context.agent.get("max_output_tokens") or settings.ai_max_output_tokens,
@@ -221,13 +280,10 @@ class ConversationExecutor:
         stop = getattr(response, "stop_reason", None)
         if stop == "refusal":
             # Recusa do modelo é sinal de que um humano deve olhar, não de erro.
-            return (
-                ConversationReply(
-                    reply="",
-                    escalate=True,
-                    escalation_reason="o modelo recusou responder a esta mensagem",
-                ),
-                usage,
+            return ConversationReply(
+                reply="",
+                escalate=True,
+                escalation_reason="o modelo recusou responder a esta mensagem",
             )
         if stop == "max_tokens":
             raise ResearchFailed("Resposta truncada; aumente ai_max_output_tokens")
@@ -235,7 +291,7 @@ class ConversationExecutor:
         resposta = getattr(response, "parsed_output", None)
         if not isinstance(resposta, ConversationReply):
             raise ResearchFailed("A resposta do modelo não veio no formato esperado")
-        return resposta, usage
+        return resposta
 
     # ---------------------------------------------------------------- persistência
     def _persist(

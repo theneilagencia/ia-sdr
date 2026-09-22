@@ -212,6 +212,28 @@ verdade é código que ainda não existe.
   ler as conversas dele são coisas diferentes, e a marca de platform admin só
   concede a primeira — há teste de backend para isso desde o item 1
 
+- **Revisão adversarial dos quatro executores ✅.** Sete defeitos, todos na
+  linha entre o modelo e o dinheiro: gasto de execução que falha desaparecia da
+  contabilidade (run com zero token, nenhum evento de consumo — e a fila
+  tentando mais duas vezes, cada tentativa invisível do mesmo jeito); o teto de
+  custo só era conferido depois do último turno, então uma pesquisa com busca na
+  web pagava seis turnos para descobrir que o primeiro já havia estourado; o
+  teto existia só na pesquisa, e agora é da plataforma; o limite diário da
+  campanha era contado no tenant inteiro, então uma campanha comia a cota da
+  outra; o Outreach escrevia abordagem fria para quem já havia respondido ou já
+  tinha saído do funil (a cadência checava, o executor não, e o disparo manual
+  não passa pela cadência); o Conversation respondia a si mesmo quando não havia
+  mensagem do lead, ou mandava uma segunda réplica para a mesma frase; e o
+  Qualification podia **desfazer um descadastro**, devolvendo ao funil como
+  oportunidade quem acabou de pedir para não ser mais procurado.
+
+  O oitavo é o mais silencioso e vale por si: o runner só tratava exceção de
+  domínio, e a mais provável em produção não é — é o SDK da Anthropic levantando
+  corte de conexão, 429 ou 500. O run ficava em `running` para sempre e, por ser
+  um run não-falho com o mesmo `job_id`, a tentativa seguinte o devolvia como "já
+  executado" e o job era marcado como concluído. O trabalho sumia e a tela dizia
+  que estava tudo bem
+
 - **Convite com aceite.** Hoje a identidade é global e um admin anexa uma pessoa
   à empresa dele por email. Quando o email já tem conta, a senha do convite é
   ignorada (a tela diz isso) — mas quem convida também descobre, pela resposta,
@@ -222,6 +244,13 @@ verdade é código que ainda não existe.
   32 dos 118 arquivos do backend divergem do formato canônico. Rodar `ruff format`
   e passar a checá-lo no CI é mecânico — ficou fora deste PR de propósito, porque
   um diff de 32 arquivos no meio de uma revisão atrapalha quem revisa
+- **Freio em dólar, não só em unidade.** A cota do plano conta unidades — a moeda
+  interna, que o cliente compra — e execução que falha, agora que o custo dela é
+  registrado, não consome unidade nenhuma de propósito. Falta o outro freio: um
+  teto de **custo real por tenant no mês**, que pare a empresa cujos agentes
+  falham em série. Hoje o teto por execução (US$ 0,50) limita o estrago de cada
+  chamada, e o painel da plataforma mostra o custo do mês; o corte automático
+  ainda é manual
 - Secrets manager externo (hoje a chave Fernet vive no `.env` do servidor)
 - Rate limiting distribuído (Redis) — hoje é por processo, o que basta para uma
   réplica só

@@ -264,6 +264,33 @@ def test_desqualificado_sai_do_funil(prospect_em_conversa):
         assert session.get(Prospect, prospect_em_conversa["prospect_id"]).status == "disqualified"
 
 
+def test_descadastro_nao_se_desfaz_por_veredito_de_agente(prospect_em_conversa):
+    """O lead que pediu para sair não volta ao funil como oportunidade.
+
+    O caminho era este: o lead pede descadastro, o Conversation Agent obedece —
+    marca `opted_out` e leva o prospect para `disqualified` — e depois a
+    qualificação roda. O modelo lê a conversa, vê uma empresa que bate com o ICP
+    e devolve "qualified"; o estágio era reescrito e um vendedor ligaria para
+    quem acabou de pedir para não ser mais procurado.
+    """
+    with tenant_session(prospect_em_conversa["tenant_id"]) as session:
+        prospect = session.get(Prospect, prospect_em_conversa["prospect_id"])
+        prospect.status = "disqualified"
+        session.get(Contact, prospect.contact_id).opted_out = True
+
+    cliente = _registrar(QUALIFICADO)
+    with pytest.raises(OutreachBlocked) as exc:
+        with tenant_session(prospect_em_conversa["tenant_id"]) as session:
+            run_job(session, _job(prospect_em_conversa))
+    assert "descadastro" in exc.value.message
+
+    with tenant_session(prospect_em_conversa["tenant_id"]) as session:
+        assert session.get(Prospect, prospect_em_conversa["prospect_id"]).status == "disqualified"
+        assert session.execute(select(Qualification)).scalars().all() == []
+    # E nem pagou pelo veredito que não podia ter efeito.
+    assert cliente.messages.chamadas == []
+
+
 def test_prospect_de_outro_tenant_nao_e_qualificado(prospect_em_conversa, make_tenant):
     outro = make_tenant()
     cliente = _registrar(QUALIFICADO)

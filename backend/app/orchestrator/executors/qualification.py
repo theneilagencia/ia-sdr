@@ -14,6 +14,9 @@ conservadora, e três regras valem mais do que o texto do modelo:
 * **Confiança baixa não vira "qualificado".** Abaixo do piso configurado, o
   resultado é "precisa de mais informação" e um humano decide. É melhor pedir
   mais um email do que colocar lixo na agenda.
+* **Descadastro é ponto final.** Quem pediu para sair não é qualificado por
+  veredito de agente. Sem essa regra, o lead que pediu para não ser mais
+  procurado podia voltar ao funil como oportunidade.
 """
 
 from __future__ import annotations
@@ -27,14 +30,18 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.client import client_for
-from app.ai.pricing import cost_micro_usd
 from app.core.config import settings
 from app.core.errors import NotFound
 from app.db.models.engagement import Conversation, Message, MessageDirection, Qualification
-from app.db.models.sales import Campaign, Prospect, ProspectStatus, Research, Score
+from app.db.models.sales import Campaign, Contact, Prospect, ProspectStatus, Research, Score
 from app.orchestrator.context_builder import AgentContext, assert_same_tenant
 from app.orchestrator.envelope import JobEnvelope
-from app.orchestrator.executors.base import ExecutionResult
+from app.orchestrator.executors.base import (
+    ExecutionResult,
+    cobrando_a_falha,
+    custo_dentro_do_teto,
+    novo_consumo,
+)
 from app.orchestrator.executors.outreach import OutreachBlocked
 from app.orchestrator.executors.research import ResearchFailed, _accumulate
 
@@ -144,17 +151,12 @@ class QualificationExecutor:
         model = context.agent.get("model") or settings.ai_model_default
         prompt = self._build_prompt(criterios, historico, pesquisa, nota)
 
-        bruto, usage = self._judge(session, envelope, model, context, prompt)
-        resultado, rebaixados = _enforce_evidence(bruto)
-
-        custo = cost_micro_usd(
-            model,
-            input_tokens=usage["input_tokens"],
-            output_tokens=usage["output_tokens"],
-            cache_read_tokens=usage["cache_read_tokens"],
-            cache_write_tokens=usage["cache_write_tokens"],
-        )
-        registro = self._persist(session, envelope, prospect, conversa, resultado)
+        usage = novo_consumo()
+        with cobrando_a_falha(model, usage):
+            bruto = self._judge(session, envelope, model, context, prompt, usage)
+            resultado, rebaixados = _enforce_evidence(bruto)
+            custo = custo_dentro_do_teto(model, usage)
+            registro = self._persist(session, envelope, prospect, conversa, resultado)
 
         return ExecutionResult(
             output={**resultado.model_dump(), "qualification_id": str(registro.id)},
@@ -179,6 +181,7 @@ class QualificationExecutor:
         if prospect is None:
             raise NotFound("Prospect não encontrado neste tenant")
         assert_same_tenant(prospect, envelope.tenant_id)
+        self._checar_descadastro(session, prospect)
 
         campanha = session.get(Campaign, prospect.campaign_id)
         conversa = session.execute(
@@ -199,6 +202,29 @@ class QualificationExecutor:
                 ).scalars()
             )[::-1]
         return prospect, campanha, conversa, historico
+
+    def _checar_descadastro(self, session: Session, prospect: Prospect) -> None:
+        """Descadastro não se desfaz por veredito de agente.
+
+        O caminho que isso abria era este: o lead pede para sair, o Conversation
+        Agent obedece — marca `opted_out` e leva o prospect para
+        `disqualified` — e depois alguém (ou a própria fila) dispara a
+        qualificação. O modelo lê a conversa inteira, vê uma empresa que bate
+        com o ICP e devolve "qualified"; o `_persist` reescrevia o estágio, e o
+        lead voltava para o funil como oportunidade. Um vendedor ligaria para
+        quem acabou de pedir para não ser mais procurado.
+
+        Bloquear aqui, antes da chamada, também evita pagar por um veredito que
+        não pode ter efeito nenhum.
+        """
+        contato = (
+            session.get(Contact, prospect.contact_id) if prospect.contact_id else None
+        )
+        if contato is not None and contato.opted_out:
+            raise OutreachBlocked(
+                "Contato pediu descadastro: não há o que qualificar",
+                details={"prospect_status": prospect.status},
+            )
 
     def _intel(
         self, session: Session, envelope: JobEnvelope, prospect: Prospect
@@ -261,14 +287,9 @@ class QualificationExecutor:
         model: str,
         context: AgentContext,
         prompt: str,
-    ) -> tuple[QualificationOutput, dict]:
+        usage: dict,
+    ) -> QualificationOutput:
         client = self._client_factory(session, envelope.tenant_id)
-        usage = {
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "cache_read_tokens": 0,
-            "cache_write_tokens": 0,
-        }
         response = client.messages.parse(
             model=model,
             max_tokens=context.agent.get("max_output_tokens") or settings.ai_max_output_tokens,
@@ -288,7 +309,7 @@ class QualificationExecutor:
         resultado = getattr(response, "parsed_output", None)
         if not isinstance(resultado, QualificationOutput):
             raise ResearchFailed("A resposta do modelo não veio no formato esperado")
-        return resultado, usage
+        return resultado
 
     # ---------------------------------------------------------------- persistência
     def _persist(

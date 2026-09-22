@@ -224,6 +224,116 @@ def test_limite_diario_da_campanha_trava_o_volume(prospect_pesquisado):
     assert exc.value.details["limit"] == 1
 
 
+def test_teto_de_uma_campanha_nao_come_a_cota_da_outra(prospect_pesquisado):
+    """O teto diário é da campanha; contá-lo no tenant inteiro misturava as duas.
+
+    Duas campanhas de 50 na mesma empresa entregavam 50 no total, e uma campanha
+    pequena travava a abordagem de todas as demais — com a tela dizendo "limite
+    diário atingido" numa campanha que não mandou nada hoje.
+    """
+    with tenant_session(prospect_pesquisado["tenant_id"]) as session:
+        session.get(Campaign, prospect_pesquisado["campaign_id"]).daily_limits = {"emails": 1}
+
+    # Uma mensagem de hoje, de OUTRA campanha, para outro prospect.
+    with tenant_session(prospect_pesquisado["tenant_id"]) as session:
+        outra = Campaign(
+            tenant_id=prospect_pesquisado["tenant_id"], name="Agro BR", slug="agro-br"
+        )
+        session.add(outra)
+        session.flush()
+        contato = Contact(
+            tenant_id=prospect_pesquisado["tenant_id"],
+            full_name="Bruno Alves",
+            email="bruno@agro.br",
+        )
+        session.add(contato)
+        session.flush()
+        prospect = Prospect(
+            tenant_id=prospect_pesquisado["tenant_id"],
+            campaign_id=outra.id,
+            contact_id=contato.id,
+            status="scored",
+        )
+        session.add(prospect)
+        session.flush()
+        conversa = Conversation(
+            tenant_id=prospect_pesquisado["tenant_id"],
+            prospect_id=prospect.id,
+            campaign_id=outra.id,
+            channel="email",
+        )
+        session.add(conversa)
+        session.flush()
+        session.add(
+            Message(
+                tenant_id=prospect_pesquisado["tenant_id"],
+                conversation_id=conversa.id,
+                direction="outbound",
+                status="sent",
+                channel="email",
+                subject="Outra campanha",
+                body="Mensagem de outra campanha.",
+            )
+        )
+
+    _registrar()
+    with tenant_session(prospect_pesquisado["tenant_id"]) as session:
+        run = run_job(session, _job(prospect_pesquisado))
+    assert run.status == "succeeded"
+
+
+def test_lead_que_ja_respondeu_nao_recebe_abordagem_fria(prospect_pesquisado):
+    """A regra de parada também vale no executor, não só na cadência.
+
+    Entre enfileirar o passo e executá-lo passa tempo — e o disparo manual pela
+    tela de agentes não passa por cadência nenhuma. Sem a guarda aqui, um clique
+    escreve primeira abordagem para quem já está conversando.
+    """
+    with tenant_session(prospect_pesquisado["tenant_id"]) as session:
+        conversa = Conversation(
+            tenant_id=prospect_pesquisado["tenant_id"],
+            prospect_id=prospect_pesquisado["prospect_id"],
+            campaign_id=prospect_pesquisado["campaign_id"],
+            channel="email",
+        )
+        session.add(conversa)
+        session.flush()
+        session.add(
+            Message(
+                tenant_id=prospect_pesquisado["tenant_id"],
+                conversation_id=conversa.id,
+                direction="inbound",
+                status="replied",
+                channel="email",
+                body="Interessante, me manda mais detalhes.",
+            )
+        )
+
+    cliente = _registrar()
+    with pytest.raises(OutreachBlocked) as exc:
+        with tenant_session(prospect_pesquisado["tenant_id"]) as session:
+            run_job(session, _job(prospect_pesquisado))
+    assert "respondeu" in exc.value.message
+    assert cliente.messages.chamadas == []
+
+
+def test_prospect_em_estagio_terminal_nao_e_abordado(prospect_pesquisado):
+    """Bounce, desqualificado, reunião marcada: a abordagem fria não se aplica.
+
+    Escrever de novo para um endereço que deu bounce é o tipo de disparo que o
+    provedor lê como spam — e o domínio de quem manda é o que paga.
+    """
+    with tenant_session(prospect_pesquisado["tenant_id"]) as session:
+        session.get(Prospect, prospect_pesquisado["prospect_id"]).status = "bounced"
+
+    cliente = _registrar()
+    with pytest.raises(OutreachBlocked) as exc:
+        with tenant_session(prospect_pesquisado["tenant_id"]) as session:
+            run_job(session, _job(prospect_pesquisado))
+    assert exc.value.details["status"] == "bounced"
+    assert cliente.messages.chamadas == []
+
+
 def test_campanha_pausada_nao_aborda(prospect_pesquisado):
     with tenant_session(prospect_pesquisado["tenant_id"]) as session:
         session.get(Campaign, prospect_pesquisado["campaign_id"]).status = "paused"

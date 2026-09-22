@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
+from app.core.errors import AppError
 from app.core.startup import verify_production_secrets
 from app.db.models.jobs import Job, JobKind
 from app.db.models.platform import Tenant
@@ -163,6 +164,12 @@ def ciclo() -> dict:
             logger.exception(
                 "job falhou", extra={"job_id": str(job_id), "tenant_id": str(tenant_id)}
             )
+            # Recusa de política não é falha transitória: o descadastro não vai
+            # se desfazer em cinco minutos, nem a cota do mês. Tentar de novo só
+            # enche o log — e quando a recusa acontece depois da chamada ao
+            # modelo (teto de custo estourado), a segunda tentativa gasta de novo
+            # para ser recusada igual.
+            definitivo = isinstance(exc, AppError) and exc.status_code in (402, 403, 409)
             # O registro da falha também pode falhar — o job pode ter sido
             # apagado no meio, e `admin.get` devolveria None. Uma exceção **dentro
             # do handler** subiria e mataria o processo justamente quando algo já
@@ -171,7 +178,12 @@ def ciclo() -> dict:
                 with unscoped_session(reason="worker:registrar-falha") as admin:
                     registro = admin.get(Job, job_id)
                     if registro is not None:
-                        jobs.fail(admin, registro, f"{type(exc).__name__}: {exc}")
+                        jobs.fail(
+                            admin,
+                            registro,
+                            f"{type(exc).__name__}: {exc}",
+                            retry=not definitivo,
+                        )
                     else:
                         logger.warning("job desapareceu antes de registrar a falha: %s", job_id)
             except Exception:  # noqa: BLE001 - ver comentário acima

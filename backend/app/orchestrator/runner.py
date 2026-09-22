@@ -30,9 +30,9 @@ from app.db.session import tenant_session
 from app.orchestrator.agents import AGENT_DEFINITIONS, AgentDefinition
 from app.orchestrator.context_builder import build_context
 from app.orchestrator.envelope import JobEnvelope
-from app.orchestrator.executors.base import AgentExecutor, ExecutionResult
+from app.orchestrator.executors.base import AgentExecutor, ExecutionResult, gasto_de
 from app.orchestrator.executors.echo import echo_executor
-from app.services import audit, usage
+from app.services import audit, jobs, usage
 from app.tenancy.context import TenantContext, use_context
 
 logger = logging.getLogger("ia_sdr.orchestrator")
@@ -97,8 +97,8 @@ def _close_run(
         run.output_tokens = output_tokens
         run.finished_at = datetime.now(UTC)
 
+        definition = AGENT_DEFINITIONS[envelope.agent]
         if status is RunStatus.SUCCEEDED:
-            definition = AGENT_DEFINITIONS[envelope.agent]
             usage.record_usage(
                 book,
                 tenant_id=envelope.tenant_id,
@@ -116,8 +116,31 @@ def _close_run(
                 "model": model,
             }
         else:
+            if cost_micro_usd:
+                # Falhou depois de chamar o modelo: o token já foi gasto e a
+                # Anthropic já cobrou. Sem este evento, o gasto de execução que
+                # falha desaparece da contabilidade — o run ficava com zero
+                # token, o consumo do mês não registrava nada e a fila ainda
+                # tentava o mesmo job mais duas vezes, cada tentativa invisível
+                # do mesmo jeito. Custo real entra; **unidade não**, porque o
+                # cliente não paga cota por trabalho que não foi entregue.
+                usage.record_usage(
+                    book,
+                    tenant_id=envelope.tenant_id,
+                    kind=definition.usage_kind,
+                    quantity=0,
+                    campaign_id=envelope.campaign_id,
+                    agent_run_id=run_id,
+                    user_id=envelope.user_id,
+                    cost_micro_usd=cost_micro_usd,
+                    notes=f"execução {status.value}: {error}"[:500],
+                )
             action = "agent.run.failed"
-            payload = {"agent": envelope.agent.value, "error": error}
+            payload = {
+                "agent": envelope.agent.value,
+                "error": error,
+                "cost_micro_usd": cost_micro_usd,
+            }
 
         audit.record(
             book,
@@ -141,14 +164,45 @@ def _run_existente(envelope: JobEnvelope) -> AgentRun | None:
 
     Só uma execução que **falhou** pode ser refeita: é exatamente para isso que
     a fila tem tentativas.
+
+    E execução abandonada conta como falha. Um run fica em `running` quando o
+    processo morre no meio — SIGKILL, container reciclado, banco caído. Passado
+    o prazo de órfão da fila, ninguém está do outro lado dele: tratá-lo como
+    "já entregue" fazia a tentativa seguinte devolver o run parado e marcar o
+    job como concluído sem ter feito nada. O trabalho sumia em silêncio, que é
+    pior do que falhar.
     """
     with tenant_session(envelope.tenant_id) as book:
-        return book.execute(
+        anterior = book.execute(
             select(AgentRun)
             .where(AgentRun.job_id == envelope.job_id)
             .where(AgentRun.status != RunStatus.FAILED.value)
+            .order_by(AgentRun.started_at.desc())
             .limit(1)
         ).scalar_one_or_none()
+        if anterior is None:
+            return None
+
+        if anterior.status == RunStatus.RUNNING.value and _abandonado(anterior):
+            logger.warning(
+                "agent.run.abandonado run_id=%s — processo morreu no meio, refazendo",
+                anterior.id,
+            )
+            anterior.status = RunStatus.FAILED.value
+            anterior.error = "abandonado: o processo não concluiu a execução"
+            anterior.finished_at = datetime.now(UTC)
+            return None
+        return anterior
+
+
+def _abandonado(run: AgentRun) -> bool:
+    limite = datetime.now(UTC) - jobs.STALE_AFTER
+    inicio = run.started_at
+    if inicio is None:
+        return True
+    if inicio.tzinfo is None:  # pragma: no cover - coluna é timestamptz
+        inicio = inicio.replace(tzinfo=UTC)
+    return inicio < limite
 
 
 def run_job(session: Session, envelope: JobEnvelope) -> AgentRun:
@@ -178,17 +232,35 @@ def run_job(session: Session, envelope: JobEnvelope) -> AgentRun:
             result: ExecutionResult = get_executor(envelope.agent.value)(
                 session, context, envelope
             )
-        except AppError as exc:
-            # 402/403 são recusa de política (cota, isolamento); o resto é falha.
-            status = (
-                RunStatus.REJECTED if exc.status_code in (402, 403) else RunStatus.FAILED
-            )
+        except Exception as exc:
+            # Qualquer exceção fecha o run. Antes só as de domínio eram tratadas,
+            # e o erro mais provável em produção não é de domínio: é o SDK da
+            # Anthropic levantando o seu (corte de conexão, 429, 500 do outro
+            # lado). O run ficava em `running` para sempre e — por ser um run
+            # não-falho com o mesmo `job_id` — a tentativa seguinte o devolvia
+            # como "já executado" e o job era marcado como concluído. O trabalho
+            # sumia, e a tela dizia que estava tudo bem.
+            if isinstance(exc, AppError):
+                # 402/403 são recusa de política (cota, isolamento); o resto é falha.
+                status = (
+                    RunStatus.REJECTED if exc.status_code in (402, 403) else RunStatus.FAILED
+                )
+                erro = f"{exc.code}: {exc.message}"
+            else:
+                status = RunStatus.FAILED
+                erro = f"{type(exc).__name__}: {exc}"
+            # A exceção pode vir carregando o que já foi gasto antes de falhar.
+            gasto = gasto_de(exc)
             _close_run(
                 envelope,
                 run_id,
                 ctx,
                 status=status,
-                error=f"{exc.code}: {exc.message}",
+                error=erro,
+                model=gasto.model if gasto else None,
+                input_tokens=gasto.input_tokens if gasto else 0,
+                output_tokens=gasto.output_tokens if gasto else 0,
+                cost_micro_usd=gasto.cost_micro_usd if gasto else 0,
             )
             raise
 

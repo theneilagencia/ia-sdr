@@ -106,12 +106,24 @@ def complete(session: Session, job: Job, *, agora: datetime | None = None) -> No
 
 
 def fail(
-    session: Session, job: Job, erro: str, *, agora: datetime | None = None
+    session: Session,
+    job: Job,
+    erro: str,
+    *,
+    agora: datetime | None = None,
+    retry: bool = True,
 ) -> None:
-    """Marca a falha e reagenda, até acabarem as tentativas."""
+    """Marca a falha e reagenda, até acabarem as tentativas.
+
+    `retry=False` encerra o job na primeira falha. É para o que não muda de
+    resposta na segunda tentativa: recusa de política — cota estourada, contato
+    descadastrado, teto de custo, isolamento de tenant. Insistir nesses casos não
+    conserta nada e, quando a recusa vem **depois** da chamada ao modelo, cada
+    tentativa paga a conta de novo.
+    """
     agora = agora or datetime.now(UTC)
     job.last_error = erro[:1000]
-    if job.attempts >= job.max_attempts:
+    if not retry or job.attempts >= job.max_attempts:
         job.status = JobStatus.FAILED.value
         job.finished_at = agora
     else:

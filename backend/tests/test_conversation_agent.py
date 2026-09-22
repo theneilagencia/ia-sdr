@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -11,7 +12,11 @@ from app.db.models.engagement import Conversation, Message
 from app.db.models.knowledge import KnowledgeChunk, KnowledgeDocument
 from app.db.models.sales import Campaign, Company, Contact, Prospect
 from app.db.session import tenant_session
-from app.orchestrator.executors.conversation import ConversationExecutor, ConversationReply
+from app.orchestrator.executors.conversation import (
+    ConversationBlocked,
+    ConversationExecutor,
+    ConversationReply,
+)
 from app.orchestrator.runner import new_job, register_executor, run_job
 
 RESPOSTA_SIMPLES = {
@@ -213,6 +218,79 @@ def test_interesse_em_reuniao_fica_marcado(conversa_aberta):
             session.get(Conversation, conversa_aberta["conversation_id"]).status
             == "meeting_intent"
         )
+
+
+def test_conversa_sem_mensagem_do_lead_nao_gera_replica(conversa_aberta):
+    """Sem pergunta na mesa, o agente estava respondendo a si mesmo.
+
+    O histórico só tinha o nosso próprio email frio, e o prompt manda "responder
+    a última mensagem do lead". A réplica ia para a fila de revisão como se
+    alguém tivesse escrito algo.
+    """
+    with tenant_session(conversa_aberta["tenant_id"]) as session:
+        session.execute(
+            select(Message).where(Message.direction == "inbound")
+        ).scalars().one().direction = "outbound"
+
+    cliente = _registrar(RESPOSTA_SIMPLES)
+    with pytest.raises(ConversationBlocked):
+        with tenant_session(conversa_aberta["tenant_id"]) as session:
+            run_job(session, _job(conversa_aberta))
+    assert cliente.messages.chamadas == []
+
+
+def test_mensagem_do_lead_ja_respondida_nao_gera_segunda_replica(conversa_aberta):
+    """Despachar a conversa duas vezes mandava dois emails sobre a mesma frase."""
+    with tenant_session(conversa_aberta["tenant_id"]) as session:
+        entrada = session.execute(
+            select(Message).where(Message.direction == "inbound")
+        ).scalars().one()
+        session.add(
+            Message(
+                tenant_id=conversa_aberta["tenant_id"],
+                conversation_id=conversa_aberta["conversation_id"],
+                direction="outbound",
+                status="sent",
+                channel="email",
+                body="Sim, cobrimos escala 24/7.",
+                created_at=entrada.created_at + timedelta(minutes=5),
+                sent_at=datetime.now(UTC),
+            )
+        )
+
+    cliente = _registrar(RESPOSTA_SIMPLES)
+    with pytest.raises(ConversationBlocked):
+        with tenant_session(conversa_aberta["tenant_id"]) as session:
+            run_job(session, _job(conversa_aberta))
+    assert cliente.messages.chamadas == []
+
+
+def test_rascunho_pendente_nao_impede_gerar_de_novo(conversa_aberta):
+    """Enquanto ninguém aprovou, a última palavra continua sendo a do lead.
+
+    Quem revisa precisa poder pedir outra versão; o freio é para réplica que já
+    saiu, não para rascunho na fila.
+    """
+    with tenant_session(conversa_aberta["tenant_id"]) as session:
+        entrada = session.execute(
+            select(Message).where(Message.direction == "inbound")
+        ).scalars().one()
+        session.add(
+            Message(
+                tenant_id=conversa_aberta["tenant_id"],
+                conversation_id=conversa_aberta["conversation_id"],
+                direction="outbound",
+                status="draft",
+                channel="email",
+                body="Primeira versão, ainda por aprovar.",
+                created_at=entrada.created_at + timedelta(minutes=5),
+            )
+        )
+
+    _registrar(RESPOSTA_SIMPLES)
+    with tenant_session(conversa_aberta["tenant_id"]) as session:
+        run = run_job(session, _job(conversa_aberta))
+    assert run.status == "succeeded"
 
 
 def test_conversa_de_outro_tenant_nao_e_respondida(conversa_aberta, make_tenant):

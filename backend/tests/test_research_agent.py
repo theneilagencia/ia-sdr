@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import select
 
 from app.ai.pricing import cost_micro_usd, price_for
+from app.core.config import settings
 from app.core.errors import NotFound
 from app.db.models.ai import AgentRun
 from app.db.models.platform import UsageEvent
@@ -187,6 +188,78 @@ def test_teto_de_custo_recusa_a_execucao(cenario):
         run = session.execute(select(AgentRun)).scalars().one()
         assert run.status == "rejected"
         assert session.execute(select(Research)).scalars().all() == []
+
+
+def test_gasto_de_execucao_que_falha_nao_desaparece(cenario):
+    """Token queimado em execução que falha continua tendo custado dinheiro.
+
+    O caminho era este: o modelo responde fora do formato (ou estoura o teto),
+    a execução falha, e o run era fechado com zero token e sem evento de
+    consumo. A fila então tentava o mesmo job mais duas vezes, cada tentativa
+    invisível do mesmo jeito. Um agente que falha sempre gastava a conta do mês
+    sem aparecer em lugar nenhum.
+    """
+    fora_do_formato = FakeResponse(parsed_output=None, usage=FakeUsage(9_000, 1_200))
+    executor, _ = _executor([fora_do_formato])
+    register_executor("research", executor)
+
+    envelope = new_job(
+        tenant_id=cenario["tenant_id"],
+        agent="research",
+        campaign_id=cenario["campaign_id"],
+        entity_type="company",
+        entity_id=cenario["company_id"],
+    )
+    with pytest.raises(ResearchFailed):
+        with tenant_session(cenario["tenant_id"]) as session:
+            run_job(session, envelope)
+
+    esperado = cost_micro_usd("claude-opus-5", input_tokens=9_000, output_tokens=1_200)
+    with tenant_session(cenario["tenant_id"]) as session:
+        run = session.execute(select(AgentRun)).scalars().one()
+        assert run.status == "failed"
+        assert (run.input_tokens, run.output_tokens) == (9_000, 1_200)
+
+        evento = session.execute(select(UsageEvent)).scalars().one()
+        assert evento.cost_micro_usd == esperado
+        # Custo real entra; unidade não: o cliente não paga cota por trabalho
+        # que não foi entregue.
+        assert evento.units == 0 and evento.quantity == 0
+        assert "research_failed" in (evento.notes or "")
+
+
+def test_teto_de_custo_para_no_turno_que_estourou(cenario):
+    """O teto é para parar de gastar, não para contar o que já se gastou.
+
+    Turno pausado é retomado até cinco vezes. Conferir o teto uma única vez, no
+    fim, significa pagar os seis turnos para então descobrir que o primeiro já
+    tinha passado do limite.
+    """
+    caro = FakeResponse(
+        stop_reason="pause_turn",
+        content=[],
+        usage=FakeUsage(input_tokens=200_000, output_tokens=100_000),
+    )
+    executor, cliente = _executor([caro, _resposta_ok()])
+    register_executor("research", executor)
+
+    envelope = new_job(
+        tenant_id=cenario["tenant_id"],
+        agent="research",
+        entity_type="company",
+        entity_id=cenario["company_id"],
+    )
+    with pytest.raises(CostCeilingExceeded):
+        with tenant_session(cenario["tenant_id"]) as session:
+            run_job(session, envelope)
+
+    # O segundo turno não foi comprado.
+    assert len(cliente.messages.chamadas) == 1
+    with tenant_session(cenario["tenant_id"]) as session:
+        # E o que o primeiro turno custou está registrado, apesar da recusa.
+        evento = session.execute(select(UsageEvent)).scalars().one()
+        assert evento.cost_micro_usd > settings.ai_max_cost_micro_usd
+        assert evento.units == 0
 
 
 def test_recusa_do_modelo_vira_falha_explicita(cenario):
