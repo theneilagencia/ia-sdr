@@ -68,6 +68,22 @@ with tenant_session(tenant_id) as session:   # SET LOCAL app.tenant_id
 `UPDATE` e `DELETE` cruzados, que retornam 0 linhas afetadas, e o privilégio do
 role com que a suíte está conectada.
 
+### A lista de tabelas é conferida contra os modelos
+
+A lista de tabelas que recebem RLS (`TENANT_SCOPED_TABLES`) é mantida à mão, e
+por isso a suíte confere as duas direções: toda tabela da lista tem política, **e
+nenhuma tabela mapeada com `tenant_id` está fora dela**.
+
+A segunda direção foi acrescentada depois de encontrar o caso que ela pega:
+`memberships` carregava `tenant_id` desde a primeira migration e nunca teve
+política. Não vazava por sorte — todos os caminhos que leem memberships de
+várias empresas (registro, login, troca de tenant, `/auth/me`, resolução de
+permissão) usam a sessão sem escopo de propósito. Mas `limits.check_can_add_user`
+conta os membros pela sessão **com escopo**, protegido apenas por um
+`WHERE tenant_id = ...` escrito à mão — exatamente aquilo que este capítulo diz
+que o RLS existe para não depender. A migration `0008_rls_memberships` fecha o
+laço.
+
 ## 2. IA
 
 A IA da Empresa A não pode usar documentos, prompts, produtos ou histórico da

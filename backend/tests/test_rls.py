@@ -201,3 +201,26 @@ def test_todas_as_tabelas_de_cliente_tem_politica():
 
     assert set(TENANT_SCOPED_TABLES) <= set(rows)
     assert set(TENANT_SCOPED_TABLES) <= set(forced)
+
+
+def test_nenhuma_tabela_com_tenant_id_fica_fora_do_rls():
+    """A lista de tabelas com RLS é mantida à mão — então a suíte a confere.
+
+    O teste anterior provava um lado: toda tabela **da lista** tem política.
+    Faltava o outro, que é o que quebra na prática: um modelo novo com
+    `tenant_id` que ninguém lembrou de acrescentar à lista nasce sem política,
+    sem erro e sem teste vermelho. Foi assim que `memberships` passou seis
+    migrations carregando `tenant_id` e nenhuma proteção.
+    """
+    from app.db.models import TENANT_SCOPED_TABLES, Base
+
+    com_tenant = {t.name for t in Base.metadata.sorted_tables if "tenant_id" in t.columns}
+    fora = sorted(com_tenant - set(TENANT_SCOPED_TABLES))
+    assert fora == [], (
+        "tabelas com tenant_id fora do RLS: "
+        f"{fora}. Acrescente à lista e escreva a migration da política."
+    )
+    # E o contrário: nome na lista que não existe mais ou não tem tenant_id
+    # deixaria a verificação do outro teste passando por vazio.
+    sobrando = sorted(set(TENANT_SCOPED_TABLES) - com_tenant)
+    assert sobrando == [], f"nomes na lista que não são tabelas com tenant_id: {sobrando}"

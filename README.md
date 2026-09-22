@@ -146,15 +146,20 @@ verificam — Row Level Security — não existe em outro banco. Aponte
 O que está coberto:
 
 - `test_rls.py` — isolamento no banco: leitura, escrita, update e delete
-  cruzados; sessão sem escopo; política presente em todas as tabelas; e o
-  privilégio do role com que a aplicação conecta, que é o que decide se tudo
-  isso vale alguma coisa
+  cruzados; sessão sem escopo; política presente em todas as tabelas — **e a
+  lista dessas tabelas conferida contra os modelos**, porque ela é mantida à mão
+  e foi assim que `memberships` apareceu carregando `tenant_id` sem política
+  nenhuma; e o privilégio do role com que a aplicação conecta, que é o que decide
+  se tudo isso vale alguma coisa
 - `test_api_isolation.py` — isolamento pela API, token forjado, credencial que
   não vaza na resposta, auditoria
 - `test_rbac.py` — matriz de papéis e enforcement na rota
 - `test_orchestrator.py` — contexto de IA só com dado do próprio tenant,
   envelope, cota e registro de execução
-- `test_usage_and_limits.py` — consumo, limites de plano e criptografia
+- `test_usage_and_limits.py` — consumo, limites de plano e criptografia. Cada
+  limite que o plano declara tem agora o teste da sua imposição, e um tripwire
+  falha se alguém declarar um limite novo sem impor: limite anunciado e não
+  verificado é promessa não cumprida
 - `test_research_agent.py` — o agente real com cliente falso: retomada de turno
   pausado, teto de custo, persistência, custo por token e recusa de alvo de
   outro tenant
@@ -175,6 +180,10 @@ O que está coberto:
 - `test_rate_limit.py` — a janela deslizante, os baldes que não podem colidir
   entre empresas, as chaves que precisam sair da memória, e `limit=0` devolvendo
   429 em vez de estourar
+- `test_migrations.py` — as propriedades que ninguém verifica de olho: o banco
+  migrado é o que os modelos descrevem (um `--autogenerate` agora não escreveria
+  nada), as migrations formam uma linha só sem ramo, e nenhum erro da API
+  compartilha código com outro
 - `test_auth_and_members.py` — troca de senha que encerra as sessões abertas, e
   as travas que impedem uma empresa de ficar sem ninguém que possa administrar
 - `test_knowledge.py` — fatiamento, ingestão idempotente, escopo por campanha e

@@ -111,3 +111,122 @@ def test_segredo_vai_e_volta_mas_nao_em_claro():
 def test_cifragem_nao_e_deterministica():
     """Dois segredos iguais não produzem o mesmo texto cifrado."""
     assert encrypt_secret("igual") != encrypt_secret("igual")
+
+
+def test_limite_de_pessoas_bloqueia_o_convite(client, make_tenant, auth_headers):
+    """Starter dá duas pessoas: o owner e mais uma."""
+    t = make_tenant(plan=Plan.STARTER.value)
+    headers = auth_headers(t["email"], t["password"])
+
+    primeira = client.post(
+        "/api/v1/tenants/me/members",
+        headers=headers,
+        json={
+            "email": "segunda@example.com",
+            "password": "senha-forte-12345",
+            "full_name": "Segunda",
+            "role": "operator",
+        },
+    )
+    assert primeira.status_code == 201, primeira.text
+
+    terceira = client.post(
+        "/api/v1/tenants/me/members",
+        headers=headers,
+        json={
+            "email": "terceira@example.com",
+            "password": "senha-forte-12345",
+            "full_name": "Terceira",
+            "role": "viewer",
+        },
+    )
+    assert terceira.status_code == 402
+    assert terceira.json()["error"]["code"] == "limit_exceeded"
+
+
+def test_limite_de_contas_de_email_bloqueia_a_segunda(client, make_tenant, auth_headers):
+    """Starter dá uma conta de envio.
+
+    A tela de Configurações sempre edita **a** conta (o serviço faz upsert), então
+    o único caminho capaz de passar do limite é a rota genérica de integrações — e
+    é lá que a verificação está.
+    """
+    t = make_tenant(plan=Plan.STARTER.value)
+    headers = auth_headers(t["email"], t["password"])
+    corpo = {
+        "provider": "smtp",
+        "account_ref": "vendas@apymine.com",
+        "display_name": "Vendas",
+        "credentials": {"username": "vendas@apymine.com", "password": "x"},
+        "config": {"host": "smtp.apymine.com", "port": 587},
+    }
+
+    primeira = client.post("/api/v1/integrations", headers=headers, json=corpo)
+    assert primeira.status_code == 201, primeira.text
+
+    segunda = client.post(
+        "/api/v1/integrations",
+        headers=headers,
+        json={**corpo, "account_ref": "outro@apymine.com"},
+    )
+    assert segunda.status_code == 402
+    assert segunda.json()["error"]["code"] == "limit_exceeded"
+
+
+def test_limite_de_documentos_bloqueia_a_ingestao(client, make_tenant, auth_headers):
+    """O teto da base de conhecimento vale nos dois caminhos de entrada."""
+    t = make_tenant(plan=Plan.STARTER.value)
+    with tenant_session(t["tenant_id"]) as session:
+        session.get(Tenant, t["tenant_id"]).limit_overrides = {"knowledge_documents": 1}
+    headers = auth_headers(t["email"], t["password"])
+
+    primeiro = client.post(
+        "/api/v1/knowledge/documents",
+        headers=headers,
+        json={"title": "Playbook", "content": "O reembolso vale por trinta dias."},
+    )
+    assert primeiro.status_code == 201, primeiro.text
+
+    segundo = client.post(
+        "/api/v1/knowledge/documents",
+        headers=headers,
+        json={"title": "FAQ", "content": "Perguntas frequentes."},
+    )
+    assert segundo.status_code == 402
+    assert segundo.json()["error"]["code"] == "limit_exceeded"
+
+    # O upload é a outra porta, e ela tem de recusar igual.
+    subida = client.post(
+        "/api/v1/knowledge/documents/upload",
+        headers=headers,
+        files={"file": ("mais.md", b"# Mais um", "text/markdown")},
+    )
+    assert subida.status_code == 402
+
+
+def test_todo_limite_do_plano_tem_onde_ser_verificado():
+    """Tripwire: limite declarado e não verificado é promessa não cumprida.
+
+    Quem acrescentar um limite ao plano vai ver este teste falhar, e o conserto é
+    escrever a verificação **e** o teste dela — não acrescentar a chave aqui.
+    """
+    from app.billing.plans import PLAN_LIMITS
+
+    #: Onde cada limite do plano é imposto hoje. Mudou de lugar? Atualize aqui.
+    ONDE = {
+        "campaigns": "limits.check_can_create_campaign (POST /campaigns)",
+        "users": "limits.check_can_add_user (POST /tenants/me/members)",
+        "email_accounts": "limits.check_can_add_email_account (POST /integrations)",
+        "knowledge_documents": "limits.check_can_add_document (POST /knowledge/documents*)",
+        "prospects_per_month": "prospects._check_import_budget (POST /prospects/import*)",
+        "ai_units_per_month": "usage.check_ai_budget (orchestrator.run_job)",
+    }
+
+    declarados = set(PLAN_LIMITS[Plan.STARTER].as_dict()) - {"features"}
+    sem_verificacao = sorted(declarados - set(ONDE))
+    assert sem_verificacao == [], (
+        f"limites declarados sem verificação conhecida: {sem_verificacao}. "
+        "Escreva a imposição e o teste dela."
+    )
+    fantasmas = sorted(set(ONDE) - declarados)
+    assert fantasmas == [], f"verificações para limites que não existem mais: {fantasmas}"

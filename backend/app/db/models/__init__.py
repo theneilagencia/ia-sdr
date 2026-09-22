@@ -52,8 +52,14 @@ from app.db.models.sales import (
 )
 
 #: Tabelas que carregam dados de cliente e, portanto, recebem RLS.
+#:
+#: A lista é mantida à mão, e por isso a suíte prova que ela está completa:
+#: `test_rls.py` falha se alguma tabela mapeada tiver `tenant_id` e não estiver
+#: aqui. Foi assim que `memberships` apareceu — carregava `tenant_id` desde a
+#: primeira migration e não tinha política nenhuma.
 TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "audit_logs",
+    "memberships",
     "usage_events",
     "companies",
     "contacts",

@@ -55,7 +55,10 @@ class FormatoNaoSuportado(AppError):
 
 
 class ArquivoGrande(AppError):
-    code = "document_too_large"
+    #: Código próprio: "o arquivo que você subiu passa do teto" e "o texto que
+    #: você colou é longo demais" são dois problemas com duas soluções
+    #: diferentes, e compartilhar o código faz a tela tratá-los como um só.
+    code = "file_too_large"
 
     def __init__(self) -> None:
         super().__init__(
