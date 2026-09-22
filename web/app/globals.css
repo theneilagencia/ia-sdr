@@ -125,6 +125,19 @@ button { cursor: pointer; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.ghost { color: var(--muted); }
 
+/* Link que é ação. O download da exportação precisa ser um link de verdade —
+   `download` num botão de form não baixa arquivo —, e parecer um botão. */
+a.botao {
+  display: inline-block;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  padding: 8px 12px;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+}
+a.botao:hover { opacity: 0.92; }
+
 .empty { color: var(--muted); background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius); padding: 28px; text-align: center; }
 
 .login { max-width: 360px; margin: 14vh auto; }

@@ -1162,3 +1162,147 @@ export async function avancarCadencias(_: Resultado, _form: FormData): Promise<R
     throw erro;
   }
 }
+
+// ---------------------------------------------------- contas-alvo e contatos
+/**
+ * As duas tabelas que só o import escrevia.
+ *
+ * Domínio trocado é o erro mais caro de uma planilha: o agente pesquisa a
+ * empresa errada, escreve com os fatos dela e ninguém percebe até o lead
+ * responder confuso. Corrigir isso exigia ir ao banco.
+ */
+export async function criarConta(_: Resultado, form: FormData): Promise<Resultado> {
+  const corpo: Record<string, unknown> = {
+    name: String(form.get("name") ?? "").trim(),
+    domain: texto(form, "domain"),
+    industry: texto(form, "industry"),
+    country: texto(form, "country"),
+    description: texto(form, "description"),
+  };
+  const porte = String(form.get("employee_count") ?? "").trim();
+  if (porte) corpo.employee_count = Number(porte);
+
+  const resultado = await executar(
+    () => api("/api/v1/companies", { method: "POST", body: corpo }),
+    "Conta criada. Já serve de alvo para a pesquisa.",
+  );
+  revalidatePath("/accounts");
+  return resultado;
+}
+
+export async function salvarConta(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("id"));
+  const corpo: Record<string, unknown> = {
+    name: String(form.get("name") ?? "").trim(),
+    domain: texto(form, "domain"),
+    industry: texto(form, "industry"),
+    country: texto(form, "country"),
+    description: texto(form, "description"),
+  };
+  const porte = String(form.get("employee_count") ?? "").trim();
+  corpo.employee_count = porte ? Number(porte) : null;
+
+  const resultado = await executar(
+    () => api(`/api/v1/companies/${id}`, { method: "PATCH", body: corpo }),
+    "Conta corrigida. A próxima pesquisa usa o dado novo.",
+  );
+  revalidatePath("/accounts");
+  return resultado;
+}
+
+export async function criarContato(_: Resultado, form: FormData): Promise<Resultado> {
+  const corpo: Record<string, unknown> = {
+    full_name: String(form.get("full_name") ?? "").trim(),
+    email: texto(form, "email"),
+    phone: texto(form, "phone"),
+    title: texto(form, "title"),
+    persona: texto(form, "persona"),
+  };
+  const empresa = String(form.get("company_id") ?? "").trim();
+  if (empresa) corpo.company_id = empresa;
+
+  const resultado = await executar(
+    () => api("/api/v1/contacts", { method: "POST", body: corpo }),
+    "Contato criado.",
+  );
+  revalidatePath("/contacts");
+  return resultado;
+}
+
+export async function salvarContato(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("id"));
+  const corpo: Record<string, unknown> = {
+    full_name: String(form.get("full_name") ?? "").trim(),
+    email: texto(form, "email"),
+    phone: texto(form, "phone"),
+    title: texto(form, "title"),
+    persona: texto(form, "persona"),
+  };
+  const empresa = String(form.get("company_id") ?? "").trim();
+  corpo.company_id = empresa || null;
+
+  const resultado = await executar(
+    () => api(`/api/v1/contacts/${id}`, { method: "PATCH", body: corpo }),
+    "Contato atualizado.",
+  );
+  revalidatePath("/contacts");
+  return resultado;
+}
+
+/**
+ * Descadastro pedido por fora do email — telefone, WhatsApp, resposta a uma
+ * pessoa. Só vai numa direção: a API não desmarca, e a tela não oferece.
+ */
+export async function descadastrarContato(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("id"));
+  const resultado = await executar(
+    () => api(`/api/v1/contacts/${id}`, { method: "PATCH", body: { opted_out: true } }),
+    "Descadastro registrado. Esta pessoa não recebe mais nada, nem por cadência.",
+  );
+  revalidatePath("/contacts");
+  return resultado;
+}
+
+/**
+ * Apagar contato só existe para o que nunca foi usado.
+ *
+ * A API recusa apagar quem tem histórico — e isso é proteção, não limitação:
+ * apagar levaria embora a prova de que um descadastro foi pedido, e o próximo
+ * import traria a pessoa de volta.
+ */
+export async function apagarContato(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("id"));
+  const resultado = await executar(
+    () => api(`/api/v1/contacts/${id}`, { method: "DELETE" }),
+    "Contato apagado.",
+  );
+  revalidatePath("/contacts");
+  return resultado;
+}
+
+// ---------------------------------------------------- configuração de agente
+/**
+ * Modelo, instruções e teto de saída por agente.
+ *
+ * Existia no banco desde o primeiro sprint e era lido pelo orquestrador em toda
+ * execução — só não tinha porta: trocar o modelo de um cliente exigia `INSERT`.
+ * O formulário vai inteiro de propósito; mandar só o campo alterado faria a
+ * segunda edição parecer apagar a primeira.
+ */
+export async function salvarConfigAgente(_: Resultado, form: FormData): Promise<Resultado> {
+  const kind = String(form.get("kind"));
+  const corpo: Record<string, unknown> = {
+    model: String(form.get("model") ?? ""),
+    instructions: String(form.get("instructions") ?? "").trim(),
+    is_active: String(form.get("is_active")) === "true",
+  };
+  const teto = String(form.get("max_output_tokens") ?? "").trim();
+  if (teto) corpo.max_output_tokens = Number(teto);
+
+  const resultado = await executar(
+    () => api(`/api/v1/agents/config/${kind}`, { method: "PUT", body: corpo }),
+    "Configuração salva. Vale a partir da próxima execução deste agente.",
+  );
+  revalidatePath("/agents");
+  return resultado;
+}

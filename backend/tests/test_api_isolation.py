@@ -113,6 +113,27 @@ def test_conta_alvo_e_pesquisa_ficam_no_tenant(client):
     # Sem pesquisa ainda, mas a rota existe e respeita a fronteira.
     assert client.get(f"/api/v1/companies/{company_id}/research", headers=_headers(a)).json() == []
 
+    # Corrigir o que veio errado da planilha — domínio trocado é o caso comum, e
+    # o agente pesquisaria a empresa errada com ele.
+    corrigida = client.patch(
+        f"/api/v1/companies/{company_id}",
+        headers=_headers(a),
+        json={"domain": "northern-ore.ca", "employee_count": 450},
+    )
+    assert corrigida.status_code == 200, corrigida.text
+    assert corrigida.json()["domain"] == "northern-ore.ca"
+    assert corrigida.json()["employee_count"] == 450
+    # O que não veio no PATCH continua lá.
+    assert corrigida.json()["name"] == "Northern Ore"
+
+    # E a conta do vizinho não é editável nem por id.
+    alheia = client.patch(
+        f"/api/v1/companies/{company_id}",
+        headers=_headers(b),
+        json={"name": "Renomeada por fora"},
+    )
+    assert alheia.status_code == 404
+
 
 def test_auditoria_registra_quem_fez_o_que(client):
     a = _register(client, "Empresa Auditada", "audit@example.com")

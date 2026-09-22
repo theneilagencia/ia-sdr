@@ -371,6 +371,59 @@ export type Contact = {
   created_at: string;
 };
 
+export type Company = {
+  id: string;
+  name: string;
+  domain: string | null;
+  industry: string | null;
+  country: string | null;
+  region: string | null;
+  employee_count: number | null;
+  revenue_band: string | null;
+  description: string | null;
+  attributes: Record<string, unknown>;
+  created_at: string;
+};
+
+export type Research = {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  campaign_id: string | null;
+  depth: string;
+  summary: string | null;
+  findings: Record<string, unknown>;
+  sources: string[];
+  created_at: string;
+};
+
+export type AuditEntry = {
+  id: string;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  actor_user_id: string | null;
+  actor_role: string | null;
+  source: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export type AgentConfig = {
+  kind: string;
+  name: string;
+  model: string;
+  instructions: string;
+  max_output_tokens: number;
+  is_active: boolean;
+  /** `false` quando o que se vê é o padrão da plataforma, não uma escolha. */
+  configured: boolean;
+  units_per_run: number;
+  default_name: string;
+  default_model: string;
+  default_instructions: string;
+};
+
 // --------------------------------------------------------- painel da plataforma
 export type AdminTenant = {
   id: string;

@@ -397,6 +397,128 @@ try {
     "a reunião move o prospect no funil",
   );
 
+  // Contas-alvo: criar e **corrigir**. O domínio trocado é o erro mais caro de
+  // uma planilha — com ele, o agente pesquisa a empresa errada.
+  await page.goto(`${WEB}/accounts`);
+  await hidratada();
+  const novaConta = page.locator("section.card", { hasText: "Nova conta-alvo" });
+  await novaConta.locator('input[name="name"]').fill("Fumaça Mineração");
+  await novaConta.locator('input[name="domain"]').fill("fumaca.example");
+  await novaConta.locator('input[name="employee_count"]').fill("120");
+  await novaConta.locator('button[type="submit"]').click();
+  checar(
+    await ate(async () => (await novaConta.locator("p.ok, p.erro").count()) > 0),
+    "criar conta-alvo responde",
+  );
+  await page.reload();
+  await hidratada();
+  const linhaConta = page.locator('[data-secao="conta"]', { hasText: "Fumaça Mineração" });
+  checar((await linhaConta.count()) === 1, "a conta criada aparece na lista");
+  await linhaConta.locator("summary").click();
+  await linhaConta.locator('input[name="domain"]').fill("fumaca-mineracao.example");
+  await linhaConta.locator('button[type="submit"]').click();
+  checar(
+    await ate(async () => (await linhaConta.locator("p.ok, p.erro").count()) > 0),
+    "corrigir a conta responde",
+  );
+  await page.reload();
+  await hidratada();
+  checar(
+    (await page.locator("main").innerText()).includes("fumaca-mineracao.example"),
+    "o domínio corrigido volta na recarga",
+  );
+
+  // Contatos: o descadastro pedido por fora do email é o que tem consequência
+  // legal, e era a única via pelo banco.
+  await page.goto(`${WEB}/contacts`);
+  await hidratada();
+  const contatos = await page.locator('[data-secao="contato"]').count();
+  checar(contatos >= 1, `a lista de contatos carrega (${contatos})`);
+  const novoContato = page.locator("section.card", { hasText: "Novo contato" });
+  await novoContato.locator('input[name="full_name"]').fill("Fumaça Sem Email");
+  await novoContato.locator('button[type="submit"]').click();
+  checar(
+    await ate(async () => (await novoContato.locator("p.ok, p.erro").count()) > 0),
+    "criar contato responde",
+  );
+  await page.goto(`${WEB}/contacts?filtro=sem-email`);
+  await hidratada();
+  checar(
+    (await page.locator("main").innerText()).includes("Fumaça Sem Email"),
+    "o filtro de contatos sem email encontra quem o agente não pode abordar",
+  );
+  const paraDescadastrar = page.locator('[data-secao="contato"]', {
+    hasText: "Fumaça Sem Email",
+  });
+  await paraDescadastrar.locator('button:has-text("Registrar descadastro")').click();
+  checar(
+    await ate(async () => (await paraDescadastrar.locator("span.tag.urgente").count()) > 0),
+    "registrar descadastro fica marcado na hora, sem desfazer",
+  );
+
+  // Configuração por agente: existia no banco e era lida pelo orquestrador —
+  // trocar o modelo de um cliente exigia INSERT.
+  await page.goto(`${WEB}/agents`);
+  await hidratada();
+  const cartoes = await page.locator('[data-secao="config-agente"]').count();
+  checar(cartoes === 4, `os quatro agentes aparecem configuráveis (${cartoes})`);
+  const pesquisaConfig = page.locator('[data-agente="research"]');
+  await pesquisaConfig.locator("summary").click();
+  await pesquisaConfig.locator('select[name="model"]').selectOption("claude-haiku-4-5");
+  await pesquisaConfig.locator('textarea[name="instructions"]').fill(
+    "Só fatos com fonte, em português.",
+  );
+  await pesquisaConfig.locator('button[type="submit"]').click();
+  checar(
+    await ate(async () => (await pesquisaConfig.locator("p.ok, p.erro").count()) > 0),
+    "salvar configuração do agente responde",
+  );
+  await page.reload();
+  await hidratada();
+  const depoisConfig = page.locator('[data-agente="research"]');
+  checar(
+    (await depoisConfig.innerText()).includes("claude-haiku-4-5"),
+    "o modelo escolhido volta na recarga",
+  );
+  checar(
+    (await depoisConfig.innerText()).includes("instrução própria"),
+    "a instrução própria aparece como escolha, não como padrão",
+  );
+
+  // Auditoria: o log existia desde o primeiro dia e não tinha tela. As ações
+  // acima acabaram de acontecer, então precisam estar lá.
+  await page.goto(`${WEB}/audit`);
+  // A auditoria não tem componente de cliente — é leitura, sem formulário —,
+  // então não há marca de hidratação para esperar: espera-se a primeira linha.
+  await page.waitForSelector('[data-secao="auditoria"]', { timeout: 20000 });
+  const auditoria = await page.locator("main").innerText();
+  checar(auditoria.includes("conta criada"), "a auditoria mostra a conta criada");
+  checar(
+    auditoria.includes("configuração de agente alterada"),
+    "a auditoria mostra a configuração de agente alterada",
+  );
+  checar(
+    auditoria.includes("pela tela"),
+    "a auditoria diz de onde a ação partiu",
+  );
+
+  // Exportação: o pacote inteiro pelo navegador, sem `curl` — e sem segredo.
+  const baixado = await page.request.get(`${WEB}/exportar`);
+  checar(baixado.ok(), `a exportação responde (${baixado.status()})`);
+  checar(
+    (baixado.headers()["content-disposition"] ?? "").includes("attachment"),
+    "a exportação desce como arquivo",
+  );
+  const pacote = await baixado.json();
+  checar(
+    Boolean(pacote.tenant?.slug) && Array.isArray(pacote.excluded),
+    "a exportação traz a empresa e diz o que ficou de fora",
+  );
+  checar(
+    !JSON.stringify(pacote).includes("sk-ant"),
+    "a exportação não leva segredo nenhum junto",
+  );
+
   // O painel da plataforma: a marca aparece nos dois sentidos. Quem a tem
   // enxerga as empresas; quem não a tem não ganha nem o link.
   await page.goto(`${WEB}/platform`);

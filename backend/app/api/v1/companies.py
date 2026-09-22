@@ -66,6 +66,38 @@ def get_company(
     return company
 
 
+@router.patch("/{company_id}", response_model=schemas.CompanyResponse)
+def update_company(
+    company_id: uuid.UUID,
+    payload: schemas.CompanyUpdate,
+    ctx: TenantContext = Depends(require(Permission.PROSPECT_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """Corrige o que veio errado da planilha.
+
+    Domínio trocado, porte desatualizado, nome com o sufixo societário colado —
+    é o tipo de erro que só aparece depois, quando alguém lê a pesquisa e vê que
+    o agente pesquisou a empresa errada.
+    """
+    company = db.get(Company, company_id)
+    if company is None:
+        raise NotFound("Empresa não encontrada")
+
+    mudancas = payload.model_dump(exclude_unset=True)
+    for campo, valor in mudancas.items():
+        setattr(company, campo, valor)
+    db.flush()
+    audit.record(
+        db,
+        action="company.updated",
+        resource_type="company",
+        resource_id=company.id,
+        payload={"campos": sorted(mudancas)},
+        context=ctx,
+    )
+    return company
+
+
 @router.get("/{company_id}/research", response_model=list[schemas.ResearchResponse])
 def list_research(
     company_id: uuid.UUID,

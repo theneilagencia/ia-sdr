@@ -122,7 +122,13 @@ def build_context(session: Session, envelope: JobEnvelope) -> AgentContext:
                 else definition.base_instructions
             ),
             "tools": list(agent_config.tools) if agent_config else list(definition.tools),
-            "max_output_tokens": agent_config.max_output_tokens if agent_config else 2000,
+            # Sem configuração própria, fica **vazio** para o executor aplicar o
+            # padrão da plataforma (`ai_max_output_tokens`). Antes vinha 2000
+            # fixo, e como o executor faz `... or settings.ai_max_output_tokens`,
+            # o 2000 sempre ganhava: o ajuste de 8000 nunca valeu para ninguém, e
+            # a mensagem de resposta truncada mandava aumentar um número que não
+            # tinha efeito nenhum.
+            "max_output_tokens": agent_config.max_output_tokens if agent_config else None,
         },
         task={
             "type": envelope.agent.value,

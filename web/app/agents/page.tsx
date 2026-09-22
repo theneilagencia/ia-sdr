@@ -1,6 +1,7 @@
 import {
   api,
   type AgentCatalogItem,
+  type AgentConfig,
   type AgentRun,
   type Conversation,
   type Job,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/api";
 
 import Nav from "../nav";
+import { ConfigurarAgente } from "./configurar";
 import { Disparar, type Opcao } from "./disparar";
 
 /**
@@ -76,8 +78,9 @@ function quando(iso: string) {
  * quer o prospect.
  */
 export default async function AgentsPage() {
-  const [catalogo, prospects, conversas, runs, jobs, eu] = await Promise.all([
+  const [catalogo, config, prospects, conversas, runs, jobs, eu] = await Promise.all([
     api<AgentCatalogItem[]>("/api/v1/agents/catalog"),
+    api<AgentConfig[]>("/api/v1/agents/config"),
     api<Prospect[]>("/api/v1/prospects?limit=200"),
     api<Conversation[]>("/api/v1/conversations?limit=200"),
     api<AgentRun[]>("/api/v1/agents/runs?limit=20"),
@@ -140,6 +143,39 @@ export default async function AgentsPage() {
             conversas={opcoesConversa}
           />
         ) : null}
+
+        <h2>Como cada agente está configurado</h2>
+        <p className="ajuda">
+          Modelo, instruções e teto de resposta valem por empresa e por agente. Trocar o
+          modelo é a alavanca de custo mais direta que existe aqui: a pesquisa em Opus e a
+          abordagem em Haiku é uma escolha legítima, e o consumo do mês mostra a diferença.
+        </p>
+        {config.map((c) => {
+          const rotulo = AGENTES[c.kind]?.rotulo ?? c.name;
+          return (
+            <article
+              className="card"
+              data-secao="config-agente"
+              data-agente={c.kind}
+              key={c.kind}
+            >
+              <h3>
+                {rotulo} <span className="tag">{c.model}</span>
+                {c.configured ? null : <span className="tag">padrão</span>}
+                {c.is_active ? null : <span className="tag urgente">desativado</span>}
+              </h3>
+              <div className="meta">
+                {c.units_per_run} {c.units_per_run === 1 ? "unidade" : "unidades"} por
+                execução · teto de resposta {c.max_output_tokens.toLocaleString("pt-BR")}{" "}
+                tokens
+                {c.configured && c.instructions !== c.default_instructions
+                  ? " · instrução própria"
+                  : " · instrução padrão"}
+              </div>
+              {podeOperar ? <ConfigurarAgente config={c} rotulo={rotulo} /> : null}
+            </article>
+          );
+        })}
 
         {emperrados.length > 0 ? (
           <p className="erro">

@@ -153,10 +153,39 @@ verdade é código que ainda não existe.
 
 ## Transversal (quando a operação exigir)
 
-- **Telas do web app ✅ — não falta nenhuma.** Funil e consumo, revisão e envio,
-  conversas com a thread, prospects com import e detalhe, campanhas, disparo de
-  agente, cadências, Company Brain, base de conhecimento, equipe, configurações
-  (IA, email, volume e CRM) e o painel da plataforma
+- **Telas do web app ✅ — nenhuma capacidade da API ficou sem tela.** Funil e
+  consumo, revisão e envio, conversas com a thread, prospects com import e
+  detalhe, contas-alvo, contatos, campanhas, disparo **e configuração** de
+  agente, cadências, Company Brain, base de conhecimento, equipe, auditoria,
+  configurações (IA, email, volume, CRM e exportação) e o painel da plataforma
+
+  As últimas quatro fecharam lacunas em que a API existia e a tela não — o que
+  significa capacidade que só quem sabia usar `curl` tinha:
+
+  * **Contas-alvo**, com correção. Domínio trocado é o erro mais caro de uma
+    planilha: o agente pesquisa a empresa errada, escreve com os fatos dela, e
+    ninguém percebe até o lead responder confuso. Não há apagar, de propósito —
+    a conta está amarrada a prospect, pesquisa e conversa
+  * **Contatos**, com busca, o filtro de quem está **sem email** (invisível no
+    funil, porque o agente de abordagem se recusa a escrever para eles, com
+    razão) e o registro de **descadastro pedido por fora** — telefone, WhatsApp,
+    resposta a uma pessoa. É o item da lista com consequência legal, e era o que
+    exigia ir ao banco
+  * **Configuração por agente**: modelo, instruções próprias e teto de resposta.
+    Isto existia no banco desde o primeiro sprint e era lido pelo orquestrador em
+    toda execução — só não tinha porta de entrada: trocar o modelo de um cliente
+    exigia `INSERT`. É a alavanca de custo mais direta da plataforma (pesquisa em
+    Opus, abordagem em Haiku é escolha legítima), então a API recusa modelo fora
+    da tabela de preços, que é o que permite medir margem
+  * **Auditoria** e **exportação**: as duas já gravavam e devolviam tudo, sem
+    nada que as mostrasse. "Dá para ir embora" que exige linha de comando, para
+    quem avalia entrar, é o mesmo que não ser verdade
+
+  No caminho apareceu um defeito de verdade: o contexto devolvia `2000` como teto
+  de resposta quando a empresa não tinha configuração, e o executor faz
+  `... or settings.ai_max_output_tokens` — então o 2000 sempre ganhava e o ajuste
+  de 8000 nunca valeu para ninguém. Pior: a mensagem de "resposta truncada"
+  mandava aumentar exatamente esse número sem efeito
 
   Na cadência, a ordem da tela é a ordem real da operação: escrever os toques,
   ativar, inscrever. Ela **nasce desativada** — quem acabou de escrever ainda vai
@@ -257,6 +286,11 @@ verdade é código que ainda não existe.
   está limitada pelo teto por execução (US$ 0,50). **Nasce ilimitado nos três
   planos** — quanto vale a pena gastar com cada cliente é decisão comercial de
   quem opera, não número para um default inventar
+- **Duas unidades de consumo declaradas e não construídas.**
+  `deep_research` (5 unidades) e `voice_interaction` (10 unidades) existem na
+  tabela de consumo, e `voice` aparece nos recursos do plano Enterprise — mas
+  não há código atrás de nenhuma das duas. Hoje são promessa no modelo de dados,
+  não funcionalidade; ficam aqui para que ninguém as venda antes de existirem
 - Secrets manager externo (hoje a chave Fernet vive no `.env` do servidor)
 - Rate limiting distribuído (Redis) — hoje é por processo, o que basta para uma
   réplica só

@@ -18,12 +18,15 @@ export default async function Nav() {
           <Link href="/drafts">Revisão</Link>
           <Link href="/conversations">Conversas</Link>
           <Link href="/prospects">Prospects</Link>
+          <Link href="/accounts">Contas</Link>
+          <Link href="/contacts">Contatos</Link>
           <Link href="/campaigns">Campanhas</Link>
           <Link href="/agents">Agentes</Link>
           <Link href="/sequences">Cadências</Link>
           <Link href="/brain">Cérebro</Link>
           <Link href="/knowledge">Conhecimento</Link>
           <Link href="/team">Equipe</Link>
+          <Link href="/audit">Auditoria</Link>
           <Link href="/settings">Configurações</Link>
           {/* Só quem opera a plataforma vê o painel dela. Quem não tem a marca
               não ganha um link que só levaria a uma recusa. */}

@@ -234,6 +234,27 @@ class CompanyResponse(ORMModel):
     created_at: datetime
 
 
+class CompanyUpdate(BaseModel):
+    """Correção de conta-alvo. Tudo opcional: só o que vem é alterado.
+
+    Não existe apagar conta-alvo, de propósito: a empresa está amarrada a
+    prospects, pesquisa e conversas, e apagá-la levaria o histórico embora. O que
+    se corrige é o dado errado — nome, domínio, porte —, que é o que realmente
+    acontece depois de um import de planilha.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=300)
+    domain: str | None = Field(default=None, max_length=255)
+    industry: str | None = None
+    country: str | None = None
+    region: str | None = None
+    employee_count: int | None = Field(default=None, ge=0)
+    revenue_band: str | None = None
+    linkedin_url: str | None = None
+    description: str | None = None
+    attributes: dict | None = None
+
+
 class ResearchResponse(ORMModel):
     id: uuid.UUID
     entity_type: str
@@ -790,6 +811,56 @@ class AuditLogResponse(ORMModel):
     source: str
     payload: dict
     created_at: datetime
+
+
+# ---------------------------------------------------------------- configuração de agente
+class AgentConfigResponse(BaseModel):
+    """O que vale hoje para um agente, e de onde vem.
+
+    `configured` distingue as duas coisas que a tela precisa dizer: "este é o
+    padrão da plataforma" e "isto foi você quem escolheu". Sem essa diferença, o
+    campo preenchido com o default parece decisão de alguém.
+    """
+
+    kind: str
+    name: str
+    model: str
+    instructions: str
+    max_output_tokens: int
+    is_active: bool
+    configured: bool
+    units_per_run: int
+    default_name: str
+    default_model: str
+    default_instructions: str
+
+
+class AgentConfigUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    model: str | None = Field(default=None, max_length=120)
+    #: Substitui as instruções base do agente. Vazio volta para o padrão — é o
+    #: caminho de saída de quem escreveu uma instrução ruim e quer desfazer.
+    instructions: str | None = Field(default=None, max_length=8_000)
+    max_output_tokens: int | None = Field(default=None, ge=500, le=32_000)
+    is_active: bool | None = None
+
+    @field_validator("model")
+    @classmethod
+    def _modelo_conhecido(cls, valor: str | None) -> str | None:
+        """Modelo fora da tabela de preços custaria pelo preço mais alto.
+
+        A tabela é o que permite medir margem. Aceitar um nome qualquer aqui
+        significaria gasto real medido pelo teto — ou, pior, uma chamada que a
+        Anthropic recusa, descoberta no primeiro disparo do cliente.
+        """
+        if valor is None:
+            return None
+        from app.ai.pricing import PRICES
+
+        if valor not in PRICES:
+            aceitos = ", ".join(sorted(PRICES))
+            raise ValueError(f"modelo desconhecido; os disponíveis são: {aceitos}")
+        return valor
 
 
 # ---------------------------------------------------------------- platform admin

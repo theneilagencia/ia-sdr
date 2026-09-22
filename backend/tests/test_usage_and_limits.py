@@ -181,13 +181,24 @@ def test_enterprise_e_ilimitado():
 
 
 def test_segredo_vai_e_volta_mas_nao_em_claro():
-    cifrado = encrypt_secret("senha-do-cliente")
-    assert "senha-do-cliente" not in cifrado
-    assert decrypt_secret(cifrado) == "senha-do-cliente"
+    """Os valores são longos de propósito.
 
-    credenciais = {"client_id": "abc", "client_secret": "xyz"}
+    A asserção é "o segredo não aparece no texto cifrado", e o texto cifrado é
+    base64 de bytes aleatórios: um segredo de três letras aparece nele por acaso
+    de vez em quando — foi o que aconteceu com `"xyz"`, que falhou uma vez sem
+    nada estar errado. Teste que falha por sorteio ensina a ignorar teste
+    vermelho, que é o pior hábito que uma suíte pode criar.
+    """
+    cifrado = encrypt_secret("senha-do-cliente-que-nao-pode-aparecer")
+    assert "senha-do-cliente-que-nao-pode-aparecer" not in cifrado
+    assert decrypt_secret(cifrado) == "senha-do-cliente-que-nao-pode-aparecer"
+
+    credenciais = {
+        "client_id": "identificador-publico-do-cliente",
+        "client_secret": "segredo-do-cliente-que-nao-pode-aparecer",
+    }
     token = encrypt_json(credenciais)
-    assert "xyz" not in token
+    assert "segredo-do-cliente-que-nao-pode-aparecer" not in token
     assert decrypt_json(token) == credenciais
 
 
