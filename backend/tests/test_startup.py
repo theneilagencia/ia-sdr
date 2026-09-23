@@ -160,6 +160,31 @@ def test_cors_local_em_producao_avisa_mas_nao_impede(producao, monkeypatch, capl
     assert "localhost:3000" in caplog.text
 
 
+def test_redis_configurado_e_fora_do_ar_avisa_na_subida(producao, monkeypatch, caplog):
+    """Descobrir isso sob carga é descobrir tarde.
+
+    Um `REDIS_URL` que não responde não derruba a aplicação — o limitador cai
+    para o balde em memória de propósito. O risco é o operador achar que o freio
+    é compartilhado quando ele está valendo por réplica: com três réplicas, o
+    teto de 300 por minuto está deixando passar 900.
+    """
+    # Porta sem ninguém escutando: falha de conexão de verdade.
+    monkeypatch.setattr(producao, "redis_url", "redis://127.0.0.1:6399/0")
+
+    with caplog.at_level(logging.WARNING, logger="app.core.startup"):
+        verify_production_secrets()
+
+    assert "REDIS_URL" in caplog.text
+    assert "por processo" in caplog.text
+
+
+def test_sem_redis_nao_reclama_de_nada(producao, caplog):
+    """Uma réplica só é instalação legítima: avisar aqui seria ruído em todo boot."""
+    with caplog.at_level(logging.WARNING, logger="app.core.startup"):
+        verify_production_secrets()
+    assert "REDIS_URL" not in caplog.text
+
+
 def test_link_de_descadastro_sobrevive_a_rotacao_do_jwt(monkeypatch):
     """Rotacionar o JWT_SECRET não pode matar descadastro já enviado.
 

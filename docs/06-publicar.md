@@ -160,6 +160,23 @@ recalcula só os rascunhos. A nota fiscal continua saindo de onde você já emit
 aqui fica o valor, o estado dele e o custo real de IA do período ao lado, que é o
 que diz se aquele contrato fecha em dinheiro.
 
+**Mais de uma réplica da API** (quando um servidor deixar de dar conta). O freio
+de requisições conta dentro de cada processo: com duas réplicas, o teto de 300
+por minuto passa a deixar passar 600, sem nada na configuração dizendo isso. O
+conserto é um balde compartilhado:
+
+```
+# no deploy/.env
+REDIS_URL=redis://redis:6379/0
+
+# e suba o Redis junto (ele fica fora do caminho normal de propósito)
+cd deploy && docker compose -f docker-compose.prod.yml --profile escala up -d
+```
+
+Se o Redis cair, a aplicação **não** cai: o freio volta a contar por processo e a
+API avisa no log a cada subida e no primeiro erro. Pior do que o ideal, melhor do
+que abrir a porta — e o log diz qual dos dois está valendo.
+
 **Ver o que está acontecendo:**
 
 ```

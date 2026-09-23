@@ -428,8 +428,30 @@ verdade é código que ainda não existe.
   que uma lista por convenção de nome (`*_encrypted`) não serviria
 - Secrets manager externo (hoje a chave Fernet vive no `.env` do servidor; com a
   rotação no lugar, o vault deixou de ser o que separa um vazamento de uma perda)
-- Rate limiting distribuído (Redis) — hoje é por processo, o que basta para uma
-  réplica só
+- **Rate limiting distribuído ✅ — o balde deixou de ser por processo.** O freio
+  contava dentro de cada processo, e a conta do processo não é a conta da
+  aplicação: com duas réplicas atrás do proxy, o teto anunciado de 300 por minuto
+  passava a deixar passar 600, sem nada na configuração dizendo isso. Num dia de
+  incidente, é a diferença entre conter e não conter.
+
+  `app/core/limitador.py` tem dois backends com a mesma interface, e `REDIS_URL`
+  escolhe. O de Redis faz a janela deslizante num sorted set com **um** script
+  Lua: atômico, porque sem isso duas réplicas que leem "299 usados" no mesmo
+  milissegundo deixam as duas passarem — o bug que o backend compartilhado existe
+  para impedir. As chaves expiram sozinhas (nada de varredura) e a contagem
+  sobrevive a um reinício da API.
+
+  Quando o Redis cai, o freio **não** desaparece: volta ao balde em memória, por
+  réplica, com uma linha no log por episódio. Abrir tudo convidaria o abuso
+  justamente no dia em que um Redis morre; recusar tudo derrubaria a aplicação
+  por causa de um serviço auxiliar. O Redis entra por `--profile escala`, fora do
+  caminho de quem roda um servidor só — um container a mais para manter é custo
+  real de quem opera.
+
+  Doze testes contra um Redis de verdade, não contra dublê: o que se verifica é
+  atomicidade, e um dublê em Python concordaria com a implementação errada.
+  Inclusive o teste do contraste — duas instâncias do backend de memória deixando
+  passar o dobro, que é o defeito documentado.
 - Política de **retenção** automática por tenant (a exportação já existe)
 - Busca vetorial na base de conhecimento — exige fornecedor de embeddings
 - **SSO** para contratos enterprise — depende do provedor de identidade **do

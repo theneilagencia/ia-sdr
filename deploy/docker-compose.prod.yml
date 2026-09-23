@@ -64,6 +64,11 @@ services:
       # entre "o cliente paga o consumo dele" e "você revende tokens".
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AI_PLATFORM_KEY_FALLBACK: ${AI_PLATFORM_KEY_FALLBACK:-false}
+      # Vazio: o freio de requisições conta dentro de cada processo, o que basta
+      # para uma réplica. Com mais de uma, o teto anunciado passa a valer o dobro
+      # — cada réplica conta o seu balde. Preencher com redis://redis:6379/0 e
+      # subir com `--profile escala` faz o balde ser um só.
+      REDIS_URL: ${REDIS_URL:-}
     depends_on:
       db:
         condition: service_healthy
@@ -104,6 +109,24 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    restart: unless-stopped
+
+  # Só entra com `docker compose --profile escala up -d`. Fica fora do caminho
+  # normal de propósito: uma instalação de um servidor não precisa dele, e um
+  # container a mais para manter é custo real para quem opera. O dia em que
+  # precisar é o dia de rodar mais de uma réplica da API.
+  redis:
+    image: redis:7-alpine
+    profiles: ["escala"]
+    # Sem persistência: é contador de janela de 60 segundos. Perder o conteúdo
+    # num reinício custa uma janela de freio, e gravar em disco custaria I/O no
+    # caminho de toda requisição.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   caddy:

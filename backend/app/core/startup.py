@@ -135,6 +135,27 @@ def verify_production_secrets() -> None:
             len(settings.previous_encryption_keys),
         )
 
+    if settings.redis_url:
+        # Não é fatal: o limitador cai para o balde em memória e a aplicação
+        # continua de pé. O que não pode é a descoberta acontecer sob carga —
+        # um Redis configurado e inalcançável significa que o freio que o
+        # operador acha compartilhado está valendo por réplica, e o teto real é
+        # o teto vezes o número de réplicas.
+        try:
+            import redis
+
+            redis.Redis.from_url(
+                settings.redis_url, socket_connect_timeout=1, socket_timeout=1
+            ).ping()
+            logger.info("Limitador de requisições compartilhado: Redis respondeu")
+        except Exception as erro:  # noqa: BLE001
+            logger.warning(
+                "REDIS_URL configurado mas o Redis não respondeu (%s): o freio de "
+                "requisições vai contar por processo até ele voltar. Com mais de uma "
+                "réplica, o teto efetivo é o teto vezes o número de réplicas.",
+                erro,
+            )
+
     locais = [o for o in settings.cors_origins if "localhost" in o or "127.0.0.1" in o]
     if locais:
         # Não é fatal: com token em Authorization, o CORS não é a fronteira. Mas

@@ -24,6 +24,20 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      # O backend compartilhado do limitador de requisições. Sem ele, os testes
+      # de `test_limitador_compartilhado.py` se pulam sozinhos — e um backend
+      # pulado no CI é um backend que ninguém verifica, que é como um freio que
+      # só existe na documentação.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
     env:
       # O usuário da imagem do Postgres é superusuário: serve de administrador.
       # A aplicação e a suíte usam o role sem privilégio, como em produção.
@@ -31,6 +45,8 @@ jobs:
       DATABASE_URL: postgresql+psycopg://ia_sdr_app:ia_sdr_app@localhost:5432/ia_sdr
       TEST_DATABASE_ADMIN_URL: postgresql+psycopg://ia_sdr:ia_sdr@localhost:5432/ia_sdr_test
       TEST_DATABASE_URL: postgresql+psycopg://ia_sdr_app:ia_sdr_app@localhost:5432/ia_sdr_test
+      # Banco 15, que a suíte limpa: não esbarra em nada que o serviço tenha no 0.
+      REDIS_TEST_URL: redis://localhost:6379/15
 
     steps:
       - uses: actions/checkout@v4

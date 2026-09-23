@@ -68,9 +68,16 @@ class Settings(BaseSettings):
     #: custar mais que isso é registrada como falha, não cobrada em silêncio.
     ai_max_cost_micro_usd: int = 500_000  # US$ 0,50
 
-    # Rate limiting (janela deslizante em memória; use Redis em produção)
+    # Rate limiting: janela deslizante por cliente.
     rate_limit_requests: int = 300
     rate_limit_window_seconds: int = 60
+
+    #: Vazio: o freio conta dentro do processo, o que basta para uma réplica.
+    #: Preenchido (`redis://redis:6379/0`), o balde passa a ser um só para todas
+    #: as réplicas — sem isso, duas réplicas fazem o teto anunciado valer o
+    #: dobro, cada uma contando o seu. Se o Redis cair, o freio volta a ser por
+    #: processo e a API avisa no log; não abre e não derruba.
+    redis_url: str = ""
 
     #: Onde a API responde para o mundo. É a base do link de descadastro que
     #: vai em todo email: se estiver errada, o link não abre.

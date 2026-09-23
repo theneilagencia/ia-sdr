@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.middleware import RateLimitMiddleware
+from app.core.limitador import LimitadorEmMemoria
 
 
 def _pilha(limit: int, window: int) -> tuple[RateLimitMiddleware, TestClient]:
@@ -70,14 +71,21 @@ def test_chaves_vencidas_saem_da_memoria():
 
     Cada login emite um token novo, então cada login deixava uma chave para
     trás; quem quisesse derrubar a API só precisaria variar o cabeçalho.
+
+    A contagem mudou de casa (de dentro do middleware para
+    `app/core/limitador.py`, onde há dois backends), mas a propriedade é a
+    mesma: com o balde em memória, chave vencida sai da memória. No backend de
+    Redis a expiração é do próprio Redis, e tem teste próprio.
     """
     middleware, cliente = _pilha(limit=100_000, window=0)
-    for i in range(RateLimitMiddleware.LIMPEZA_A_CADA + 5):
+    backend = middleware.backend
+    assert isinstance(backend, LimitadorEmMemoria), "o padrão sem REDIS_URL é o de memória"
+    for i in range(LimitadorEmMemoria.LIMPEZA_A_CADA + 5):
         cliente.get("/ping", headers={"authorization": f"Bearer token-{i}"})
 
     # Com janela zero, toda chave vence imediatamente: depois da varredura só
     # sobram as poucas criadas desde então.
-    assert len(middleware._hits) < 50, f"{len(middleware._hits)} chaves ficaram na memória"
+    assert len(backend._hits) < 50, f"{len(backend._hits)} chaves ficaram na memória"
 
 
 def test_limite_zero_bloqueia_tudo():
