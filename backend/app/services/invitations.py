@@ -30,6 +30,7 @@ from app.core.security import hash_password, verify_password
 from app.db.models.platform import Invitation, Membership, Tenant, User
 from app.db.session import unscoped_session
 from app.rbac.roles import Role
+from app.services import mfa
 
 #: Prazo do convite. Longo o suficiente para sobreviver a umas férias curtas,
 #: curto o suficiente para não virar credencial esquecida.
@@ -167,7 +168,7 @@ def revogar(session: Session, tenant_id: uuid.UUID, invitation_id: uuid.UUID) ->
     return convite
 
 
-def aceitar(token: str, *, password: str, full_name: str) -> Aceite:
+def aceitar(token: str, *, password: str, full_name: str, code: str | None = None) -> Aceite:
     """Aceita o convite e devolve quem entrou, onde e com qual papel.
 
     Roda na sessão sem escopo por necessidade, não por conveniência: quem clica
@@ -209,6 +210,22 @@ def aceitar(token: str, *, password: str, full_name: str) -> Aceite:
             if not user.is_active or not verify_password(password, user.password_hash):
                 raise InviteInvalid()
             # Nome de quem já tem conta não é sobrescrito por quem convidou.
+
+            # Aceitar emite sessão, então exige o mesmo segundo fator que o
+            # login. Sem isto o convite seria a porta que contorna o MFA:
+            # bastaria convidar o email de alguém, saber a senha e entrar sem o
+            # código — e o vínculo novo viria de brinde.
+            #
+            # Fora da recusa uniforme de propósito: quem chegou aqui já provou a
+            # senha, então contar que a conta tem segundo fator não revela nada
+            # que ela não pudesse descobrir entrando. Senha errada continua
+            # devolvendo a mesma frase de sempre, alguns passos acima.
+            #
+            # E **antes** de qualquer escrita: `mfa.verificar` levanta na recusa,
+            # esta transação desfaz, e o convite continua valendo. Se a checagem
+            # viesse depois, um código digitado errado gastaria o convite de uma
+            # vez — a pessoa ficaria trancada fora por um erro de digitação.
+            mfa.verificar(user.id, code)
 
         vinculo = identity.execute(
             select(Membership)

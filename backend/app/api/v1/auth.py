@@ -13,13 +13,13 @@ from sqlalchemy.exc import IntegrityError
 from app.api.deps import get_current_context
 from app.api.v1 import schemas
 from app.core.config import settings
-from app.core.errors import AuthenticationError, ConflictError, PermissionDenied
+from app.core.errors import AuthenticationError, ConflictError, NotFound, PermissionDenied
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.models.knowledge import CompanyProfile
 from app.db.models.platform import Membership, Plan, SubscriptionStatus, Tenant, User
 from app.db.session import tenant_session, unscoped_session
 from app.rbac.roles import Role, permissions_for
-from app.services import audit, invitations
+from app.services import audit, invitations, mfa
 from app.tenancy.context import TenantContext, system_context, use_context
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -128,6 +128,16 @@ def login(payload: schemas.LoginRequest) -> schemas.TokenResponse:
             chosen = match[0]
 
         membership, tenant = chosen
+
+        # Depois da senha e do vínculo, antes de emitir sessão. A ordem é o que
+        # separa "esta conta tem segundo fator" (dito só a quem provou a senha)
+        # de entregar isso a quem está chutando senha.
+        #
+        # `verificar` roda em transação própria de propósito: a recusa é uma
+        # exceção, e exceção aqui desfaz esta transação — o contador de
+        # tentativas iria embora junto com ela.
+        mfa.verificar(user.id, payload.code)
+
         user.last_login_at = datetime.now(UTC)
         token = create_access_token(
             user_id=user.id,
@@ -157,7 +167,10 @@ def accept_invitation(payload: schemas.AcceptInviteRequest) -> schemas.TokenResp
     a mesma que o login pede.
     """
     aceite = invitations.aceitar(
-        payload.token, password=payload.password, full_name=payload.full_name
+        payload.token,
+        password=payload.password,
+        full_name=payload.full_name,
+        code=payload.code,
     )
 
     with use_context(system_context(aceite.tenant_id, source="public")), tenant_session(
@@ -272,6 +285,79 @@ def change_password(
         tenant_id=ctx.tenant_id,
         role=ctx.role.value,
     )
+
+
+# ------------------------------------------------------- segundo fator (TOTP)
+#
+# Todas em `/auth` porque o segundo fator é da **conta**, não da empresa: quem
+# serve duas empresas protege uma identidade. Nenhuma pede papel — um viewer
+# proteger a própria conta é exatamente o que se quer.
+
+
+@router.get("/mfa", response_model=schemas.MfaState)
+def mfa_state(ctx: TenantContext = Depends(get_current_context)) -> schemas.MfaState:
+    with unscoped_session(reason="auth:mfa-estado") as session:
+        user = session.get(User, ctx.user_id)
+        if user is None:
+            raise NotFound("Usuário não encontrado")
+        return schemas.MfaState(**mfa.estado(user))
+
+
+@router.post("/mfa/setup", response_model=schemas.MfaSetupResponse)
+def mfa_setup(
+    ctx: TenantContext = Depends(get_current_context),
+) -> schemas.MfaSetupResponse:
+    """Gera o segredo e devolve o link — uma vez, e sem ligar nada ainda.
+
+    Ligar só depois de um código de verdade é o que impede a pessoa de se
+    trancar fora: enquanto não confirmar, o login continua funcionando com a
+    senha, e um aplicativo configurado errado não custa uma conta.
+    """
+    config = mfa.iniciar(ctx.user_id)
+    return schemas.MfaSetupResponse(secret=config.secret, otpauth_uri=config.otpauth_uri)
+
+
+@router.post("/mfa/confirm", response_model=schemas.MfaRecoveryCodes)
+def mfa_confirm(
+    payload: schemas.MfaCodeRequest,
+    request: Request,
+    ctx: TenantContext = Depends(get_current_context),
+) -> schemas.MfaRecoveryCodes:
+    """Liga o segundo fator e devolve os códigos de recuperação, uma vez só."""
+    codigos = mfa.confirmar(ctx.user_id, payload.code)
+    with use_context(ctx), tenant_session(ctx.tenant_id) as book:
+        audit.record(
+            book,
+            action="mfa.enabled",
+            resource_type="user",
+            resource_id=ctx.user_id,
+            payload={"ip": request.client.host if request.client else None},
+            context=ctx,
+        )
+    return schemas.MfaRecoveryCodes(recovery_codes=codigos)
+
+
+@router.post("/mfa/disable", status_code=status.HTTP_204_NO_CONTENT)
+def mfa_disable(
+    payload: schemas.MfaDisableRequest,
+    request: Request,
+    ctx: TenantContext = Depends(get_current_context),
+) -> None:
+    """Desligar exige senha **e** código atual.
+
+    Token válido não basta: quem estiver com um token roubado poderia desligar a
+    proteção que existe justamente para o caso de a senha ter vazado.
+    """
+    mfa.desativar(ctx.user_id, password=payload.password, codigo=payload.code)
+    with use_context(ctx), tenant_session(ctx.tenant_id) as book:
+        audit.record(
+            book,
+            action="mfa.disabled",
+            resource_type="user",
+            resource_id=ctx.user_id,
+            payload={"ip": request.client.host if request.client else None},
+            context=ctx,
+        )
 
 
 @router.get("/me", response_model=schemas.MeResponse)

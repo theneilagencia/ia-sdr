@@ -220,3 +220,7 @@ td .meta { display: block; color: var(--muted); font-size: 12px; }
    formulário: é identidade de contexto, não coisa que se preenche. */
 header.top .who form.inline { display: inline-flex; gap: 6px; }
 header.top .who select { padding: 2px 6px; font-size: 13px; border-radius: 6px; }
+
+/* "Sair" na barra de cima: discreto, do tamanho do texto ao lado. */
+header.top .who form[data-secao="sair"] { display: inline-flex; margin-left: 8px; }
+header.top .who button { padding: 2px 8px; font-size: 12px; }

@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { api, type Me } from "@/lib/api";
 
+import Sair from "./sair";
 import TrocarEmpresa from "./trocar-empresa";
 
 /** Cabeçalho com o tenant ativo à vista: em plataforma multiempresa, saber
@@ -49,7 +50,7 @@ export default async function Nav() {
           ) : (
             tenant
           )}{" "}
-          · {me.email} · {me.role}
+          · {me.email} · {me.role} <Sair />
         </span>
       </div>
     </header>

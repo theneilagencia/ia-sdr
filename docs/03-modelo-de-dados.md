@@ -19,6 +19,11 @@ menos pode vazar. Está aqui pelo papel que cumpre, não por ser global.
 `users` é global de propósito: um consultor que atende três clientes tem uma
 senha, não três. O que é por tenant é o **vínculo**, não a identidade.
 
+O **segundo fator** também vive em `users` (`0010_mfa`), pela mesma razão: quem
+serve duas empresas protege uma conta. O segredo TOTP fica cifrado com a chave
+Fernet, como toda credencial daqui, e ao lado dele ficam o último passo aceito
+(é o que recusa reuso de código) e os códigos de recuperação em SHA-256.
+
 ## Por tenant
 
 ```

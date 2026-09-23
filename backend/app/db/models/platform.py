@@ -6,7 +6,17 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -67,6 +77,30 @@ class User(Base, TimestampMixin):
     #: deste instante é recusado. Sem isso, "troquei a senha" só valeria a
     #: partir da expiração do token que já estava na mão de quem invadiu.
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # ------------------------------------------------- segundo fator (TOTP)
+    #
+    # Fica no usuário, e não no vínculo, porque a identidade é global: quem
+    # serve duas empresas protege uma conta, não duas. E o segredo é credencial
+    # como qualquer outra desta plataforma — cifrado com a chave Fernet, nunca
+    # devolvido depois de mostrado uma vez.
+    mfa_secret: Mapped[str | None] = mapped_column(String(500))
+    #: Nulo enquanto o segundo fator não foi confirmado com um código de
+    #: verdade. Gerar segredo não liga nada: quem liga é a prova de que o
+    #: aplicativo do outro lado funciona — senão a pessoa se tranca fora.
+    mfa_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: O último passo de trinta segundos aceito. É o que recusa reuso: sem
+    #: guardar, um código interceptado vale a janela inteira para quem o pegou.
+    mfa_last_step: Mapped[int | None] = mapped_column(BigInteger)
+    #: SHA-256 dos códigos de recuperação. Hash rápido de propósito, como o
+    #: token de convite: são vinte bytes de aleatório, não senha escolhida por
+    #: gente. Cada um serve uma vez e sai da lista.
+    mfa_recovery_hashes: Mapped[list | None] = mapped_column(JSONB)
+    #: Seis dígitos são um milhão de combinações, e quem chega aqui já acertou a
+    #: senha. Sem contar as tentativas, o segundo fator é uma porta com
+    #: cadeado que aceita chute infinito.
+    mfa_failed_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    mfa_locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     memberships: Mapped[list[Membership]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

@@ -283,6 +283,33 @@ verdade é código que ainda não existe.
   verificação de limite sabe disso, senão corrigir o papel de um convite seria
   recusado pelo convite que a correção ia apagar. `POST /tenants/me/members`
   deixou de existir
+- **Segundo fator por TOTP ✅ — sem fornecedor nenhum.** Estava na lista como
+  "SSO/MFA, depende de terceiro", e só a primeira metade dependia. TOTP
+  (RFC 6238) funciona com qualquer aplicativo autenticador e cabe na biblioteca
+  padrão: `hmac`, `base64`, vinte linhas em `app/core/totp.py` — verificadas
+  contra os seis vetores publicados na especificação, que é o que sustenta a
+  decisão de não trazer dependência para o servidor que guarda a senha de email e
+  a chave de IA de cada cliente.
+
+  Por que antes de SSO: uma senha vazada abre as duas credenciais que cada
+  empresa configurou aqui. E por que não SMS: depende de operadora, custa por
+  mensagem e cai com troca de chip — fator fraco é pior que ausência, porque
+  parece proteção.
+
+  O que o fluxo recusa, com teste para cada um: o mesmo código duas vezes (o
+  passo aceito fica guardado); cinco chutes (e o contador roda em transação
+  própria, senão a recusa desfaria o incremento junto); trocar o segredo com a
+  sessão aberta (token roubado não aponta o fator para outro celular); desligar
+  sem senha **e** código; e o **convite como porta de fuga** — aceitar convite
+  emite sessão, então passou a exigir o mesmo fator, senão bastava convidar o
+  email de alguém e entrar com a senha vazada.
+
+  Três coisas apareceram no caminho: a segunda etapa do login mandava email e
+  senha **vazios**, porque o React limpa formulário depois de Server Action (a
+  conta com fator ligado não tinha caminho de entrada pela tela); a confirmação
+  de desligamento era renderizada dentro do galho que desaparecia ao desligar; e
+  `logout()` existia como ação **sem botão em lugar nenhum** — exigir código para
+  entrar não protege um computador compartilhado se não há como sair
 - **As recusas do web app ✅ (quinta rodada de revisão adversarial).** A camada
   que nunca tinha sido revisada, e a que o leigo toca. Cinco achados:
 
@@ -340,4 +367,6 @@ verdade é código que ainda não existe.
   réplica só
 - Política de **retenção** automática por tenant (a exportação já existe)
 - Busca vetorial na base de conhecimento — exige fornecedor de embeddings
-- SSO / MFA para contratos enterprise
+- **SSO** para contratos enterprise — depende do provedor de identidade **do
+  cliente** (Okta, Entra, Workspace), não de uma conta nossa. Desenvolvível
+  contra um Keycloak local quando um contrato pedir

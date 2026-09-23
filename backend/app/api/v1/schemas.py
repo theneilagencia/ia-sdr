@@ -33,6 +33,10 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str
     tenant_slug: str | None = None
+    #: O código do aplicativo autenticador, ou um de recuperação. Opcional no
+    #: esquema porque a maioria das contas não tem segundo fator; quando tem, a
+    #: ausência é recusada com `mfa_required` — depois de a senha ser conferida.
+    code: str | None = Field(default=None, max_length=64)
 
 
 class ChangePasswordRequest(BaseModel):
@@ -51,6 +55,43 @@ class TokenResponse(BaseModel):
     expires_in_minutes: int
     tenant_id: uuid.UUID | None
     role: str | None
+
+
+class MfaState(BaseModel):
+    """O estado do segundo fator. Nunca o segredo."""
+
+    enabled: bool
+    enabled_at: datetime | None = None
+    #: Segredo gerado e ainda não confirmado — a tela usa para oferecer "conclua
+    #: a configuração" em vez de começar de novo e trocar o segredo por acidente.
+    pending: bool = False
+    recovery_codes_left: int = 0
+
+
+class MfaSetupResponse(BaseModel):
+    """O segredo e o link, mostrados **uma vez**.
+
+    Depois disto o banco só tem a versão cifrada, e a listagem de estado não
+    devolve nenhum dos dois. Quem perdeu a tela desativa e configura de novo.
+    """
+
+    secret: str
+    otpauth_uri: str
+
+
+class MfaCodeRequest(BaseModel):
+    code: str = Field(min_length=4, max_length=64)
+
+
+class MfaDisableRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
+    code: str = Field(min_length=4, max_length=64)
+
+
+class MfaRecoveryCodes(BaseModel):
+    """Os códigos de recuperação, mostrados **uma vez**, em hash no banco."""
+
+    recovery_codes: list[str]
 
 
 class MembershipInfo(BaseModel):
@@ -135,6 +176,10 @@ class AcceptInviteRequest(BaseModel):
     #: seria a enumeração voltando pela porta de trás.
     password: str = Field(min_length=1, max_length=128)
     full_name: str = Field(default="", max_length=200)
+    #: Aceitar um convite emite sessão, então precisa do mesmo segundo fator que
+    #: o login. Sem isto, o convite seria a porta que contorna o MFA: bastava
+    #: convidar o email de alguém, saber a senha e entrar sem o código.
+    code: str | None = Field(default=None, max_length=64)
 
 
 # ------------------------------------------------------- base de conhecimento

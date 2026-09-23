@@ -4,11 +4,14 @@ import { useActionState } from "react";
 
 import MarcaDeHidratacao from "../hydrated";
 
-import type { Invitation, Member } from "@/lib/api";
+import type { Invitation, Member, MfaState } from "@/lib/api";
 
 import {
   alternarMembro,
+  confirmarSegundoFator,
   convidarMembro,
+  desligarSegundoFator,
+  iniciarSegundoFator,
   mudarPapel,
   removerMembro,
   revogarConvite,
@@ -279,6 +282,140 @@ export function TrocarSenha({ email }: { email: string }) {
       </form>
       {resultado ? (
         <p className={resultado.ok ? "ok" : "erro"}>{resultado.message}</p>
+      ) : null}
+    </section>
+  );
+}
+
+
+/**
+ * Verificação em duas etapas.
+ *
+ * Por que TOTP e não SMS: SMS depende de operadora, custa por mensagem e é
+ * vulnerável a troca de chip — e, para uma plataforma que guarda a senha do
+ * email e a chave de IA de cada cliente, o fator fraco seria pior do que a
+ * ausência, porque parece proteção.
+ *
+ * Não há QR code na tela de propósito: gerar um exigiria uma biblioteca no
+ * browser, e o link `otpauth://` faz o mesmo trabalho — no celular, tocar nele
+ * abre o aplicativo com a conta pronta. No computador, a entrada manual da
+ * chave é o caminho que todo autenticador aceita.
+ */
+export function SegundoFator({ estado }: { estado: MfaState }) {
+  const [inicio, iniciar, iniciando] = useActionState(iniciarSegundoFator, null);
+  const [confirma, confirmar, confirmando] = useActionState(confirmarSegundoFator, null);
+  const [desliga, desligar, desligando] = useActionState(desligarSegundoFator, null);
+
+  // O segredo só existe nesta resposta; recarregar a tela o perde de propósito.
+  const segredo = inicio?.secret;
+  const configurando = estado.pending || Boolean(segredo);
+
+  return (
+    <section className="card" data-secao="segundo-fator">
+      <h3>Verificação em duas etapas</h3>
+
+      {estado.enabled ? (
+        <>
+          <p className="estado">
+            <span className="ok">● ativa</span> — o login pede um código do seu aplicativo
+            autenticador. Restam <strong>{estado.recovery_codes_left}</strong> códigos de
+            recuperação.
+          </p>
+          <p className="ajuda">
+            Desligar exige a sua senha e um código atual: token de sessão sozinho não
+            desfaz a proteção que existe justamente para o caso de a senha ter vazado.
+          </p>
+          <form action={desligar} className="campos">
+            <div className="dupla">
+              <label>
+                Sua senha
+                <input name="password" type="password" autoComplete="current-password" required />
+              </label>
+              <label>
+                Código do aplicativo
+                <input name="code" inputMode="numeric" autoComplete="one-time-code" required />
+              </label>
+            </div>
+            <button className="ghost" type="submit" disabled={desligando}>
+              {desligando ? "Desligando…" : "Desligar verificação em duas etapas"}
+            </button>
+          </form>
+        </>
+      ) : (
+        <>
+          <p className="ajuda">
+            Uma senha vazada abre tudo o que esta empresa configurou aqui — a conta de
+            email de prospecção e a chave da IA. Com duas etapas, não abre.
+          </p>
+          {!configurando ? (
+            <form action={iniciar}>
+              <button className="primary" type="submit" disabled={iniciando}>
+                {iniciando ? "Gerando…" : "Configurar"}
+              </button>
+            </form>
+          ) : null}
+
+          {segredo ? (
+            <>
+              <p className="ajuda">
+                No celular, toque no link para abrir seu aplicativo autenticador já com a
+                conta preenchida. No computador, adicione uma conta manualmente e digite a
+                chave abaixo.
+              </p>
+              <p>
+                <a className="botao" href={inicio?.otpauth_uri}>
+                  Abrir no aplicativo autenticador
+                </a>
+              </p>
+              <input
+                className="link-de-convite"
+                data-campo="chave-do-fator"
+                readOnly
+                value={segredo}
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <p className="ajuda">
+                Esta chave aparece uma vez só. Se você fechar a tela antes de adicioná-la,
+                comece de novo — não existe rota que a mostre outra vez.
+              </p>
+            </>
+          ) : null}
+
+          {configurando ? (
+            <form action={confirmar} className="campos">
+              <label>
+                Código que o aplicativo está mostrando
+                <input name="code" inputMode="numeric" autoComplete="one-time-code" required />
+              </label>
+              <button className="primary" type="submit" disabled={confirmando}>
+                {confirmando ? "Confirmando…" : "Confirmar e ativar"}
+              </button>
+              <p className="ajuda">
+                Enquanto você não confirmar, nada muda no seu login — é o que evita ficar
+                trancado fora por um aplicativo configurado errado.
+              </p>
+            </form>
+          ) : null}
+        </>
+      )}
+
+      {/* As mensagens ficam **fora** dos dois galhos de propósito: desligar muda
+          o estado do cartão, e uma confirmação renderizada dentro do galho
+          "ativo" desapareceria no mesmo instante em que teria algo a dizer — a
+          pessoa clicaria em Desligar e não veria resposta nenhuma. */}
+      {desliga ? <p className={desliga.ok ? "ok" : "erro"}>{desliga.message}</p> : null}
+      {inicio && !inicio.ok ? <p className="erro">{inicio.message}</p> : null}
+      {confirma ? (
+        <p className={confirma.ok ? "ok" : "erro"}>{confirma.message}</p>
+      ) : null}
+      {confirma?.recovery_codes ? (
+        <ul className="lista" data-secao="codigos-de-recuperacao">
+          {confirma.recovery_codes.map((c) => (
+            <li key={c} className="mono">
+              {c}
+            </li>
+          ))}
+        </ul>
       ) : null}
     </section>
   );

@@ -1,7 +1,7 @@
-import { api, type Invitation, type Me, type Member } from "@/lib/api";
+import { api, type Invitation, type Me, type Member, type MfaState } from "@/lib/api";
 
 import Nav from "../nav";
-import { Convidar, LinhaDoMembro, Pendentes, TrocarSenha } from "./forms";
+import { Convidar, LinhaDoMembro, Pendentes, SegundoFator, TrocarSenha } from "./forms";
 
 /**
  * Equipe, convites e papéis.
@@ -11,10 +11,11 @@ import { Convidar, LinhaDoMembro, Pendentes, TrocarSenha } from "./forms";
  * convidava: agora o que sai daqui é um link, e a senha é de quem entra.
  */
 export default async function TeamPage() {
-  const [membros, convites, eu] = await Promise.all([
+  const [membros, convites, eu, duasEtapas] = await Promise.all([
     api<Member[]>("/api/v1/tenants/me/members"),
     api<Invitation[]>("/api/v1/tenants/me/invitations"),
     api<Me>("/api/v1/auth/me"),
+    api<MfaState>("/api/v1/auth/mfa"),
   ]);
   const podeAdministrar = eu.role === "owner" || eu.role === "admin";
   const owners = membros.filter((m) => m.role === "owner" && m.is_active).length;
@@ -58,6 +59,7 @@ export default async function TeamPage() {
         <Pendentes convites={convites} podeAdministrar={podeAdministrar} />
         {podeAdministrar ? <Convidar /> : null}
         <TrocarSenha email={eu.email} />
+        <SegundoFator estado={duasEtapas} />
       </main>
     </>
   );

@@ -3,24 +3,50 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
-import { api, ApiError, type Resultado, type ResultadoDoConvite } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  type Resultado,
+  type ResultadoDoConvite,
+  type ResultadoDoSegundoFator,
+} from "@/lib/api";
 import { clearToken, setToken } from "@/lib/session";
 
 type TokenResponse = { access_token: string; expires_in_minutes: number };
 
-export async function login(_: string | null, form: FormData): Promise<string | null> {
+/**
+ * O resultado do login: ou uma frase de erro, ou o pedido do segundo fator.
+ *
+ * A tela precisa distinguir os dois porque a resposta é diferente: "email ou
+ * senha inválidos" é ponto final, e `mfa_required` é a metade do caminho — o
+ * campo de código aparece e a senha que já foi digitada continua valendo.
+ */
+export type EstadoDoLogin =
+  | { etapa: "erro"; message: string }
+  | { etapa: "codigo"; message: string }
+  | null;
+
+export async function login(_: EstadoDoLogin, form: FormData): Promise<EstadoDoLogin> {
   const email = String(form.get("email") ?? "");
   const password = String(form.get("password") ?? "");
+  const code = String(form.get("code") ?? "").trim();
   try {
     const token = await api<TokenResponse>("/api/v1/auth/login", {
       method: "POST",
-      body: { email, password },
+      body: { email, password, code: code || null },
       requireAuth: false,
     });
     await setToken(token.access_token, token.expires_in_minutes);
   } catch (erro) {
-    // Mensagem única: não confirmar se o email existe é parte do desenho.
-    if (erro instanceof ApiError) return "Email ou senha inválidos";
+    if (erro instanceof ApiError) {
+      // A API só pede o código **depois** de a senha conferir, e é por isso que
+      // esta tela pode falar disso sem contar nada a quem chuta senha.
+      if (erro.code === "mfa_required" || erro.code === "mfa_invalid" || erro.code === "mfa_locked")
+        return { etapa: "codigo", message: erro.message };
+      // Mensagem única para o resto: não confirmar se o email existe é parte do
+      // desenho.
+      return { etapa: "erro", message: "Email ou senha inválidos" };
+    }
     throw erro;
   }
   redirect("/");
@@ -462,6 +488,75 @@ export async function removerMembro(_: Resultado, form: FormData): Promise<Resul
   const resultado = await executar(
     () => api(`/api/v1/tenants/me/members/${id}`, { method: "DELETE" }),
     "Removido desta empresa. A conta da pessoa continua existindo.",
+  );
+  revalidatePath("/team");
+  return resultado;
+}
+
+// ------------------------------------------------- segundo fator (duas etapas)
+
+export async function iniciarSegundoFator(
+  _: ResultadoDoSegundoFator,
+  _form: FormData,
+): Promise<ResultadoDoSegundoFator> {
+  try {
+    const config = await api<{ secret: string; otpauth_uri: string }>(
+      "/api/v1/auth/mfa/setup",
+      { method: "POST" },
+    );
+    revalidatePath("/team");
+    return {
+      ok: true,
+      message:
+        "Adicione a conta no seu aplicativo autenticador e confirme com o código " +
+        "que ele mostrar. Enquanto não confirmar, nada muda no seu login.",
+      secret: config.secret,
+      otpauth_uri: config.otpauth_uri,
+    };
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
+}
+
+export async function confirmarSegundoFator(
+  _: ResultadoDoSegundoFator,
+  form: FormData,
+): Promise<ResultadoDoSegundoFator> {
+  try {
+    const r = await api<{ recovery_codes: string[] }>("/api/v1/auth/mfa/confirm", {
+      method: "POST",
+      body: { code: String(form.get("code") ?? "").trim() },
+    });
+    revalidatePath("/team");
+    return {
+      ok: true,
+      message:
+        "Verificação em duas etapas ativa. Guarde os códigos de recuperação " +
+        "abaixo num lugar que não seja o celular do aplicativo — eles são o " +
+        "caminho de volta se você perder o aparelho.",
+      recovery_codes: r.recovery_codes,
+    };
+  } catch (erro) {
+    if (erro instanceof ApiError) return { ok: false, message: erro.message };
+    throw erro;
+  }
+}
+
+export async function desligarSegundoFator(
+  _: ResultadoDoSegundoFator,
+  form: FormData,
+): Promise<ResultadoDoSegundoFator> {
+  const resultado = await executar(
+    () =>
+      api("/api/v1/auth/mfa/disable", {
+        method: "POST",
+        body: {
+          password: String(form.get("password") ?? ""),
+          code: String(form.get("code") ?? "").trim(),
+        },
+      }),
+    "Verificação em duas etapas desligada. Sua senha volta a ser o único fator.",
   );
   revalidatePath("/team");
   return resultado;

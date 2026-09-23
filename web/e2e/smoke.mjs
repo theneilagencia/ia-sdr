@@ -19,12 +19,39 @@
  * antes e depois de uma ação, então rodar duas vezes contra o mesmo banco falha
  * nas contagens — e isso é o teste funcionando, não quebrando.
  */
+import { createHmac } from "node:crypto";
+
 import { chromium } from "playwright";
 
 const WEB = process.env.WEB_URL ?? "http://localhost:3000";
 const API = process.env.API_URL ?? "http://localhost:8000";
 const EMAIL = process.env.E2E_EMAIL ?? "owner@apymine.com";
 const SENHA = process.env.E2E_PASSWORD ?? "demo-senha-12345";
+
+/**
+ * TOTP calculado aqui, com `node:crypto`, e não importado do backend.
+ *
+ * Duas implementações independentes que chegam ao mesmo número é o que prova o
+ * segundo fator de ponta a ponta; reusar o código do servidor provaria apenas
+ * que ele concorda consigo mesmo. (Os vetores da RFC 6238 estão no teste de
+ * unidade, que é onde a implementação do servidor é conferida contra a
+ * especificação.)
+ */
+function codigoTotp(segredoBase32) {
+  const alfabeto = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const limpo = segredoBase32.replace(/=+$/, "").toUpperCase();
+  let bits = "";
+  for (const caractere of limpo) {
+    bits += alfabeto.indexOf(caractere).toString(2).padStart(5, "0");
+  }
+  const bytes = Buffer.from((bits.match(/.{8}/g) ?? []).map((b) => parseInt(b, 2)));
+  const contador = Buffer.alloc(8);
+  contador.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 1000 / 30)));
+  const digest = createHmac("sha1", bytes).update(contador).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const trecho = digest.readUInt32BE(offset) & 0x7fff_ffff;
+  return String(trecho % 1_000_000).padStart(6, "0");
+}
 
 const falhas = [];
 function checar(condicao, descricao) {
@@ -460,6 +487,99 @@ try {
       );
     }
     await terceiroNavegador.close();
+  }
+
+  // Segundo fator, ponta a ponta: configurar, ativar, sair, e voltar em duas
+  // etapas. A volta usa um código de recuperação de propósito — o código do
+  // aplicativo que acabou de ativar o fator já foi gasto (é o que recusa reuso),
+  // e esperar a janela virar custaria meio minuto de CI a cada execução. De
+  // quebra, é o caminho "perdi o celular", que é o que mais assusta quebrado.
+  await page.goto(`${WEB}/team`);
+  await hidratada();
+  const fator = page.locator('[data-secao="segundo-fator"]');
+  await fator.locator('button:has-text("Configurar")').click();
+  const chave = fator.locator('[data-campo="chave-do-fator"]');
+  checar(
+    await ate(async () => (await chave.count()) > 0),
+    "configurar o segundo fator devolve a chave para o aplicativo",
+  );
+  const segredo = (await chave.count()) > 0 ? await chave.inputValue() : "";
+  const linkDoApp = await fator
+    .locator('a:has-text("Abrir no aplicativo")')
+    .getAttribute("href");
+  checar(
+    Boolean(linkDoApp?.startsWith("otpauth://totp/")),
+    "o link abre o aplicativo autenticador, sem QR code na tela",
+  );
+
+  let codigosDeResgate = [];
+  if (segredo) {
+    await fator.locator('input[name="code"]').fill(codigoTotp(segredo));
+    await fator.locator('button:has-text("Confirmar e ativar")').click();
+    const lista = fator.locator('[data-secao="codigos-de-recuperacao"] li');
+    checar(
+      await ate(async () => (await lista.count()) > 0),
+      "o código calculado por fora é aceito, e ativar devolve os códigos de recuperação",
+    );
+    codigosDeResgate = await lista.allInnerTexts();
+    checar(
+      codigosDeResgate.length === 8,
+      `são oito códigos de recuperação (${codigosDeResgate.length})`,
+    );
+
+    await page.reload();
+    await hidratada();
+    checar(
+      (await fator.locator("span.ok").innerText()).includes("ativa"),
+      "a tela passa a dizer que a verificação em duas etapas está ativa",
+    );
+    checar(
+      (await fator.locator('button:has-text("Configurar")').count()) === 0,
+      "com o fator ativo, não se gera outro segredo sem desligar o primeiro",
+    );
+  }
+
+  // Sair de verdade — o botão que faltava, e sem o qual exigir código no login
+  // não protege um computador compartilhado.
+  await page.locator('[data-secao="sair"] button').click();
+  await page.waitForURL(`${WEB}/login`, { timeout: 20000 });
+  checar(true, "sair encerra a sessão e volta ao login");
+
+  await page.fill('input[name="email"]', EMAIL);
+  await page.fill('input[name="password"]', SENHA);
+  await page.click('button[type="submit"]');
+  checar(
+    await ate(async () => (await page.locator('input[name="code"]').count()) > 0),
+    "com segundo fator, a senha sozinha para na segunda etapa",
+  );
+  if (codigosDeResgate.length > 0) {
+    await page.fill('input[name="code"]', codigosDeResgate[0]);
+    await page.click('button[type="submit"]');
+    let voltou = true;
+    try {
+      await page.waitForURL(`${WEB}/`, { timeout: 20000 });
+    } catch {
+      voltou = false;
+      console.error(
+        "  diagnóstico: segunda etapa não entrou — " +
+          `${await page.locator("p.erro, p.aviso").allInnerTexts()}`,
+      );
+    }
+    checar(voltou, "o código de recuperação entra, para quem perdeu o aparelho");
+
+    // E desliga, para o resto da fumaça seguir com uma etapa só.
+    if (voltou) {
+      await page.goto(`${WEB}/team`);
+      await hidratada();
+      const ativo = page.locator('[data-secao="segundo-fator"]');
+      await ativo.locator('input[name="password"]').fill(SENHA);
+      await ativo.locator('input[name="code"]').fill(codigosDeResgate[1]);
+      await ativo.locator('button:has-text("Desligar")').click();
+      checar(
+        await ate(async () => (await ativo.locator("p.ok").count()) > 0),
+        "desligar exige senha e código, e responde",
+      );
+    }
   }
 
   // As telas que fazem o funil andar: campanha, lista e disparo. O caminho é

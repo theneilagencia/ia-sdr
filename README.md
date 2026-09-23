@@ -15,8 +15,8 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 **Sprint 1 (Foundation) implementado e testado**: autenticação, tenants,
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
-criptografia de credenciais e painel de plataforma. 106 endpoints, 25 tabelas,
-376 testes contra PostgreSQL de verdade.
+criptografia de credenciais e painel de plataforma. 110 endpoints, 25 tabelas,
+399 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
@@ -187,6 +187,10 @@ O que está coberto:
   migrado é o que os modelos descrevem (um `--autogenerate` agora não escreveria
   nada), as migrations formam uma linha só sem ramo, e nenhum erro da API
   compartilha código com outro
+- `test_mfa.py` — o segundo fator: os seis vetores da RFC 6238 (é o que sustenta
+  não ter trazido dependência), o mesmo código recusado na segunda vez, cinco
+  chutes e a conta descansa, desligar exigindo senha **e** código, e o convite
+  que deixou de ser a porta que contornava o MFA
 - `test_auth_and_members.py` — troca de senha que encerra as sessões abertas, as
   travas que impedem uma empresa de ficar sem ninguém que possa administrar, e a
   troca de empresa ativa: o `tenant_id` vem do cliente, então o que se testa são
@@ -215,7 +219,7 @@ O que está coberto:
   `MockTransport`: o token que nunca volta na resposta, o prospect sem nota que
   não sobe, o reenvio que não duplica, e um teste que usa o modelo do próprio
   Qualification Agent para a forma dos critérios não poder divergir em silêncio
-- `web/e2e/smoke.mjs` — browser de verdade: cento e duas verificações cobrindo o
+- `web/e2e/smoke.mjs` — browser de verdade: cento e doze verificações cobrindo o
   caminho crítico de cada tela, inclusive o que é salvo no Company Brain voltar
   na recarga, o documento colado aparecer indexado, e o encadeamento que faz o
   funil andar — critério salvo na campanha, planilha do Excel em português
@@ -230,8 +234,11 @@ O que está coberto:
   cookie do administrador, porque aceitar na mesma aba não provaria nada —, as
   recusas que a tela precisa mostrar em vez de estourar (menu sem o link que a
   API recusaria, auditoria explicando a recusa, exportação devolvendo 403
-  legível, id inexistente virando página não encontrada) e a troca de empresa de
-  quem serve duas, com as contas da empresa nova substituindo as da anterior. O CRUD
+  legível, id inexistente virando página não encontrada), a troca de empresa de
+  quem serve duas, com as contas da empresa nova substituindo as da anterior, e o
+  segundo fator ponta a ponta — com o código TOTP calculado pelo próprio teste
+  em `node:crypto`, porque reusar a implementação do servidor provaria apenas que
+  ele concorda consigo mesmo. O CRUD
   completo das telas
   fica nos testes de backend — repetir tudo no browser só somaria tempo e
   superfície de intermitência. Pega o
@@ -248,8 +255,9 @@ O que está coberto:
 web/                  Next.js: funil, revisão e envio, conversas, prospects
                       com import de lista e detalhe, campanhas, agentes,
                       cadências, Company Brain, base de conhecimento, equipe
-                      com convite por link e a tela pública de aceite, seletor de
-                      empresa para quem serve mais de uma,
+                      com convite por link, verificação em duas etapas e a tela
+                      pública de aceite, seletor de empresa para quem serve mais
+                      de uma,
                       configurações (IA, email, volume e CRM) e o painel da
                       plataforma
 backend/

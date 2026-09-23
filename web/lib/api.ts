@@ -251,6 +251,32 @@ export type Resultado = { ok: boolean; message: string } | null;
  * `link` só vem no sucesso, e só nesta resposta — depois dela o backend guarda
  * apenas o hash do token. A tela mostra e avisa que não mostra de novo.
  */
+/**
+ * O resultado das ações do segundo fator.
+ *
+ * `secret` e `recovery_codes` chegam **uma vez**, na resposta que os criou: o
+ * banco guarda o segredo cifrado e os códigos em hash, e nenhuma leitura
+ * posterior os devolve. Quem fechou a tela antes de anotar desliga e configura
+ * de novo — que é melhor do que uma rota capaz de mostrar o segredo a quem tem
+ * um token roubado.
+ */
+export type ResultadoDoSegundoFator =
+  | {
+      ok: boolean;
+      message: string;
+      secret?: string;
+      otpauth_uri?: string;
+      recovery_codes?: string[];
+    }
+  | null;
+
+export type MfaState = {
+  enabled: boolean;
+  enabled_at: string | null;
+  pending: boolean;
+  recovery_codes_left: number;
+};
+
 export type ResultadoDoConvite =
   | { ok: boolean; message: string; link?: string }
   | null;
