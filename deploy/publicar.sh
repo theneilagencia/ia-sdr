@@ -69,7 +69,12 @@ set -a
 # shellcheck disable=SC1091
 . ./.env
 set +a
-[ -n "${SECRETS_ENCRYPTION_KEY:-}" ] || erro ".env sem SECRETS_ENCRYPTION_KEY. Apague o .env e rode de novo."
+# Ou a chave, ou o caminho do arquivo que a contém: quem usa gerenciador de
+# segredo externo entrega por arquivo, e exigir a variável aqui impediria o
+# caminho que a aplicação suporta de propósito.
+if [ -z "${SECRETS_ENCRYPTION_KEY:-}" ] && [ -z "${SECRETS_ENCRYPTION_KEY_FILE:-}" ]; then
+  erro ".env sem SECRETS_ENCRYPTION_KEY (nem SECRETS_ENCRYPTION_KEY_FILE). Apague o .env e rode de novo."
+fi
 
 info "Construindo as imagens (a primeira vez demora alguns minutos)"
 $COMPOSE build

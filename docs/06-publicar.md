@@ -120,6 +120,28 @@ docker compose -f docker-compose.prod.yml exec db \
 Um dump sem o `.env` não restaura as credenciais das empresas: o dump guarda o
 texto cifrado, a chave está no `.env`.
 
+**Tirar os segredos do `.env`** (gerenciador externo), se a sua operação exigir.
+Qualquer campo aceita vir de **arquivo**: `JWT_SECRET_FILE=/run/secrets/jwt` vale
+sobre `JWT_SECRET`. É assim que Vault com agente, AWS Secrets Manager via ECS,
+Kubernetes Secret, Docker secret e systemd credentials entregam segredo — um
+arquivo no disco, com dono e permissão —, então isto serve a todos eles sem SDK de
+fornecedor nenhum dentro da aplicação.
+
+```
+# no deploy/.env
+JWT_SECRET=
+JWT_SECRET_FILE=/run/secrets/jwt
+SECRETS_ENCRYPTION_KEY=
+SECRETS_ENCRYPTION_KEY_FILE=/run/secrets/fernet
+```
+
+E monte o diretório nos serviços `api` e `worker`
+(`- /caminho/dos/segredos:/run/secrets:ro`). Arquivo que não existe ou está vazio
+**derruba a subida** de propósito: cair no valor padrão seria subir com o segredo
+de desenvolvimento que está publicado no repositório — e isso não quebra nada na
+hora, só deixa qualquer pessoa assinar token válido para qualquer empresa. No log
+aparece o **nome** do campo que veio de arquivo, nunca o valor.
+
 **Trocar a chave de cifra** (rotação). A resposta a "a chave vazou" não pode ser
 "perca tudo": a chave é uma lista, a primeira cifra e qualquer uma decifra. A
 ordem dos passos é o que separa rotacionar de perder dado.

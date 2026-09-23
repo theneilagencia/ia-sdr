@@ -426,8 +426,28 @@ verdade é código que ainda não existe.
   silêncio a única cópia daquele segredo. O teste procura no código toda escrita
   cifrada e falha nomeando a coluna que ficou fora — e `mfa_secret` é a prova de
   que uma lista por convenção de nome (`*_encrypted`) não serviria
-- Secrets manager externo (hoje a chave Fernet vive no `.env` do servidor; com a
-  rotação no lugar, o vault deixou de ser o que separa um vazamento de uma perda)
+- **Gerenciador de segredo externo ✅ — por arquivo, sem SDK de fornecedor.** O
+  item dizia "a chave Fernet vive no `.env` do servidor". Agora qualquer campo de
+  configuração aceita vir de arquivo: `JWT_SECRET_FILE=/run/secrets/jwt` vence
+  `JWT_SECRET`. Isso não é uma integração com um fornecedor, é compatibilidade
+  com todos eles — Vault com agente, AWS Secrets Manager via ECS, Kubernetes
+  Secret, Docker secret e systemd credentials entregam segredo exatamente assim,
+  um arquivo com dono e permissão. Um SDK de vault dentro desta aplicação
+  escolheria o fornecedor do cliente por ele.
+
+  Por que arquivo é melhor que variável de ambiente em produção: o ambiente de um
+  processo aparece em `docker inspect`, no `/proc/<pid>/environ` de quem estiver na
+  máquina, e é herdado por todo subprocesso. Arquivo tem caminho, dono e modo.
+
+  Arquivo ausente ou vazio **derruba a subida**: cair no valor padrão seria subir
+  com o segredo de desenvolvimento publicado no repositório, e isso não quebra
+  nada na hora — só deixa qualquer pessoa assinar token válido para qualquer
+  empresa. O log nomeia o campo que veio de arquivo, nunca o valor.
+
+  Um defeito da primeira versão virou teste: a varredura pegava **toda** variável
+  terminada em `_FILE`, e uma variável de outra ferramenta no ambiente
+  (`..._MULTI_FILE=1`) derrubava a aplicação na importação da configuração.
+  Aplicação que não sobe por causa de variável alheia é péssima vizinha.
 - **Rate limiting distribuído ✅ — o balde deixou de ser por processo.** O freio
   contava dentro de cada processo, e a conta do processo não é a conta da
   aplicação: com duas réplicas atrás do proxy, o teto anunciado de 300 por minuto

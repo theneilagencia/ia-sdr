@@ -1,12 +1,77 @@
 """Configuração da aplicação.
 
 Todas as credenciais vivem no backend. Nada de chave de cliente no frontend.
+
+**Segredo pode vir de arquivo**, e não só de variável de ambiente: para qualquer
+campo, `<NOME>_FILE` aponta um caminho e o conteúdo do arquivo passa a valer.
+Isso é o que torna a aplicação compatível com gerenciador de segredo externo sem
+depender de fornecedor nenhum — Vault com agente, AWS Secrets Manager via ECS,
+Kubernetes Secret montado, Docker Swarm secret e systemd credentials todos
+entregam segredo do mesmo jeito: um arquivo no disco, com permissão apertada.
+
+Por que isso é melhor do que variável de ambiente, em produção: o ambiente de um
+processo aparece em `docker inspect`, no `/proc/<pid>/environ` de quem estiver na
+máquina, e é herdado por todo subprocesso — inclusive pelo que sobe num crash
+handler. Arquivo tem dono, modo e caminho, e o vazamento por descuido é menos
+provável. O que ele não resolve, e nenhum vault resolve: a chave precisa estar
+legível pela aplicação em algum momento.
 """
 
+import logging
+import os
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+#: Sufixo da variável que aponta arquivo em vez de valor. `JWT_SECRET_FILE`
+#: vale sobre `JWT_SECRET`: quem montou o segredo num arquivo quis usá-lo.
+SUFIXO_ARQUIVO = "_FILE"
+
+
+def _valores_de_arquivo(campos: set[str]) -> dict[str, str]:
+    """Lê `<NOME>_FILE` do ambiente, para os campos que existem, e devolve `{NOME: conteúdo}`.
+
+    Só os campos desta configuração, e não toda variável terminada em `_FILE`:
+    a primeira versão varria o ambiente inteiro e morria porque **outra**
+    ferramenta exportava um `..._FILE=1`. Uma aplicação que não sobe por causa de
+    variável alheia é péssima vizinha, e o erro não teria nada a ver com a causa.
+
+    Para os campos que são nossos, falha com estrondo quando o arquivo não existe
+    ou está vazio. O silêncio aqui seria pior do que a exceção: a aplicação
+    subiria com o valor padrão — `change-me-in-production` — e um segredo de
+    desenvolvimento em produção não quebra nada na hora, só deixa qualquer pessoa
+    assinar token válido para qualquer empresa.
+
+    O caso simétrico, um `JWT_SECRT_FILE` com o nome digitado errado, passa em
+    branco aqui de propósito: quem protege contra ele é a verificação de boot, que
+    recusa produção com segredo de exemplo — e ela protege contra a variável
+    esquecida também, que este módulo não teria como perceber.
+    """
+    achados: dict[str, str] = {}
+    for chave, caminho in os.environ.items():
+        if not chave.endswith(SUFIXO_ARQUIVO) or not caminho:
+            continue
+        nome = chave[: -len(SUFIXO_ARQUIVO)]
+        if nome.lower() not in campos:
+            continue
+        arquivo = Path(caminho)
+        if not arquivo.is_file():
+            raise RuntimeError(
+                f"{chave} aponta para {caminho}, que não existe ou não é arquivo. "
+                "Sem isso a aplicação subiria com o valor padrão — que é o de "
+                "desenvolvimento, publicado no repositório."
+            )
+        # `strip`: quem gera segredo com `echo` deixa um \n no fim, e um segredo
+        # com quebra de linha invisível vira "a senha está errada e não sei por quê".
+        conteudo = arquivo.read_text(encoding="utf-8").strip()
+        if not conteudo:
+            raise RuntimeError(f"{chave} aponta para {caminho}, que está vazio.")
+        achados[nome] = conteudo
+    return achados
 
 
 class Settings(BaseSettings):
@@ -122,7 +187,19 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    """As configurações, com os segredos de arquivo aplicados por cima.
+
+    A leitura acontece aqui, e não numa fonte customizada do pydantic-settings,
+    porque assim o caminho é um só e óbvio: quem for ler este arquivo vê a ordem
+    de precedência sem precisar conhecer a API de fontes da biblioteca. E sem
+    imprimir valor nenhum no log — só o nome do campo que veio de arquivo.
+    """
+    de_arquivo = _valores_de_arquivo(set(Settings.model_fields))
+    if de_arquivo:
+        logger.info(
+            "Configuração lida de arquivo para: %s", ", ".join(sorted(de_arquivo))
+        )
+    return Settings(**{nome.lower(): valor for nome, valor in de_arquivo.items()})
 
 
 settings = get_settings()

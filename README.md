@@ -16,7 +16,7 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
 criptografia de credenciais e painel de plataforma. 117 endpoints, 26 tabelas,
-494 testes contra PostgreSQL de verdade.
+502 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
@@ -199,6 +199,12 @@ O que está coberto:
   silêncio), a sequência que sobe a cada reenvio, e as guardas: descadastro
   recusa, teto diário e horário comercial não seguram, e a reunião fica gravada
   mesmo quando o convite não sai
+- `test_segredo_por_arquivo.py` — segredo vindo de arquivo, que é o que torna
+  qualquer gerenciador externo utilizável sem SDK de fornecedor. O teste que mais
+  importa é o do erro: `_FILE` apontando para caminho inexistente **derruba a
+  subida** em vez de cair no valor padrão, porque o padrão é o segredo de
+  desenvolvimento publicado neste repositório — e subir com ele funciona
+  perfeitamente, só deixa qualquer pessoa assinar token válido
 - `test_retencao.py` — o descarte automático, e a ordem dos testes é a ordem do
   risco: o que importa não é o descarte funcionar, é ele **não** pegar o que não
   pode. Contato descadastrado nunca sai (apagar o pedido faria a plataforma
