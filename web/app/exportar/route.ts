@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 
 /**
  * Baixar os dados da empresa pelo navegador.
@@ -12,9 +12,25 @@ import { api } from "@/lib/api";
  * que, para um cliente avaliando se entra, é o mesmo que não ser verdade.
  */
 export async function GET() {
-  const pacote = await api<{ tenant?: { slug?: string | null } }>(
-    "/api/v1/tenants/me/export",
-  );
+  let pacote: { tenant?: { slug?: string | null } };
+  try {
+    pacote = await api<{ tenant?: { slug?: string | null } }>(
+      "/api/v1/tenants/me/export",
+    );
+  } catch (erro) {
+    // Exportar é permissão de administrador. O botão já não aparece para os
+    // outros papéis, mas a URL é alcançável — por link salvo, compartilhado ou
+    // digitado —, e antes disto ela respondia 500 com o corpo vazio: o
+    // navegador baixava um arquivo de erro sem dizer o que houve.
+    if (erro instanceof ApiError) {
+      return new Response(`${erro.message}\n`, {
+        status: erro.status,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      });
+    }
+    throw erro;
+  }
+
   const slug = pacote?.tenant?.slug ?? "empresa";
   const hoje = new Date().toISOString().slice(0, 10);
 

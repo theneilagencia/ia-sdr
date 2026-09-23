@@ -215,3 +215,8 @@ td .meta { display: block; color: var(--muted); font-size: 12px; }
   margin-bottom: 8px;
   background: var(--accent-soft);
 }
+
+/* O seletor de empresa, na barra de cima. Menor e mais discreto que um campo de
+   formulário: é identidade de contexto, não coisa que se preenche. */
+header.top .who form.inline { display: inline-flex; gap: 6px; }
+header.top .who select { padding: 2px 6px; font-size: 13px; border-radius: 6px; }

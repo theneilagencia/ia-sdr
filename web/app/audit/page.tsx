@@ -1,4 +1,4 @@
-import { api, type AuditEntry, type Member } from "@/lib/api";
+import { api, apiOuRecusa, foiRecusado, type AuditEntry, type Member } from "@/lib/api";
 
 import Nav from "../nav";
 
@@ -85,10 +85,36 @@ export default async function AuditPage({
   const { limite = "100" } = await searchParams;
   const quantos = Math.min(Math.max(Number(limite) || 100, 20), 500);
 
+  // Auditoria é permissão de administrador, e operator e viewer não a têm. A
+  // recusa é parte do desenho, então a tela a mostra — antes, a resposta 403
+  // virava `ApiError` sem ninguém pegando, e quem clicasse no menu recebia a
+  // tela do Next: "A server error occurred", em inglês, com um número.
   const [entradas, equipe] = await Promise.all([
-    api<AuditEntry[]>(`/api/v1/tenants/me/audit?limit=${quantos}`),
+    apiOuRecusa<AuditEntry[]>(`/api/v1/tenants/me/audit?limit=${quantos}`, {
+      aceitar: [403],
+    }),
     api<Member[]>("/api/v1/tenants/me/members"),
   ]);
+
+  if (foiRecusado(entradas)) {
+    return (
+      <>
+        <Nav />
+        <main className="shell">
+          <h1>Auditoria</h1>
+          <section className="card" data-secao="sem-permissao">
+            <h3>Isto é para quem administra a empresa</h3>
+            <p className="ajuda">
+              O registro de quem fez o quê fica visível para os papéis{" "}
+              <strong>owner</strong> e <strong>admin</strong>. Se você precisa
+              acompanhar as ações desta empresa, peça o acesso a quem administra.
+            </p>
+          </section>
+        </main>
+      </>
+    );
+  }
+
   const nome = new Map(equipe.map((m) => [m.user_id, m.full_name || m.email]));
 
   return (

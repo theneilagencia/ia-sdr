@@ -26,6 +26,39 @@ export async function login(_: string | null, form: FormData): Promise<string | 
   redirect("/");
 }
 
+/**
+ * Trocar a empresa ativa, para quem tem mais de um vínculo.
+ *
+ * `POST /auth/switch-tenant` existe desde o primeiro sprint e nunca teve tela:
+ * quem servia duas empresas entrava sempre na mais antiga (o login escolhe o
+ * vínculo mais velho) e não tinha como chegar na outra. O convite com aceite
+ * tornou isso comum — a mesma conta passa a ser o caminho normal para servir
+ * duas empresas.
+ *
+ * O `revalidatePath("/", "layout")` não é zelo: sem ele, a navegação seguinte
+ * poderia servir do cache o que foi renderizado com o token da empresa
+ * anterior — dado de um cliente aparecendo na tela de outro, que é justamente o
+ * que o resto desta plataforma existe para impedir.
+ */
+export async function trocarEmpresa(
+  _: string | null,
+  form: FormData,
+): Promise<string | null> {
+  const tenant_id = String(form.get("tenant_id") ?? "");
+  try {
+    const token = await api<TokenResponse>("/api/v1/auth/switch-tenant", {
+      method: "POST",
+      body: { tenant_id },
+    });
+    await setToken(token.access_token, token.expires_in_minutes);
+  } catch (erro) {
+    if (erro instanceof ApiError) return erro.message;
+    throw erro;
+  }
+  revalidatePath("/", "layout");
+  redirect("/");
+}
+
 export async function logout() {
   await clearToken();
   redirect("/login");

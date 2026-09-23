@@ -283,6 +283,36 @@ verdade é código que ainda não existe.
   verificação de limite sabe disso, senão corrigir o papel de um convite seria
   recusado pelo convite que a correção ia apagar. `POST /tenants/me/members`
   deixou de existir
+- **As recusas do web app ✅ (quinta rodada de revisão adversarial).** A camada
+  que nunca tinha sido revisada, e a que o leigo toca. Cinco achados:
+
+  1. **Auditoria derrubava a tela para dois dos quatro papéis.** `AUDIT_READ` é de
+     admin para cima; o menu oferecia o link a todo mundo, e a resposta 403 virava
+     `ApiError` sem ninguém pegar — o que o Next mostra como "A server error
+     occurred", em inglês, com um número de erro. Agora o link só aparece para
+     quem pode, e a tela explica a recusa para quem chegar por link salvo ou tiver
+     o papel rebaixado com a aba aberta
+  2. **`/exportar` respondia 500 com o corpo vazio** para quem não administra: o
+     botão já não aparecia, mas a URL é alcançável, e o navegador baixava um
+     arquivo de erro sem dizer o que houve. Agora devolve o 403 com a frase
+  3. **Id inexistente na URL derrubava a tela.** Endereço com uuid no meio é coisa
+     que se cola pela metade, se guarda depois de o registro sair e se repassa
+     velho. Agora dá página não encontrada, em português, com saída
+  4. **Quem tinha duas empresas não conseguia chegar na segunda.**
+     `POST /auth/switch-tenant` existe desde o primeiro sprint e nunca teve tela;
+     o login escolhe sempre o vínculo mais antigo. O convite com aceite tornou o
+     caso comum — a mesma conta servindo duas empresas é o caminho normal agora.
+     A barra ganhou o seletor, e a troca invalida o cache de layout antes de
+     redirecionar: sem isso, a navegação seguinte poderia servir do cache o que
+     foi renderizado com o token da empresa anterior
+  5. **A rota da troca não tinha teste nenhum** — nem tela, o que explica. Agora
+     tem três, e os dois que importam são as recusas: `tenant_id` vem do cliente,
+     então sem a verificação de vínculo esta seria a porta mais curta para o dado
+     de outra empresa
+
+  Duas redes novas por baixo de tudo: `app/not-found.tsx` e `app/error.tsx`, em
+  português e com saída, porque o padrão do Next é uma tela em inglês com um
+  número e nada mais
 - **Formatação uniforme.** O CI roda `ruff check`, não `ruff format --check`, e
   42 dos 124 arquivos do backend divergem do formato canônico. Rodar `ruff format`
   e passar a checá-lo no CI é mecânico — ficou fora deste PR de propósito, porque

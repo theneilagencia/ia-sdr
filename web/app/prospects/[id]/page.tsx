@@ -1,7 +1,11 @@
 import Link from "next/link";
 
+import { notFound } from "next/navigation";
+
 import {
   api,
+  apiOuRecusa,
+  foiRecusado,
   type Contact,
   type Conversation,
   type Criterion,
@@ -59,7 +63,12 @@ function criterios(q: Qualification): Criterion[] {
  */
 export default async function ProspectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const prospect = await api<Prospect>(`/api/v1/prospects/${id}`);
+  // O id vem da URL: colada errada, guardada depois de o registro sair, herdada
+  // de um link antigo. A recusa da API é previsível e virava tela de erro.
+  const prospect = await apiOuRecusa<Prospect>(`/api/v1/prospects/${id}`, {
+    aceitar: [404, 422],
+  });
+  if (foiRecusado(prospect)) notFound();
   const [notas, mensagens, qualificacoes, reunioes, conversas, contato, eu] = await Promise.all([
     api<Score[]>(`/api/v1/prospects/${id}/scores`),
     api<Message[]>(`/api/v1/prospects/${id}/messages`),

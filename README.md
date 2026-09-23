@@ -16,7 +16,7 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
 criptografia de credenciais e painel de plataforma. 106 endpoints, 25 tabelas,
-373 testes contra PostgreSQL de verdade.
+376 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
@@ -187,8 +187,10 @@ O que está coberto:
   migrado é o que os modelos descrevem (um `--autogenerate` agora não escreveria
   nada), as migrations formam uma linha só sem ramo, e nenhum erro da API
   compartilha código com outro
-- `test_auth_and_members.py` — troca de senha que encerra as sessões abertas, e
-  as travas que impedem uma empresa de ficar sem ninguém que possa administrar
+- `test_auth_and_members.py` — troca de senha que encerra as sessões abertas, as
+  travas que impedem uma empresa de ficar sem ninguém que possa administrar, e a
+  troca de empresa ativa: o `tenant_id` vem do cliente, então o que se testa são
+  as recusas — vínculo que não existe e vínculo desativado
 - `test_invitations.py` — o convite que a pessoa aceita: o que o convite **não**
   conta e o que o aceite exige. O teste central compara duas respostas campo a
   campo — convidar um email que já tem conta e um que não existe em lugar nenhum
@@ -213,7 +215,7 @@ O que está coberto:
   `MockTransport`: o token que nunca volta na resposta, o prospect sem nota que
   não sobe, o reenvio que não duplica, e um teste que usa o modelo do próprio
   Qualification Agent para a forma dos critérios não poder divergir em silêncio
-- `web/e2e/smoke.mjs` — browser de verdade: noventa verificações cobrindo o
+- `web/e2e/smoke.mjs` — browser de verdade: cento e uma verificações cobrindo o
   caminho crítico de cada tela, inclusive o que é salvo no Company Brain voltar
   na recarga, o documento colado aparecer indexado, e o encadeamento que faz o
   funil andar — critério salvo na campanha, planilha do Excel em português
@@ -225,7 +227,11 @@ O que está coberto:
   nasce desativada e recusa inscrição até ser ativada, e a conexão com o RAVI
   que recusa credencial que não funciona em vez de salvar às cegas, e o convite
   ponta a ponta — o link gerado numa aba e aceito em **outro navegador**, sem
-  cookie do administrador, porque aceitar na mesma aba não provaria nada. O CRUD
+  cookie do administrador, porque aceitar na mesma aba não provaria nada —, as
+  recusas que a tela precisa mostrar em vez de estourar (menu sem o link que a
+  API recusaria, auditoria explicando a recusa, exportação devolvendo 403
+  legível, id inexistente virando página não encontrada) e a troca de empresa de
+  quem serve duas, com as contas da empresa nova substituindo as da anterior. O CRUD
   completo das telas
   fica nos testes de backend — repetir tudo no browser só somaria tempo e
   superfície de intermitência. Pega o
@@ -238,7 +244,8 @@ O que está coberto:
 web/                  Next.js: funil, revisão e envio, conversas, prospects
                       com import de lista e detalhe, campanhas, agentes,
                       cadências, Company Brain, base de conhecimento, equipe
-                      com convite por link e a tela pública de aceite,
+                      com convite por link e a tela pública de aceite, seletor de
+                      empresa para quem serve mais de uma,
                       configurações (IA, email, volume e CRM) e o painel da
                       plataforma
 backend/

@@ -13,6 +13,7 @@ que impedem uma empresa de ficar sem ninguém que possa administrar.
 from __future__ import annotations
 
 import time
+import uuid
 
 SENHA_NOVA = "senha-nova-de-verdade-123"
 
@@ -221,3 +222,105 @@ def test_membro_de_outra_empresa_nao_e_encontrado(client, make_tenant, auth_head
         f"/api/v1/tenants/me/members/{b['user_id']}", json={"role": "viewer"}, headers=headers_a
     )
     assert r.status_code == 404
+
+
+# ------------------------------------------------- trocar de empresa (switch)
+#
+# A rota existe desde o primeiro sprint e não tinha teste nenhum — nem tela, o
+# que explica: ninguém usava. Agora a barra do web app troca de empresa por ela,
+# e o que ela decide é acesso a dado de cliente. O caso que importa não é o
+# caminho feliz, é a recusa.
+
+
+def test_troca_de_empresa_emite_token_da_outra_empresa(client, make_tenant, auth_headers, membro):
+    """Identidade global: a mesma conta serve duas empresas, com papéis diferentes."""
+    a = make_tenant()
+    b = make_tenant()
+    # A dona da empresa A é convidada para a B como operator.
+    convite = client.post(
+        "/api/v1/tenants/me/invitations",
+        headers=auth_headers(b["email"], b["password"]),
+        json={"email": a["email"], "role": "operator"},
+    )
+    assert convite.status_code == 201, convite.text
+    token = convite.json()["accept_url"].rsplit("/", 1)[-1]
+    assert (
+        client.post(
+            "/api/v1/auth/invitations/accept",
+            json={"token": token, "password": a["password"], "full_name": ""},
+        ).status_code
+        == 200
+    )
+
+    # Entra na própria empresa e troca para a outra.
+    headers = auth_headers(a["email"], a["password"])
+    trocado = client.post(
+        "/api/v1/auth/switch-tenant", json={"tenant_id": str(b["tenant_id"])}, headers=headers
+    )
+    assert trocado.status_code == 200, trocado.text
+    assert trocado.json()["tenant_id"] == str(b["tenant_id"])
+    # O papel é o daquele vínculo, não o que ela tem na empresa dela.
+    assert trocado.json()["role"] == "operator"
+
+    # E o token novo enxerga a empresa nova — é isto que a tela depende.
+    novo = {"Authorization": f"Bearer {trocado.json()['access_token']}"}
+    assert client.get("/api/v1/tenants/me", headers=novo).json()["id"] == str(b["tenant_id"])
+
+
+def test_nao_se_troca_para_empresa_de_que_nao_se_participa(client, make_tenant, auth_headers):
+    """O pedido vem do cliente, então o `tenant_id` é palpite de quem pede.
+
+    Sem a verificação de vínculo, esta rota seria a porta mais curta para os
+    dados de outra empresa: token válido, id trocado na mão.
+    """
+    a = make_tenant()
+    b = make_tenant()
+    negado = client.post(
+        "/api/v1/auth/switch-tenant",
+        json={"tenant_id": str(b["tenant_id"])},
+        headers=auth_headers(a["email"], a["password"]),
+    )
+    assert negado.status_code == 403, negado.text
+
+
+def test_vinculo_desativado_nao_serve_para_trocar(client, make_tenant, auth_headers, membro):
+    """Suspender alguém tem de valer também para a porta lateral."""
+    a = make_tenant()
+    b = make_tenant()
+    pessoa = membro(b, role="operator", email=f"dupla-{uuid.uuid4().hex[:8]}@example.com")
+    # A mesma pessoa também entra na empresa A.
+    convite = client.post(
+        "/api/v1/tenants/me/invitations",
+        headers=auth_headers(a["email"], a["password"]),
+        json={"email": pessoa["email"], "role": "viewer"},
+    )
+    token = convite.json()["accept_url"].rsplit("/", 1)[-1]
+    assert (
+        client.post(
+            "/api/v1/auth/invitations/accept",
+            json={"token": token, "password": pessoa["password"], "full_name": ""},
+        ).status_code
+        == 200
+    )
+
+    # A empresa B suspende o vínculo dela lá.
+    membros = client.get(
+        "/api/v1/tenants/me/members", headers=auth_headers(b["email"], b["password"])
+    ).json()
+    user_id = next(m["user_id"] for m in membros if m["email"] == pessoa["email"])
+    assert (
+        client.patch(
+            f"/api/v1/tenants/me/members/{user_id}",
+            json={"is_active": False},
+            headers=auth_headers(b["email"], b["password"]),
+        ).status_code
+        == 200
+    )
+
+    # Entrando pela empresa A, ela não consegue voltar para a B.
+    negado = client.post(
+        "/api/v1/auth/switch-tenant",
+        json={"tenant_id": str(b["tenant_id"])},
+        headers=auth_headers(pessoa["email"], pessoa["password"]),
+    )
+    assert negado.status_code == 403, negado.text

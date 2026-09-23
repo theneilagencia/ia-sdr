@@ -280,6 +280,36 @@ try {
         (await convidada.locator("h1").innerText()).includes("trabalhando"),
         "quem aceitou cai no funil da empresa que convidou",
       );
+
+      // O que a plataforma faz com uma recusa legítima. Quem entrou é operator,
+      // e auditoria é permissão de admin: antes disto, o menu oferecia o link e
+      // o clique devolvia a tela de erro do Next, em inglês, com um número.
+      checar(
+        !(await convidada.locator("nav a").allInnerTexts()).includes("Auditoria"),
+        "o menu não oferece Auditoria a quem a API vai recusar",
+      );
+      const auditoria = await convidada.goto(`${WEB}/audit`, {
+        waitUntil: "domcontentloaded",
+      });
+      checar(
+        auditoria.status() === 200 &&
+          (await convidada.locator('[data-secao="sem-permissao"]').count()) === 1,
+        "chegando por link salvo, a auditoria explica a recusa em vez de estourar",
+      );
+      const exportacao = await convidada.request.get(`${WEB}/exportar`);
+      checar(
+        exportacao.status() === 403 && (await exportacao.text()).trim().length > 0,
+        "exportar sem permissão responde 403 legível, não 500 vazio",
+      );
+      const inexistente = await convidada.goto(
+        `${WEB}/prospects/00000000-0000-0000-0000-000000000000`,
+        { waitUntil: "domcontentloaded" },
+      );
+      checar(
+        inexistente.status() === 404 &&
+          (await convidada.locator("h1").innerText()).includes("Não encontramos"),
+        "id que não existe na URL dá página não encontrada, em português",
+      );
     }
     await outroNavegador.close();
 
@@ -310,6 +340,93 @@ try {
     await ate(async () => (await page.locator(`[data-convite="${errada}"]`).count()) === 0),
     "revogar tira o convite e devolve a vaga",
   );
+
+  // Duas empresas na mesma conta: o caso que o convite tornou comum. O segundo
+  // owner do seed é convidado para cá, e a partir daí precisa conseguir ir e
+  // voltar entre as duas — o login sempre escolhe a empresa mais antiga, então
+  // sem o seletor a segunda ficava inalcançável pela tela.
+  const SEGUNDO_EMAIL = process.env.E2E_EMAIL_2 ?? "owner@xyz.com";
+  const SEGUNDA_SENHA = process.env.E2E_PASSWORD_2 ?? "demo-senha-12345";
+  // Recarregar antes de convidar não é zelo: o campo do link ainda está na tela
+  // desde o convite anterior, e ler dali pegaria o link de outra pessoa — que
+  // acabou de ser revogado. Foi exatamente o que aconteceu na primeira execução
+  // desta verificação, e o teste acusou o aceite em vez do próprio engano.
+  await page.reload();
+  await hidratada();
+  checar(
+    (await page.locator('[data-campo="link-de-convite"]').count()) === 0,
+    "a recarga limpa o link anterior da tela",
+  );
+  await page.locator('[data-secao="convidar"] input[name="email"]').fill(SEGUNDO_EMAIL);
+  await page.locator('[data-secao="convidar"] select').selectOption("viewer");
+  await page.locator('[data-secao="convidar"] button[type="submit"]').click();
+  const linkSegundo = await ate(
+    async () => (await page.locator('[data-campo="link-de-convite"]').count()) > 0,
+  )
+    ? await page.locator('[data-campo="link-de-convite"]').inputValue()
+    : "";
+  checar(Boolean(linkSegundo), "convite para quem já tem empresa própria é emitido");
+
+  if (linkSegundo) {
+    const terceiroNavegador = await browser.newContext();
+    const dupla = await terceiroNavegador.newPage();
+    await dupla.goto(`${WEB}${new URL(linkSegundo).pathname}`);
+    await dupla.waitForSelector('[data-hidratado="1"]', { state: "attached", timeout: 20000 });
+    // A senha é a dela: o convite anexa o vínculo, não troca senha de ninguém.
+    await dupla.fill('input[name="password"]', SEGUNDA_SENHA);
+    await dupla.click('button[type="submit"]');
+    let entrouDupla = true;
+    try {
+      await dupla.waitForURL(`${WEB}/`, { timeout: 20000 });
+    } catch {
+      entrouDupla = false;
+      console.error(
+        `  diagnóstico: aceite com conta existente não entrou — ${await dupla
+          .locator("p.erro")
+          .allInnerTexts()}`,
+      );
+    }
+    checar(entrouDupla, "quem já tem conta aceita o convite com a senha dela");
+
+    if (entrouDupla) {
+      const seletor = dupla.locator('[data-secao="trocar-empresa"] select');
+      checar(
+        (await seletor.locator("option").count()) === 2,
+        "com dois vínculos, a barra oferece o seletor de empresa",
+      );
+      await dupla.goto(`${WEB}/accounts`);
+      const contasAqui = await dupla.locator("tbody tr").count();
+      checar(contasAqui > 0, `a empresa que convidou tem contas para comparar (${contasAqui})`);
+
+      await dupla.goto(`${WEB}/`);
+      await dupla.waitForSelector('[data-secao="trocar-empresa"] select');
+      // A opção que não é a atual — e não "a segunda": a ordem em que os
+      // vínculos voltam da API não é a ordem que o login escolhe, então `nth(1)`
+      // pode ser justamente a empresa em que a pessoa já está. Foi o que
+      // aconteceu aqui, e o teste acusou a troca em vez do próprio engano.
+      const seletorEmpresa = dupla.locator('[data-secao="trocar-empresa"] select');
+      const atual = await seletorEmpresa.inputValue();
+      const papelAntes = (await dupla.locator(".who").innerText()).trim();
+      const valores = await dupla
+        .locator('[data-secao="trocar-empresa"] option')
+        .evaluateAll((os) => os.map((o) => o.value));
+      const outra = valores.find((v) => v !== atual);
+      await seletorEmpresa.selectOption(outra);
+      const trocou = await ate(
+        async () => (await dupla.locator(".who").innerText()).trim() !== papelAntes,
+      );
+      checar(trocou, "trocar de empresa troca o papel que a barra mostra");
+
+      // A prova que importa: a tela seguinte traz o dado da empresa nova, não o
+      // que já estava renderizado com o token da anterior.
+      await dupla.goto(`${WEB}/accounts`);
+      checar(
+        (await dupla.locator("tbody tr").count()) !== contasAqui,
+        "depois de trocar, as contas listadas são as da outra empresa",
+      );
+    }
+    await terceiroNavegador.close();
+  }
 
   // As telas que fazem o funil andar: campanha, lista e disparo. O caminho é
   // encadeado de propósito — a campanha recebe a lista, e a lista alimenta o

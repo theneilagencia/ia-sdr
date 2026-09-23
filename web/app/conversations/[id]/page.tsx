@@ -1,6 +1,15 @@
 import Link from "next/link";
 
-import { api, type ConversationDetail, type Me, type Member } from "@/lib/api";
+import { notFound } from "next/navigation";
+
+import {
+  api,
+  apiOuRecusa,
+  foiRecusado,
+  type ConversationDetail,
+  type Me,
+  type Member,
+} from "@/lib/api";
 
 import Nav from "../../nav";
 import { Fechar, PassarPara, PedirAoAgente, Responder } from "./forms";
@@ -31,11 +40,15 @@ export default async function ConversationPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // O id vem da URL, e URL é coisa que se cola errada, se guarda depois de o
+  // registro sair e se herda de um link antigo. A API responde 404 (ou 422, se
+  // nem uuid é), e sem isto a resposta previsível virava a tela de erro do Next.
   const [conversa, membros, eu] = await Promise.all([
-    api<ConversationDetail>(`/api/v1/conversations/${id}`),
+    apiOuRecusa<ConversationDetail>(`/api/v1/conversations/${id}`, { aceitar: [404, 422] }),
     api<Member[]>("/api/v1/tenants/me/members"),
     api<Me>("/api/v1/auth/me"),
   ]);
+  if (foiRecusado(conversa)) notFound();
   const podeOperar = eu.role !== "viewer";
   const responsavel = membros.find((m) => m.user_id === conversa.handoff_to_user_id);
 

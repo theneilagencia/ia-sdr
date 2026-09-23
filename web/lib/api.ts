@@ -83,6 +83,39 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
   return dados as T;
 }
 
+/**
+ * A recusa que a tela precisa mostrar em vez de estourar.
+ *
+ * `api()` levanta `ApiError` em qualquer resposta ruim, e numa página do
+ * servidor isso vira a tela do Next: "A server error occurred", em inglês, com
+ * um número de erro. Só que **403 e 404 não são defeito** — são respostas
+ * previsíveis de uma plataforma com papéis e com URLs que as pessoas colam
+ * erradas. Um viewer clicando em Auditoria recebia exatamente aquela tela.
+ *
+ * Quem chama decide: `api()` quando a falha é defeito de verdade, este quando a
+ * recusa faz parte do desenho.
+ */
+export type Recusa = { recusado: true; status: number; message: string };
+
+export function foiRecusado<T>(valor: T | Recusa): valor is Recusa {
+  return typeof valor === "object" && valor !== null && "recusado" in valor;
+}
+
+export async function apiOuRecusa<T>(
+  path: string,
+  options: Options & { aceitar?: number[] } = {},
+): Promise<T | Recusa> {
+  const { aceitar = [403, 404], ...resto } = options;
+  try {
+    return await api<T>(path, resto);
+  } catch (erro) {
+    if (erro instanceof ApiError && aceitar.includes(erro.status)) {
+      return { recusado: true, status: erro.status, message: erro.message };
+    }
+    throw erro;
+  }
+}
+
 export type Funnel = {
   prospects: number;
   researched: number;

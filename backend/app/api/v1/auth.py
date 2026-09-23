@@ -232,8 +232,9 @@ def change_password(
 
     Faltava, e não era detalhe: o provisionamento de uma empresa nova imprime
     uma senha gerada e pede para trocar no primeiro acesso — o que, sem isto,
-    era impossível. Quem convida um operador também escolhe a senha dele, então
-    sem troca a senha de todo mundo é conhecida por quem convidou.
+    era impossível. Quem entra por convite já escolhe a própria senha no aceite;
+    o owner provisionado é o único que começa com uma senha escolhida por outra
+    pessoa, e é para ele que esta rota é a primeira coisa a fazer.
 
     A senha atual é exigida mesmo com o token válido: token roubado não deve
     virar conta roubada.
