@@ -184,9 +184,7 @@ def test_o_uid_e_estavel_por_reuniao():
 # ------------------------------------------------------------------ o envio
 
 
-def test_o_convite_sai_pela_conta_da_empresa_com_o_ics_anexado(
-    pronto_para_enviar, enviados
-):
+def test_o_convite_sai_pela_conta_da_empresa_com_o_ics_anexado(pronto_para_enviar, enviados):
     cenario = pronto_para_enviar
     reuniao_id = _marcar(cenario, location="Google Meet")
 
@@ -269,9 +267,7 @@ def test_no_fio_o_arquivo_vai_com_crlf(pronto_para_enviar, enviados):
     assert "BEGIN:VCALENDAR\r\n" in no_fio
     assert "\r\nEND:VEVENT\r\n" in no_fio
     # Nenhum LF solto: todo LF vem depois de um CR.
-    assert all(
-        no_fio[i - 1] == "\r" for i, ch in enumerate(no_fio) if ch == "\n" and i > 0
-    )
+    assert all(no_fio[i - 1] == "\r" for i, ch in enumerate(no_fio) if ch == "\n" and i > 0)
 
 
 def test_quem_pediu_para_nao_receber_nao_recebe_nem_convite(pronto_para_enviar, enviados):

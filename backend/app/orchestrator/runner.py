@@ -229,9 +229,7 @@ def run_job(session: Session, envelope: JobEnvelope) -> AgentRun:
             usage.check_ai_budget(session, envelope.tenant_id, units)
 
             context = build_context(session, envelope)
-            result: ExecutionResult = get_executor(envelope.agent.value)(
-                session, context, envelope
-            )
+            result: ExecutionResult = get_executor(envelope.agent.value)(session, context, envelope)
         except Exception as exc:
             # Qualquer exceção fecha o run. Antes só as de domínio eram tratadas,
             # e o erro mais provável em produção não é de domínio: é o SDK da
@@ -242,9 +240,7 @@ def run_job(session: Session, envelope: JobEnvelope) -> AgentRun:
             # sumia, e a tela dizia que estava tudo bem.
             if isinstance(exc, AppError):
                 # 402/403 são recusa de política (cota, isolamento); o resto é falha.
-                status = (
-                    RunStatus.REJECTED if exc.status_code in (402, 403) else RunStatus.FAILED
-                )
+                status = RunStatus.REJECTED if exc.status_code in (402, 403) else RunStatus.FAILED
                 erro = f"{exc.code}: {exc.message}"
             else:
                 status = RunStatus.FAILED

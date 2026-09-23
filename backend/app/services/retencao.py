@@ -71,9 +71,7 @@ ESTADOS_COM_HISTORICO = frozenset(
 #: Mensagem nesses estados é trabalho pendente, não histórico: rascunho à espera
 #: de revisão e mensagem aprovada à espera de envio. Apagá-las por prazo seria
 #: jogar fora trabalho que alguém ainda vai olhar.
-ESTADOS_PENDENTES_DE_MENSAGEM = frozenset(
-    {MessageStatus.DRAFT.value, MessageStatus.QUEUED.value}
-)
+ESTADOS_PENDENTES_DE_MENSAGEM = frozenset({MessageStatus.DRAFT.value, MessageStatus.QUEUED.value})
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,9 +223,7 @@ def _rodar(session: Session, tenant_id, *, agora: datetime | None, apagar: bool)
 
     def contar(modelo, condicao) -> int:
         return int(
-            session.execute(
-                select(func.count()).select_from(modelo).where(condicao)
-            ).scalar_one()
+            session.execute(select(func.count()).select_from(modelo).where(condicao)).scalar_one()
         )
 
     def processar(nome: str, modelo, condicao) -> None:

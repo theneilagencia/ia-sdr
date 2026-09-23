@@ -61,8 +61,7 @@ def _role_privileges(target_engine) -> tuple[str, bool, bool]:
     with target_engine.connect() as conn:
         row = conn.execute(
             text(
-                "SELECT rolname, rolsuper, rolbypassrls "
-                "FROM pg_roles WHERE rolname = current_user"
+                "SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
             )
         ).one()
     return row[0], bool(row[1]), bool(row[2])
@@ -112,9 +111,7 @@ def tenant_session(tenant_id: uuid.UUID) -> Iterator[Session]:
 
     @event.listens_for(session, "after_begin")
     def _apply_tenant_scope(session_, transaction, connection) -> None:  # noqa: ARG001
-        connection.exec_driver_sql(
-            "SELECT set_config(%s, %s, true)", (TENANT_GUC, str(tenant_id))
-        )
+        connection.exec_driver_sql("SELECT set_config(%s, %s, true)", (TENANT_GUC, str(tenant_id)))
 
     try:
         yield session

@@ -325,6 +325,9 @@ def test_preco_por_modelo_e_custo_em_micro_dolar():
     # Modelo fora da tabela não pode custar zero: superestima, não some.
     assert cost_micro_usd("modelo-novo", input_tokens=1_000_000, output_tokens=0) == 10_000_000
     # Tokens de cache entram no custo de entrada.
-    assert cost_micro_usd(
-        "claude-opus-5", input_tokens=0, output_tokens=0, cache_read_tokens=1_000_000
-    ) == 5_000_000
+    assert (
+        cost_micro_usd(
+            "claude-opus-5", input_tokens=0, output_tokens=0, cache_read_tokens=1_000_000
+        )
+        == 5_000_000
+    )

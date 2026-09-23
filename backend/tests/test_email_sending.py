@@ -167,12 +167,8 @@ def test_aquecimento_sobe_com_os_dias(pronto_para_enviar, enviados):
 
     with tenant_session(pronto_para_enviar["tenant_id"]) as session:
         tenant = session.get(Tenant, pronto_para_enviar["tenant_id"])
-        quarto_dia = email_sender.allowance_today(
-            session, tenant, HORA_BOA + timedelta(days=3)
-        )
-        muito_depois = email_sender.allowance_today(
-            session, tenant, HORA_BOA + timedelta(days=60)
-        )
+        quarto_dia = email_sender.allowance_today(session, tenant, HORA_BOA + timedelta(days=3))
+        muito_depois = email_sender.allowance_today(session, tenant, HORA_BOA + timedelta(days=60))
 
     assert quarto_dia["limit"] == 25  # 10 + 5 * 3
     # Passado o aquecimento, vale o limite diário configurado.

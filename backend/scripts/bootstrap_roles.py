@@ -56,9 +56,7 @@ def main() -> int:
     role_id = sql.Identifier(role)
 
     with _connect(admin_url) as conn:
-        exists = conn.execute(
-            "SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)
-        ).fetchone()
+        exists = conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)).fetchone()
         if not exists:
             conn.execute(sql.SQL("CREATE ROLE {} LOGIN").format(role_id))
             print(f"✓ role '{role}' criado")
@@ -66,9 +64,7 @@ def main() -> int:
             print(f"· role '{role}' já existe")
 
         conn.execute(
-            sql.SQL("ALTER ROLE {} WITH LOGIN PASSWORD {}").format(
-                role_id, sql.Literal(password)
-            )
+            sql.SQL("ALTER ROLE {} WITH LOGIN PASSWORD {}").format(role_id, sql.Literal(password))
         )
 
         # NOSUPERUSER/NOBYPASSRLS é o ponto todo: sem isso o RLS não vale nada.
@@ -80,14 +76,10 @@ def main() -> int:
         ).fetchone()[0]
         if admin_is_superuser:
             conn.execute(
-                sql.SQL("ALTER ROLE {} WITH NOSUPERUSER NOBYPASSRLS NOCREATEROLE").format(
-                    role_id
-                )
+                sql.SQL("ALTER ROLE {} WITH NOSUPERUSER NOBYPASSRLS NOCREATEROLE").format(role_id)
             )
         conn.execute(
-            sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
-                sql.Identifier(database), role_id
-            )
+            sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(sql.Identifier(database), role_id)
         )
         conn.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(role_id))
         conn.execute(
@@ -96,20 +88,17 @@ def main() -> int:
             )
         )
         conn.execute(
-            sql.SQL("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {}").format(
-                role_id
-            )
+            sql.SQL("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {}").format(role_id)
         )
         # Tabelas que as próximas migrations criarem já nascem acessíveis.
         conn.execute(
-            sql.SQL(
-                "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT {} ON TABLES TO {}"
-            ).format(TABLE_PRIVILEGES, role_id)
+            sql.SQL("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT {} ON TABLES TO {}").format(
+                TABLE_PRIVILEGES, role_id
+            )
         )
         conn.execute(
             sql.SQL(
-                "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
-                "GRANT USAGE, SELECT ON SEQUENCES TO {}"
+                "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {}"
             ).format(role_id)
         )
         print(f"✓ privilégios concedidos a '{role}' em {database}")
@@ -121,7 +110,7 @@ def main() -> int:
             atributo = "SUPERUSER" if rolsuper else "BYPASSRLS"
             print(
                 f"✗ '{role}' tem {atributo} e ignoraria o Row Level Security. "
-                f"Como superusuário: ALTER ROLE \"{role}\" NOSUPERUSER NOBYPASSRLS;"
+                f'Como superusuário: ALTER ROLE "{role}" NOSUPERUSER NOBYPASSRLS;'
             )
             return 1
 

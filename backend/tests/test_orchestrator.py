@@ -34,9 +34,7 @@ def _seed(tenant_id: uuid.UUID, *, marca: str) -> uuid.UUID:
             icp={"cargo": "CFO", "pais": marca},
         )
         session.add(campaign)
-        doc = KnowledgeDocument(
-            tenant_id=tenant_id, title=f"Playbook {marca}", status="indexed"
-        )
+        doc = KnowledgeDocument(tenant_id=tenant_id, title=f"Playbook {marca}", status="indexed")
         session.add(doc)
         session.flush()
         session.add(
@@ -57,9 +55,7 @@ def test_contexto_carrega_apenas_conhecimento_do_proprio_tenant(make_tenant):
     campanha_a = _seed(a["tenant_id"], marca="Mineracao")
     _seed(b["tenant_id"], marca="ERP")
 
-    envelope = new_job(
-        tenant_id=a["tenant_id"], agent="research", campaign_id=campanha_a
-    )
+    envelope = new_job(tenant_id=a["tenant_id"], agent="research", campaign_id=campanha_a)
     with tenant_session(a["tenant_id"]) as session:
         contexto = build_context(session, envelope)
 
@@ -251,9 +247,7 @@ def test_entrega_repetida_do_mesmo_job_nao_executa_duas_vezes(make_tenant):
         execucoes = session.execute(
             select(func.count(AgentRun.id)).where(AgentRun.job_id == envelope.job_id)
         ).scalar_one()
-        consumo = session.execute(
-            select(func.coalesce(func.sum(UsageEvent.units), 0))
-        ).scalar_one()
+        consumo = session.execute(select(func.coalesce(func.sum(UsageEvent.units), 0))).scalar_one()
 
     assert execucoes == 1
     # E o consumo foi contado uma vez só: é aqui que a duplicata custa dinheiro.
@@ -364,9 +358,9 @@ def test_run_abandonado_nao_vale_como_entrega(make_tenant, monkeypatch):
     assert executou == [1]
     assert run.status == "succeeded"
     with tenant_session(t["tenant_id"]) as session:
-        parado = session.execute(
-            select(AgentRun).where(AgentRun.status == "failed")
-        ).scalars().one()
+        parado = (
+            session.execute(select(AgentRun).where(AgentRun.status == "failed")).scalars().one()
+        )
         assert "abandonado" in (parado.error or "")
 
 

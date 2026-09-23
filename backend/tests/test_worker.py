@@ -287,9 +287,9 @@ def test_resposta_recebida_aciona_o_agente_de_conversa(empresa_com_conversa, mon
     runner.executar(tenant_id, JobKind.FETCH_INBOX.value, {})
 
     with tenant_session(tenant_id) as session:
-        job = session.execute(
-            select(Job).where(Job.kind == JobKind.AGENT_RUN.value)
-        ).scalars().one()
+        job = (
+            session.execute(select(Job).where(Job.kind == JobKind.AGENT_RUN.value)).scalars().one()
+        )
     assert job.payload["agent"] == "conversation"
     assert job.payload["entity_id"] == str(empresa_com_conversa["conversation_id"])
     assert job.payload["tenant_id"] == str(tenant_id)
@@ -360,9 +360,9 @@ def test_recusa_de_politica_nao_e_tentada_tres_vezes(make_tenant, monkeypatch):
     assert resultado["failed"] == 1
 
     with tenant_session(t["tenant_id"]) as session:
-        job = session.execute(
-            select(Job).where(Job.kind == JobKind.AGENT_RUN.value)
-        ).scalars().one()
+        job = (
+            session.execute(select(Job).where(Job.kind == JobKind.AGENT_RUN.value)).scalars().one()
+        )
         assert job.status == "failed"
         assert job.attempts == 1 and job.finished_at is not None
 
@@ -384,9 +384,9 @@ def test_falha_de_verdade_continua_sendo_tentada(make_tenant, monkeypatch):
     runner.ciclo()
 
     with tenant_session(t["tenant_id"]) as session:
-        job = session.execute(
-            select(Job).where(Job.kind == JobKind.AGENT_RUN.value)
-        ).scalars().one()
+        job = (
+            session.execute(select(Job).where(Job.kind == JobKind.AGENT_RUN.value)).scalars().one()
+        )
         assert job.status == "pending"
 
 
@@ -489,7 +489,7 @@ def test_conversa_ja_respondida_nao_volta_para_a_fila(empresa_com_conversa, monk
     runner.executar(tenant_id, JobKind.FETCH_INBOX.value, {})
 
     with tenant_session(tenant_id) as session:
-        agentes = session.execute(
-            select(Job).where(Job.kind == JobKind.AGENT_RUN.value)
-        ).scalars().all()
+        agentes = (
+            session.execute(select(Job).where(Job.kind == JobKind.AGENT_RUN.value)).scalars().all()
+        )
     assert agentes == [], "conversa sem mensagem nova foi reacionada"

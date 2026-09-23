@@ -68,9 +68,12 @@ PLAN_LIMITS: dict[Plan, PlanLimits] = {
         email_accounts=UNLIMITED,
         ai_units_per_month=UNLIMITED,
         knowledge_documents=UNLIMITED,
-        features=frozenset(
-            {"research", "outreach", "conversation", "qualification", "crm", "voice", "sso"}
-        ),
+        # `voice` e `sso` saíram desta lista. Não é redução de escopo: nenhum dos
+        # dois existe, e o painel mostrava "recursos: ..., voice, sso" para quem
+        # opera — que é como um recurso inexistente entra numa proposta comercial.
+        # Voltam no dia em que houver código atrás deles; o teste
+        # `test_plano_nao_anuncia_recurso_inexistente` falha se voltarem antes.
+        features=frozenset({"research", "outreach", "conversation", "qualification", "crm"}),
     ),
 }
 

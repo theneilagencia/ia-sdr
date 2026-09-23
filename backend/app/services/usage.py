@@ -41,6 +41,24 @@ UNIT_COST: dict[UsageKind, int] = {
 #: Só contam contra a cota de IA; import de prospect tem cota própria.
 _AI_KINDS = frozenset(k for k, cost in UNIT_COST.items() if cost > 0)
 
+#: Declarados na moeda interna e **sem código atrás**. Registrar consumo de um
+#: deles é recusado, e a recusa é o ponto: um tipo com preço na tabela e nenhuma
+#: operação que o produza é promessa esperando alguém vendê-la. Enquanto estiverem
+#: aqui, a plataforma diz em voz alta que não faz isso; quando alguém construir,
+#: tirar da lista é um passo explícito e visível no diff.
+KINDS_RESERVADOS = frozenset({UsageKind.DEEP_RESEARCH, UsageKind.VOICE_INTERACTION})
+
+
+class UsageKindReservado(RuntimeError):
+    """Tentativa de cobrar por operação que a plataforma ainda não faz."""
+
+    def __init__(self, kind: UsageKind) -> None:
+        super().__init__(
+            f"'{kind.value}' está declarado na tabela de consumo mas não existe "
+            "código que o produza. Cobrar por isso seria cobrar por nada — "
+            "remova de KINDS_RESERVADOS quando a operação existir de verdade."
+        )
+
 
 def _month_start(now: datetime | None = None) -> datetime:
     now = now or datetime.now(UTC)
@@ -143,6 +161,8 @@ def record_usage(
     cost_micro_usd: int = 0,
     notes: str | None = None,
 ) -> UsageEvent:
+    if kind in KINDS_RESERVADOS:
+        raise UsageKindReservado(kind)
     units = UNIT_COST[kind] * quantity
     event = UsageEvent(
         tenant_id=tenant_id,

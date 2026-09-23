@@ -233,9 +233,7 @@ def aceitar(token: str, *, password: str, full_name: str, code: str | None = Non
             .where(Membership.user_id == user.id)
         ).scalar_one_or_none()
         if vinculo is None:
-            vinculo = Membership(
-                tenant_id=convite.tenant_id, user_id=user.id, role=convite.role
-            )
+            vinculo = Membership(tenant_id=convite.tenant_id, user_id=user.id, role=convite.role)
             identity.add(vinculo)
         else:
             # Já era membro (convite duplicado, ou reentrada depois de desativado):

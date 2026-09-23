@@ -150,9 +150,7 @@ def iniciar(user_id: uuid.UUID) -> Configuracao:
         user.mfa_locked_until = None
         return Configuracao(
             secret=segredo,
-            otpauth_uri=totp.uri_para_aplicativo(
-                segredo, email=user.email, plataforma=PLATAFORMA
-            ),
+            otpauth_uri=totp.uri_para_aplicativo(segredo, email=user.email, plataforma=PLATAFORMA),
         )
 
 

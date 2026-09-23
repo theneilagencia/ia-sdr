@@ -67,9 +67,7 @@ def upgrade() -> None:
     # O composto vem do mixin `TenantScoped`, que o declara para toda tabela do
     # cliente. Sem ele aqui, o teste de divergência entre modelo e migration
     # falha — que é exatamente o serviço que aquele teste presta.
-    op.create_index(
-        "ix_invitations_tenant_created", "invitations", ["tenant_id", "created_at"]
-    )
+    op.create_index("ix_invitations_tenant_created", "invitations", ["tenant_id", "created_at"])
     op.create_index("ix_invitations_email", "invitations", ["email"])
     # Único e indexado: é por ele que o aceite encontra o convite, e é o que
     # impede dois convites compartilharem segredo por acidente.
@@ -78,8 +76,7 @@ def upgrade() -> None:
     op.execute("ALTER TABLE invitations ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE invitations FORCE ROW LEVEL SECURITY")
     op.execute(
-        f"CREATE POLICY tenant_isolation ON invitations "
-        f"USING {PREDICADO} WITH CHECK {PREDICADO}"
+        f"CREATE POLICY tenant_isolation ON invitations USING {PREDICADO} WITH CHECK {PREDICADO}"
     )
 
 

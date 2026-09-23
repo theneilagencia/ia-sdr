@@ -161,7 +161,9 @@ class Membership(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False,
+        PGUUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
     user_id: Mapped[uuid.UUID] = mapped_column(

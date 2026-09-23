@@ -117,9 +117,7 @@ def conversa_com_abordagem_enviada(make_tenant):
 
 def _receber(cenario, bruto: bytes):
     with tenant_session(cenario["tenant_id"]) as session:
-        return record_inbound(
-            session, tenant_id=cenario["tenant_id"], recebido=parse_email(bruto)
-        )
+        return record_inbound(session, tenant_id=cenario["tenant_id"], recebido=parse_email(bruto))
 
 
 # ------------------------------------------------------------------ pareamento
@@ -138,9 +136,9 @@ def test_resposta_com_in_reply_to_volta_para_a_conversa(conversa_com_abordagem_e
     assert resultado is not None
 
     with tenant_session(conversa_com_abordagem_enviada["tenant_id"]) as session:
-        entrada = session.execute(
-            select(Message).where(Message.direction == "inbound")
-        ).scalars().one()
+        entrada = (
+            session.execute(select(Message).where(Message.direction == "inbound")).scalars().one()
+        )
         assert entrada.conversation_id == conversa_com_abordagem_enviada["conversation_id"]
         assert "quinta" in entrada.body
         # Quem respondeu está engajado, seja qual for o teor.
@@ -173,9 +171,7 @@ def test_email_de_desconhecido_e_ignorado(conversa_com_abordagem_enviada):
     )
     with tenant_session(conversa_com_abordagem_enviada["tenant_id"]) as session:
         assert (
-            session.execute(select(Message).where(Message.direction == "inbound"))
-            .scalars()
-            .all()
+            session.execute(select(Message).where(Message.direction == "inbound")).scalars().all()
             == []
         )
 
@@ -191,9 +187,9 @@ def test_ler_a_caixa_duas_vezes_nao_duplica(conversa_com_abordagem_enviada):
     assert _receber(conversa_com_abordagem_enviada, bruto) is None
 
     with tenant_session(conversa_com_abordagem_enviada["tenant_id"]) as session:
-        entradas = session.execute(
-            select(Message).where(Message.direction == "inbound")
-        ).scalars().all()
+        entradas = (
+            session.execute(select(Message).where(Message.direction == "inbound")).scalars().all()
+        )
     assert len(entradas) == 1
 
 
@@ -361,8 +357,6 @@ def test_mensagem_com_defeito_nao_leva_as_outras_nem_se_perde(
 
     with tenant_session(t["tenant_id"]) as session:
         recebidas = list(
-            session.execute(
-                select(Message).where(Message.direction == "inbound")
-            ).scalars()
+            session.execute(select(Message).where(Message.direction == "inbound")).scalars()
         )
     assert [m.body.strip() for m in recebidas] == ["Pode ser quinta."]

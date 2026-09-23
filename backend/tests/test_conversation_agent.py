@@ -146,9 +146,9 @@ def test_resposta_vira_rascunho_e_move_para_engajado(conversa_aberta):
     assert run.status == "succeeded"
 
     with tenant_session(conversa_aberta["tenant_id"]) as session:
-        saida = session.execute(
-            select(Message).where(Message.direction == "outbound")
-        ).scalars().one()
+        saida = (
+            session.execute(select(Message).where(Message.direction == "outbound")).scalars().one()
+        )
         assert saida.status == "draft" and saida.sent_at is None
         assert session.get(Prospect, conversa_aberta["prospect_id"]).status == "engaged"
 
@@ -215,8 +215,7 @@ def test_interesse_em_reuniao_fica_marcado(conversa_aberta):
         run_job(session, _job(conversa_aberta))
     with tenant_session(conversa_aberta["tenant_id"]) as session:
         assert (
-            session.get(Conversation, conversa_aberta["conversation_id"]).status
-            == "meeting_intent"
+            session.get(Conversation, conversa_aberta["conversation_id"]).status == "meeting_intent"
         )
 
 
@@ -242,9 +241,9 @@ def test_conversa_sem_mensagem_do_lead_nao_gera_replica(conversa_aberta):
 def test_mensagem_do_lead_ja_respondida_nao_gera_segunda_replica(conversa_aberta):
     """Despachar a conversa duas vezes mandava dois emails sobre a mesma frase."""
     with tenant_session(conversa_aberta["tenant_id"]) as session:
-        entrada = session.execute(
-            select(Message).where(Message.direction == "inbound")
-        ).scalars().one()
+        entrada = (
+            session.execute(select(Message).where(Message.direction == "inbound")).scalars().one()
+        )
         session.add(
             Message(
                 tenant_id=conversa_aberta["tenant_id"],
@@ -272,9 +271,9 @@ def test_rascunho_pendente_nao_impede_gerar_de_novo(conversa_aberta):
     saiu, não para rascunho na fila.
     """
     with tenant_session(conversa_aberta["tenant_id"]) as session:
-        entrada = session.execute(
-            select(Message).where(Message.direction == "inbound")
-        ).scalars().one()
+        entrada = (
+            session.execute(select(Message).where(Message.direction == "inbound")).scalars().one()
+        )
         session.add(
             Message(
                 tenant_id=conversa_aberta["tenant_id"],

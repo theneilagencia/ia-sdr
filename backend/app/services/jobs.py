@@ -143,9 +143,7 @@ def requeue_stale(session: Session, *, agora: datetime | None = None) -> int:
     limite = agora - STALE_AFTER
     presos = list(
         session.execute(
-            select(Job)
-            .where(Job.status == JobStatus.RUNNING.value)
-            .where(Job.started_at < limite)
+            select(Job).where(Job.status == JobStatus.RUNNING.value).where(Job.started_at < limite)
         ).scalars()
     )
     for job in presos:

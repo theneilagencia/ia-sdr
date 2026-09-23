@@ -470,7 +470,7 @@ def test_nenhuma_coluna_de_segredo_pode_sair_da_exportacao():
 
 
 def test_contadores_de_token_continuam_saindo():
-    """"token" não entra na lista de marcas de propósito.
+    """ "token" não entra na lista de marcas de propósito.
 
     `input_tokens`, `output_tokens` e `token_count` são contadores — e são
     exatamente o que o cliente precisa levar para auditar o próprio consumo.

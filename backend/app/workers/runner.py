@@ -156,9 +156,7 @@ def agendar_periodicos(agora: datetime | None = None) -> int:
                 ):
                     criados += 1
         except Exception:  # noqa: BLE001 - ver comentário acima
-            logger.exception(
-                "periodicos.falha_ao_agendar", extra={"tenant_id": str(tenant_id)}
-            )
+            logger.exception("periodicos.falha_ao_agendar", extra={"tenant_id": str(tenant_id)})
     return criados
 
 

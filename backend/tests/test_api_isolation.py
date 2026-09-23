@@ -64,12 +64,8 @@ def test_token_de_outro_tenant_nao_serve(client, make_tenant, auth_headers):
     from app.core.security import create_access_token
 
     t = make_tenant()
-    forjado = create_access_token(
-        user_id=t["user_id"], tenant_id=uuid.uuid4(), role="owner"
-    )
-    response = client.get(
-        "/api/v1/campaigns", headers={"Authorization": f"Bearer {forjado}"}
-    )
+    forjado = create_access_token(user_id=t["user_id"], tenant_id=uuid.uuid4(), role="owner")
+    response = client.get("/api/v1/campaigns", headers={"Authorization": f"Bearer {forjado}"})
     assert response.status_code == 403
 
 
@@ -107,9 +103,7 @@ def test_conta_alvo_e_pesquisa_ficam_no_tenant(client):
 
     assert client.get("/api/v1/companies", headers=_headers(a)).json()[0]["id"] == company_id
     assert client.get("/api/v1/companies", headers=_headers(b)).json() == []
-    assert (
-        client.get(f"/api/v1/companies/{company_id}", headers=_headers(b)).status_code == 404
-    )
+    assert client.get(f"/api/v1/companies/{company_id}", headers=_headers(b)).status_code == 404
     # Sem pesquisa ainda, mas a rota existe e respeita a fronteira.
     assert client.get(f"/api/v1/companies/{company_id}/research", headers=_headers(a)).json() == []
 

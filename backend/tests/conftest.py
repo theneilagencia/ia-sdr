@@ -192,6 +192,7 @@ def db_for():
     """Sessão já escopada em um tenant, como a aplicação usa."""
     return tenant_session
 
+
 # ---------------------------------------------------- envio de email de verdade
 #
 # Estas duas vivem aqui, e não no arquivo de teste de envio, porque o convite de

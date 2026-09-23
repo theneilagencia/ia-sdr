@@ -173,9 +173,10 @@ def accept_invitation(payload: schemas.AcceptInviteRequest) -> schemas.TokenResp
         code=payload.code,
     )
 
-    with use_context(system_context(aceite.tenant_id, source="public")), tenant_session(
-        aceite.tenant_id
-    ) as book:
+    with (
+        use_context(system_context(aceite.tenant_id, source="public")),
+        tenant_session(aceite.tenant_id) as book,
+    ):
         audit.record(
             book,
             action="member.invite_accepted",

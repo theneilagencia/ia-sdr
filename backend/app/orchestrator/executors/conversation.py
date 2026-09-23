@@ -136,9 +136,7 @@ class ConversationExecutor:
         with cobrando_a_falha(model, usage):
             resposta = self._answer(session, envelope, model, context, prompt, usage)
             custo = custo_dentro_do_teto(model, usage)
-            mensagem = self._persist(
-                session, envelope, conversa, prospect, contato, resposta
-            )
+            mensagem = self._persist(session, envelope, conversa, prospect, contato, resposta)
 
         return ExecutionResult(
             output={**resposta.model_dump(), "message_id": str(mensagem.id)},
@@ -203,9 +201,7 @@ class ConversationExecutor:
         """
         do_lead = [m for m in historico if m.direction == MessageDirection.INBOUND.value]
         if not do_lead:
-            raise ConversationBlocked(
-                "Conversa sem mensagem do lead: não há o que responder"
-            )
+            raise ConversationBlocked("Conversa sem mensagem do lead: não há o que responder")
 
         ultima = do_lead[-1]
         respondida = [
@@ -313,10 +309,14 @@ class ConversationExecutor:
         elif resposta.meeting_intent:
             conversa.status = "meeting_intent"
 
-        if prospect.status in (
-            ProspectStatus.CONTACTED.value,
-            ProspectStatus.SCORED.value,
-        ) and not resposta.opt_out_requested:
+        if (
+            prospect.status
+            in (
+                ProspectStatus.CONTACTED.value,
+                ProspectStatus.SCORED.value,
+            )
+            and not resposta.opt_out_requested
+        ):
             prospect.status = ProspectStatus.ENGAGED.value
 
         mensagem = Message(

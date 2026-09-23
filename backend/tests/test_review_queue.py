@@ -53,9 +53,7 @@ def test_fila_mostra_rascunhos_por_padrao(client, make_tenant, auth_headers):
     assert len(fila) == 1 and fila[0]["status"] == "draft"
 
 
-def test_aprovar_coloca_na_fila_de_envio_e_registra_quem_aprovou(
-    client, make_tenant, auth_headers
-):
+def test_aprovar_coloca_na_fila_de_envio_e_registra_quem_aprovou(client, make_tenant, auth_headers):
     t = make_tenant()
     message_id = _cenario(t["tenant_id"])
     headers = auth_headers(t["email"], t["password"])
@@ -102,9 +100,7 @@ def test_nao_da_para_revisar_duas_vezes(client, make_tenant, auth_headers):
     assert segunda.json()["error"]["code"] == "conflict"
 
 
-def test_rascunho_de_outro_tenant_nao_aparece_nem_e_aprovavel(
-    client, make_tenant, auth_headers
-):
+def test_rascunho_de_outro_tenant_nao_aparece_nem_e_aprovavel(client, make_tenant, auth_headers):
     a = make_tenant()
     b = make_tenant()
     message_id = _cenario(a["tenant_id"])

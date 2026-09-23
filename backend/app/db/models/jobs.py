@@ -53,9 +53,7 @@ class Job(Base, TenantScoped, TimestampMixin):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     kind: Mapped[str] = mapped_column(String(40), nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default=JobStatus.PENDING.value
-    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=JobStatus.PENDING.value)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     #: Quando pode rodar. É o que permite adiar uma tentativa depois de falhar.
     run_at: Mapped[datetime] = mapped_column(

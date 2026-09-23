@@ -248,11 +248,15 @@ def test_convite_reativa_quem_foi_desativado(client, make_tenant, auth_headers, 
     assert _aceitar(client, token, pessoa["password"]).status_code == 200
 
     with unscoped_session(reason="test:conferir-vinculo") as identity:
-        vinculo = identity.execute(
-            select(Membership)
-            .where(Membership.tenant_id == t["tenant_id"])
-            .where(Membership.user_id == uuid.UUID(user_id))
-        ).scalars().one()
+        vinculo = (
+            identity.execute(
+                select(Membership)
+                .where(Membership.tenant_id == t["tenant_id"])
+                .where(Membership.user_id == uuid.UUID(user_id))
+            )
+            .scalars()
+            .one()
+        )
         assert vinculo.is_active is True
         assert vinculo.role == "admin"
 

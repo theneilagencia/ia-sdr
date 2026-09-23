@@ -28,8 +28,11 @@ def test_matriz_de_permissoes(role, permission, esperado):
 
 
 def test_papeis_sao_cumulativos():
-    for menor, maior in ((Role.VIEWER, Role.OPERATOR), (Role.OPERATOR, Role.ADMIN),
-                         (Role.ADMIN, Role.OWNER)):
+    for menor, maior in (
+        (Role.VIEWER, Role.OPERATOR),
+        (Role.OPERATOR, Role.ADMIN),
+        (Role.ADMIN, Role.OWNER),
+    ):
         assert set(permissions_for(menor)) < set(permissions_for(maior))
 
 

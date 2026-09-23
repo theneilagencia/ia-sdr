@@ -129,9 +129,12 @@ def test_o_script_rotaciona_as_credenciais_e_o_segundo_fator(
 
     with AdminSessionFactory() as session:
         antes = {
-            c.tabela: [v for _, v in session.execute(
-                text(f"SELECT id, {c.coluna} FROM {c.tabela} WHERE {c.coluna} IS NOT NULL")  # noqa: S608
-            ).all()]
+            c.tabela: [
+                v
+                for _, v in session.execute(
+                    text(f"SELECT id, {c.coluna} FROM {c.tabela} WHERE {c.coluna} IS NOT NULL")  # noqa: S608
+                ).all()
+            ]
             for c in COLUNAS_CIFRADAS
         }
     assert all(len(v) >= 1 for v in antes.values()), antes
@@ -145,9 +148,12 @@ def test_o_script_rotaciona_as_credenciais_e_o_segundo_fator(
     assert rotacionar(apenas_verificar=True) == 0
     with AdminSessionFactory() as session:
         depois = {
-            c.tabela: [v for _, v in session.execute(
-                text(f"SELECT id, {c.coluna} FROM {c.tabela} WHERE {c.coluna} IS NOT NULL")  # noqa: S608
-            ).all()]
+            c.tabela: [
+                v
+                for _, v in session.execute(
+                    text(f"SELECT id, {c.coluna} FROM {c.tabela} WHERE {c.coluna} IS NOT NULL")  # noqa: S608
+                ).all()
+            ]
             for c in COLUNAS_CIFRADAS
         }
     for tabela, valores in depois.items():

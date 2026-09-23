@@ -94,8 +94,10 @@ class KnowledgeChunk(Base, TenantScoped, TimestampMixin):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     document_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("knowledge_documents.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+        PGUUID(as_uuid=True),
+        ForeignKey("knowledge_documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     content: Mapped[str] = mapped_column(Text, nullable=False)

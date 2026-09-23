@@ -38,8 +38,7 @@ def upgrade() -> None:
     op.execute("ALTER TABLE memberships ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE memberships FORCE ROW LEVEL SECURITY")
     op.execute(
-        f"CREATE POLICY tenant_isolation ON memberships "
-        f"USING {PREDICADO} WITH CHECK {PREDICADO}"
+        f"CREATE POLICY tenant_isolation ON memberships USING {PREDICADO} WITH CHECK {PREDICADO}"
     )
 
 

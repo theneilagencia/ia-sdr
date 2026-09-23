@@ -69,9 +69,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             request.headers.get("authorization", ""),
             request.client.host if request.client else None,
         )
-        permitido, espera = self.backend.consumir(
-            chave, limite=self.limit, janela=self.window
-        )
+        permitido, espera = self.backend.consumir(chave, limite=self.limit, janela=self.window)
         if not permitido:
             return JSONResponse(
                 status_code=429,

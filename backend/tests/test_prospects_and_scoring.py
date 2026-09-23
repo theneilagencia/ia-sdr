@@ -396,9 +396,7 @@ def test_email_que_voltou_continua_contando_como_contatado(tenant_com_prospects,
     assert funil["bounced"] == 1
 
 
-def test_descadastrado_conta_como_contatado_e_aparece_como_saida(
-    tenant_com_prospects, client
-):
+def test_descadastrado_conta_como_contatado_e_aparece_como_saida(tenant_com_prospects, client):
     """Descadastro só existe porque a mensagem chegou e alguém clicou no link."""
     reg, _ = tenant_com_prospects
     tenant_id = reg["_tenant"]

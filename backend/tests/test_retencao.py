@@ -514,7 +514,7 @@ def test_prazo_negativo_e_recusado(client, auth_headers, make_tenant):
 
 
 def test_mudar_a_politica_fica_na_auditoria(client, auth_headers, make_tenant):
-    """"Desde quando está assim?" é a pergunta que aparece depois do primeiro susto."""
+    """ "Desde quando está assim?" é a pergunta que aparece depois do primeiro susto."""
     t = make_tenant()
     headers = auth_headers(t["email"], t["password"])
     client.put("/api/v1/settings/retention", headers=headers, json={"days": 90})

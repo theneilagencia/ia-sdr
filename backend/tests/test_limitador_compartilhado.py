@@ -196,9 +196,7 @@ def test_a_chave_do_cliente_nao_e_o_token(redis_limpo):
 def test_a_api_responde_429_com_retry_after_usando_o_redis(redis_limpo):
     """Ponta a ponta: o middleware, com o backend de Redis, numa aplicação de verdade."""
     app = FastAPI()
-    app.add_middleware(
-        RateLimitMiddleware, limit=2, window=60, backend=LimitadorRedis(redis_limpo)
-    )
+    app.add_middleware(RateLimitMiddleware, limit=2, window=60, backend=LimitadorRedis(redis_limpo))
 
     @app.get("/ping")
     def ping():
@@ -216,9 +214,7 @@ def test_a_api_responde_429_com_retry_after_usando_o_redis(redis_limpo):
 def test_health_nao_gasta_cota(redis_limpo):
     """Monitor de uptime bate a cada 30s; contá-lo é derrubar o alerta junto."""
     app = FastAPI()
-    app.add_middleware(
-        RateLimitMiddleware, limit=1, window=60, backend=LimitadorRedis(redis_limpo)
-    )
+    app.add_middleware(RateLimitMiddleware, limit=1, window=60, backend=LimitadorRedis(redis_limpo))
 
     @app.get("/health")
     def health():

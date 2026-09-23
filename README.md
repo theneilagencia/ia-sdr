@@ -16,7 +16,7 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
 criptografia de credenciais e painel de plataforma. 117 endpoints, 26 tabelas,
-502 testes contra PostgreSQL de verdade.
+504 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo

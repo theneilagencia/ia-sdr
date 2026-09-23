@@ -65,6 +65,14 @@ jobs:
         working-directory: backend
         run: ruff check .
 
+      # Formatação uniforme passa a ser portão, e não convenção oral. Antes
+      # disto, 57 dos 143 arquivos divergiam do formato canônico e cada diff
+      # carregava reformatação alheia junto da mudança de verdade — o que faz
+      # revisão custar mais e esconde a linha que importa.
+      - name: Formatação
+        working-directory: backend
+        run: ruff format --check .
+
       - name: Migrations aplicam e revertem
         working-directory: backend
         run: |

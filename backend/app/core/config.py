@@ -196,9 +196,7 @@ def get_settings() -> Settings:
     """
     de_arquivo = _valores_de_arquivo(set(Settings.model_fields))
     if de_arquivo:
-        logger.info(
-            "Configuração lida de arquivo para: %s", ", ".join(sorted(de_arquivo))
-        )
+        logger.info("Configuração lida de arquivo para: %s", ", ".join(sorted(de_arquivo)))
     return Settings(**{nome.lower(): valor for nome, valor in de_arquivo.items()})
 
 

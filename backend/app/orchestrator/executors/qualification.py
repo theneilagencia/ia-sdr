@@ -217,9 +217,7 @@ class QualificationExecutor:
         Bloquear aqui, antes da chamada, também evita pagar por um veredito que
         não pode ter efeito nenhum.
         """
-        contato = (
-            session.get(Contact, prospect.contact_id) if prospect.contact_id else None
-        )
+        contato = session.get(Contact, prospect.contact_id) if prospect.contact_id else None
         if contato is not None and contato.opted_out:
             raise OutreachBlocked(
                 "Contato pediu descadastro: não há o que qualificar",

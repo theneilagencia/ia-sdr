@@ -26,17 +26,20 @@ def test_consumo_acumula_e_resume_por_tipo(make_tenant):
         usage.record_usage(
             session, tenant_id=t["tenant_id"], kind=usage.UsageKind.RESEARCH, quantity=3
         )
+        # Qualificação, e não `deep_research`: aquele tipo tem preço na tabela e
+        # nenhuma operação atrás, e registrar consumo dele passou a ser recusado —
+        # cobrar por operação que a plataforma não faz seria cobrar por nada.
         usage.record_usage(
             session,
             tenant_id=t["tenant_id"],
-            kind=usage.UsageKind.DEEP_RESEARCH,
+            kind=usage.UsageKind.QUALIFICATION,
             cost_micro_usd=184_000,
         )
 
     with tenant_session(t["tenant_id"]) as session:
         resumo = usage.usage_summary(session, t["tenant_id"])
 
-    assert resumo["ai_units_used"] == 8  # 3 * 1 + 1 * 5
+    assert resumo["ai_units_used"] == 5  # 3 * 1 + 1 * 2
     assert resumo["by_kind"]["research"]["units"] == 3
     assert resumo["estimated_cost_usd"] == pytest.approx(0.184)
 
@@ -165,9 +168,7 @@ def test_override_contratual_vence_o_plano(make_tenant):
     with tenant_session(t["tenant_id"]) as session:
         for i in range(3):
             limits.check_can_create_campaign(session, t["tenant_id"])
-            session.add(
-                Campaign(tenant_id=t["tenant_id"], name=f"C{i}", slug=f"c{i}")
-            )
+            session.add(Campaign(tenant_id=t["tenant_id"], name=f"C{i}", slug=f"c{i}"))
             session.flush()
         with pytest.raises(LimitExceeded):
             limits.check_can_create_campaign(session, t["tenant_id"])
@@ -334,3 +335,58 @@ def test_todo_limite_do_plano_tem_onde_ser_verificado():
     )
     fantasmas = sorted(set(ONDE) - declarados)
     assert fantasmas == [], f"verificações para limites que não existem mais: {fantasmas}"
+
+
+def test_plano_nao_anuncia_recurso_inexistente():
+    """Tripwire do outro lado: recurso no plano precisa ter código atrás.
+
+    O painel da plataforma mostra "recursos: research, outreach, ..." por empresa,
+    e é dali que sai a resposta de suporte "seu plano inclui isso". `voice` e `sso`
+    estavam na lista do Enterprise sem uma linha de código atrás de nenhum dos
+    dois — recurso inexistente que entra em proposta comercial começa exatamente
+    assim.
+
+    Quem construir voz ou SSO acrescenta o nome aos dois lados: aqui e no plano.
+    Acrescentar só no plano faz este teste falhar.
+    """
+    from app.billing.plans import PLAN_LIMITS
+
+    #: Onde cada recurso anunciado existe de verdade.
+    ONDE = {
+        "research": "orchestrator/executors/research.py",
+        "outreach": "orchestrator/executors/outreach.py",
+        "conversation": "orchestrator/executors/conversation.py",
+        "qualification": "orchestrator/executors/qualification.py",
+        "crm": "services/ravi.py",
+    }
+
+    anunciados: set[str] = set()
+    for limites in PLAN_LIMITS.values():
+        anunciados |= set(limites.features)
+
+    fantasmas = sorted(anunciados - set(ONDE))
+    assert fantasmas == [], (
+        f"o plano anuncia recurso sem código atrás: {fantasmas}. "
+        "Construa, ou tire do plano — o painel mostra essa lista para quem opera."
+    )
+
+
+def test_consumo_de_tipo_reservado_e_recusado():
+    """`deep_research` e `voice_interaction` têm preço na tabela e nenhuma operação.
+
+    Recusar registrar é o que impede a plataforma de cobrar por algo que ela não
+    faz. A recusa também é o lembrete para quem for implementar: o caminho passa
+    por tirar o tipo de `KINDS_RESERVADOS`, num diff que alguém revisa.
+    """
+    import uuid as _uuid
+
+    from app.db.session import unscoped_session
+    from app.services.usage import KINDS_RESERVADOS, UsageKindReservado, record_usage
+
+    assert KINDS_RESERVADOS, "a lista existe para ser esvaziada por implementação, não por atalho"
+    for kind in KINDS_RESERVADOS:
+        with (
+            unscoped_session(reason="test:reservado") as session,
+            pytest.raises(UsageKindReservado),
+        ):
+            record_usage(session, tenant_id=_uuid.uuid4(), kind=kind)

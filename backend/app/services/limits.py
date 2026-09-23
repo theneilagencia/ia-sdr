@@ -43,9 +43,7 @@ def check_can_create_campaign(session: Session, tenant_id: uuid.UUID) -> None:
     _enforce(limits["campaigns"], current, "campaigns")
 
 
-def check_can_add_user(
-    session: Session, tenant_id: uuid.UUID, *, email: str | None = None
-) -> None:
+def check_can_add_user(session: Session, tenant_id: uuid.UUID, *, email: str | None = None) -> None:
     """Membros ativos **mais convites pendentes** contra o limite do plano.
 
     Convite pendente é vaga ocupada: sem contá-lo, um plano de duas pessoas

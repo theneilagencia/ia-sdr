@@ -71,9 +71,7 @@ def _registrar(monkeypatch) -> FakeClient:
     nada a ver com isto.
     """
     cliente = FakeClient()
-    monkeypatch.setitem(
-        _EXECUTORS, "research", ResearchExecutor(client_factory=lambda *_: cliente)
-    )
+    monkeypatch.setitem(_EXECUTORS, "research", ResearchExecutor(client_factory=lambda *_: cliente))
     return cliente
 
 

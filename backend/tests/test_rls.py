@@ -141,8 +141,7 @@ def test_conexao_da_aplicacao_nao_pode_ignorar_rls():
     with SessionFactory() as session:
         rolname, rolsuper, rolbypassrls = session.execute(
             sa.text(
-                "SELECT rolname, rolsuper, rolbypassrls "
-                "FROM pg_roles WHERE rolname = current_user"
+                "SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
             )
         ).one()
     assert not rolsuper, f"role de aplicação '{rolname}' é superusuário e ignora o RLS"
@@ -190,14 +189,20 @@ def test_todas_as_tabelas_de_cliente_tem_politica():
     from app.db.models import TENANT_SCOPED_TABLES
 
     with unscoped_session(reason="test:inspect-policies") as session:
-        rows = session.execute(
-            sa.text(
-                "SELECT tablename FROM pg_policies WHERE policyname = 'tenant_isolation'"
+        rows = (
+            session.execute(
+                sa.text("SELECT tablename FROM pg_policies WHERE policyname = 'tenant_isolation'")
             )
-        ).scalars().all()
-        forced = session.execute(
-            sa.text("SELECT relname FROM pg_class WHERE relrowsecurity AND relforcerowsecurity")
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
+        forced = (
+            session.execute(
+                sa.text("SELECT relname FROM pg_class WHERE relrowsecurity AND relforcerowsecurity")
+            )
+            .scalars()
+            .all()
+        )
 
     assert set(TENANT_SCOPED_TABLES) <= set(rows)
     assert set(TENANT_SCOPED_TABLES) <= set(forced)

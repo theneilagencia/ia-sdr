@@ -134,9 +134,7 @@ def _build_prompt(context: AgentContext, company: Company, contact: Contact | No
         ]
     if context.policies:
         partes += ["\n## Políticas de IA do cliente", _fmt(context.policies)]
-    partes.append(
-        "\nPesquise a conta-alvo e devolva a análise no formato pedido."
-    )
+    partes.append("\nPesquise a conta-alvo e devolva a análise no formato pedido.")
     return "\n".join(partes)
 
 
@@ -171,9 +169,7 @@ class ResearchExecutor:
         # A pesquisa vale para todos os prospects daquela conta na campanha:
         # pesquisar a mesma empresa uma vez por pessoa seria pagar várias
         # vezes pelo mesmo trabalho.
-        notas = scoring.apply_to_prospects(
-            session, tenant_id=envelope.tenant_id, research=pesquisa
-        )
+        notas = scoring.apply_to_prospects(session, tenant_id=envelope.tenant_id, research=pesquisa)
 
         return ExecutionResult(
             output={**resultado.model_dump(), "scored_prospects": len(notas)},

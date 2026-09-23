@@ -60,13 +60,9 @@ def _config_efetiva(linha: AIAgent | None, definition, units: int) -> dict:
         "name": linha.name if linha else definition.default_name,
         "model": linha.model if linha else definition.default_model,
         "instructions": (
-            linha.instructions
-            if linha and linha.instructions
-            else definition.base_instructions
+            linha.instructions if linha and linha.instructions else definition.base_instructions
         ),
-        "max_output_tokens": (
-            linha.max_output_tokens if linha else settings.ai_max_output_tokens
-        ),
+        "max_output_tokens": (linha.max_output_tokens if linha else settings.ai_max_output_tokens),
         "is_active": linha.is_active if linha else True,
         "configured": linha is not None,
         "units_per_run": units,

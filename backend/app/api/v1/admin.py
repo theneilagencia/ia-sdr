@@ -187,9 +187,7 @@ def list_invoices(
 ) -> list[schemas.InvoiceResponse]:
     """As faturas de um mês. Sem parâmetro, o mês que acabou — o que se fecha."""
     periodo = (
-        faturamento.Periodo(year, month)
-        if year and month
-        else faturamento.Periodo.do_mes_passado()
+        faturamento.Periodo(year, month) if year and month else faturamento.Periodo.do_mes_passado()
     )
     with unscoped_session(reason="platform-admin:list-invoices") as session:
         nomes = {t.id: t.name for t in session.execute(select(Tenant)).scalars()}
@@ -230,9 +228,7 @@ def close_invoices(
                 # virada de mês é operação em lote, e parar na primeira deixaria
                 # metade do mês sem fechar.
                 fatura = next(
-                    f
-                    for f in faturamento.do_periodo(session, periodo)
-                    if f.tenant_id == empresa.id
+                    f for f in faturamento.do_periodo(session, periodo) if f.tenant_id == empresa.id
                 )
             saida.append(_resposta_de_fatura(fatura, empresa.name))
 

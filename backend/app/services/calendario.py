@@ -114,7 +114,7 @@ def convite(
         else f"ORGANIZER:mailto:{organizador_email}"
     )
     convidado = (
-        'ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE'
+        "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE"
         + (f';CN="{_texto(convidado_nome)}"' if convidado_nome else "")
         + f":mailto:{convidado_email}"
     )

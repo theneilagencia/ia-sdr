@@ -131,9 +131,7 @@ def fechar(session: Session, tenant_id: uuid.UUID, periodo: Periodo) -> Invoice:
     excedente_cents = excedentes * tenant.overage_cents_per_unit
 
     if fatura is None:
-        fatura = Invoice(
-            tenant_id=tenant_id, period_year=periodo.ano, period_month=periodo.mes
-        )
+        fatura = Invoice(tenant_id=tenant_id, period_year=periodo.ano, period_month=periodo.mes)
         session.add(fatura)
 
     fatura.currency = tenant.contract_currency

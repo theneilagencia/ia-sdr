@@ -40,7 +40,9 @@ class Sequence(Base, TenantScoped, TimestampMixin):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     campaign_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False,
+        PGUUID(as_uuid=True),
+        ForeignKey("campaigns.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -81,12 +83,16 @@ class SequenceEnrollment(Base, TenantScoped, TimestampMixin):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     sequence_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("sequences.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+        PGUUID(as_uuid=True),
+        ForeignKey("sequences.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     prospect_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("prospects.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+        PGUUID(as_uuid=True),
+        ForeignKey("prospects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=EnrollmentStatus.ACTIVE.value
@@ -108,7 +114,9 @@ class Conversation(Base, TenantScoped, TimestampMixin):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     prospect_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("prospects.id", ondelete="CASCADE"), nullable=False,
+        PGUUID(as_uuid=True),
+        ForeignKey("prospects.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
     campaign_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), index=True)
@@ -127,7 +135,9 @@ class Message(Base, TenantScoped, TimestampMixin):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     conversation_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False,
+        PGUUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
     direction: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -150,7 +160,9 @@ class Qualification(Base, TenantScoped, TimestampMixin):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     prospect_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("prospects.id", ondelete="CASCADE"), nullable=False,
+        PGUUID(as_uuid=True),
+        ForeignKey("prospects.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
     conversation_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True))
@@ -168,7 +180,9 @@ class Meeting(Base, TenantScoped, TimestampMixin):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     prospect_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("prospects.id", ondelete="CASCADE"), nullable=False,
+        PGUUID(as_uuid=True),
+        ForeignKey("prospects.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
     campaign_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), index=True)

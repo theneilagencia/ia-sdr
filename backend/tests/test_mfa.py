@@ -122,9 +122,12 @@ def test_o_segredo_aparece_uma_vez_e_o_banco_guarda_cifrado(client, make_tenant,
     # E gerar segredo **não liga nada**: a senha sozinha ainda entra.
     estado = client.get("/api/v1/auth/mfa", headers=headers).json()
     assert estado["enabled"] is False and estado["pending"] is True
-    assert client.post(
-        "/api/v1/auth/login", json={"email": t["email"], "password": t["password"]}
-    ).status_code == 200
+    assert (
+        client.post(
+            "/api/v1/auth/login", json={"email": t["email"], "password": t["password"]}
+        ).status_code
+        == 200
+    )
 
 
 def test_confirmar_liga_e_devolve_os_codigos_de_recuperacao(client, make_tenant, auth_headers):
@@ -340,9 +343,7 @@ def test_cinco_chutes_e_a_conta_descansa(client, make_tenant, auth_headers):
 
 def test_quem_nao_tem_segundo_fator_entra_como_sempre(client, make_tenant):
     t = make_tenant()
-    r = client.post(
-        "/api/v1/auth/login", json={"email": t["email"], "password": t["password"]}
-    )
+    r = client.post("/api/v1/auth/login", json={"email": t["email"], "password": t["password"]})
     assert r.status_code == 200, r.text
 
 

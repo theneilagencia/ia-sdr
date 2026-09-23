@@ -388,10 +388,11 @@ verdade é código que ainda não existe.
   Duas redes novas por baixo de tudo: `app/not-found.tsx` e `app/error.tsx`, em
   português e com saída, porque o padrão do Next é uma tela em inglês com um
   número e nada mais
-- **Formatação uniforme.** O CI roda `ruff check`, não `ruff format --check`, e
-  42 dos 124 arquivos do backend divergem do formato canônico. Rodar `ruff format`
-  e passar a checá-lo no CI é mecânico — ficou fora deste PR de propósito, porque
-  um diff de 32 arquivos no meio de uma revisão atrapalha quem revisa
+- **Formatação uniforme ✅.** `ruff format` rodado nos 57 arquivos que divergiam
+  do formato canônico, e `ruff format --check` virou portão no CI e no `make lint`.
+  Ficou para o fim de propósito: um diff de formatação no meio de uma revisão de
+  lógica esconde a linha que importa. Agora nenhum diff futuro carrega
+  reformatação alheia junto da mudança de verdade
 - **Freio em dólar, não só em unidade ✅.** A cota do plano conta unidades — a
   moeda interna, que o cliente compra — e execução que falha não consome unidade
   nenhuma, de propósito: o cliente não paga cota por trabalho que não foi
@@ -405,11 +406,19 @@ verdade é código que ainda não existe.
   está limitada pelo teto por execução (US$ 0,50). **Nasce ilimitado nos três
   planos** — quanto vale a pena gastar com cada cliente é decisão comercial de
   quem opera, não número para um default inventar
-- **Duas unidades de consumo declaradas e não construídas.**
-  `deep_research` (5 unidades) e `voice_interaction` (10 unidades) existem na
-  tabela de consumo, e `voice` aparece nos recursos do plano Enterprise — mas
-  não há código atrás de nenhuma das duas. Hoje são promessa no modelo de dados,
-  não funcionalidade; ficam aqui para que ninguém as venda antes de existirem
+- **O que não existe parou de ser anunciado ✅.** `deep_research` (5 unidades) e
+  `voice_interaction` (10 unidades) tinham preço na tabela de consumo sem uma
+  linha de código atrás, e `voice` e `sso` apareciam nos recursos do plano
+  Enterprise — que é a lista que o painel mostra a quem opera, e de onde sai a
+  resposta de suporte "seu plano inclui isso". É assim que recurso inexistente
+  entra em proposta comercial.
+
+  Agora: `voice` e `sso` saíram dos planos, registrar consumo de um tipo reservado
+  é **recusado** em voz alta (cobrar por operação que a plataforma não faz seria
+  cobrar por nada), e dois tripwires guardam os dois lados — um falha se um plano
+  anunciar recurso sem código atrás, o outro se alguém esvaziar a lista de
+  reservados sem implementar. Quem construir voz ou SSO tira o nome da lista num
+  diff que alguém revisa
 - **Rotação da chave de cifra ✅.** O risco real nunca foi *onde* a chave Fernet
   mora: era não haver caminho para trocá-la. Se ela vazasse, a única resposta era
   "perca toda credencial de email e chave de API já salva" — o que na prática

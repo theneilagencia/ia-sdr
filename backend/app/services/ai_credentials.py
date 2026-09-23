@@ -75,9 +75,7 @@ def describe(session: Session, tenant_id: uuid.UUID) -> dict:
     """O que a tela mostra: se está configurada, qual é e desde quando."""
     integracao = _integration(session, tenant_id)
     if integracao is None:
-        usando_plataforma = bool(
-            settings.ai_platform_key_fallback and settings.anthropic_api_key
-        )
+        usando_plataforma = bool(settings.ai_platform_key_fallback and settings.anthropic_api_key)
         return {
             "configured": False,
             "key_hint": None,

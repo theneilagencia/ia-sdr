@@ -23,7 +23,7 @@ test:
 	cd $(BACKEND) && .venv/bin/pytest
 
 lint:
-	cd $(BACKEND) && .venv/bin/ruff check .
+	cd $(BACKEND) && .venv/bin/ruff check . && .venv/bin/ruff format --check .
 
 fmt:
 	cd $(BACKEND) && .venv/bin/ruff check --fix . && .venv/bin/ruff format .

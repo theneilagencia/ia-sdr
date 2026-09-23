@@ -127,9 +127,7 @@ def test_sem_argumento_mostra_ajuda(capsys):
     assert "--listar" in capsys.readouterr().out
 
 
-def test_painel_devolve_os_limites_para_poder_editar_sem_apagar(
-    client, make_tenant, auth_headers
-):
+def test_painel_devolve_os_limites_para_poder_editar_sem_apagar(client, make_tenant, auth_headers):
     """O PATCH substitui o dicionário inteiro de overrides.
 
     Sem receber de volta o que já está guardado, um painel que edita limites

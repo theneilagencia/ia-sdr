@@ -145,9 +145,10 @@ def test_operator_nao_configura_chave(client, make_tenant, auth_headers, chave_v
 def test_presets_trazem_host_porta_e_instrucao(client, make_tenant, auth_headers):
     t = make_tenant()
     headers = auth_headers(t["email"], t["password"])
-    presets = {p["provider"]: p for p in client.get(
-        "/api/v1/settings/email/presets", headers=headers
-    ).json()}
+    presets = {
+        p["provider"]: p
+        for p in client.get("/api/v1/settings/email/presets", headers=headers).json()
+    }
 
     assert presets["gmail"]["host"] == "smtp.gmail.com"
     assert presets["gmail"]["port"] == 587
@@ -161,9 +162,7 @@ def test_conta_de_email_salva_testada_e_sem_senha_na_resposta(
 ):
     import app.api.v1.settings as rotas
 
-    monkeypatch.setattr(
-        rotas.email_accounts, "test_connection", lambda **kw: (True, "Conectado.")
-    )
+    monkeypatch.setattr(rotas.email_accounts, "test_connection", lambda **kw: (True, "Conectado."))
     t = make_tenant()
     headers = auth_headers(t["email"], t["password"])
 

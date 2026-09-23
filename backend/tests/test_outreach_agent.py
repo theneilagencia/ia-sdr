@@ -54,9 +54,7 @@ class FakeClient:
 
 
 def _registrar(respostas=None) -> FakeClient:
-    respostas = respostas or [
-        FakeResponse(parsed_output=OutreachDraft.model_validate(RASCUNHO))
-    ]
+    respostas = respostas or [FakeResponse(parsed_output=OutreachDraft.model_validate(RASCUNHO))]
     cliente = FakeClient(respostas)
     register_executor("outreach", OutreachExecutor(client_factory=lambda *_: cliente))
     return cliente
@@ -236,9 +234,7 @@ def test_teto_de_uma_campanha_nao_come_a_cota_da_outra(prospect_pesquisado):
 
     # Uma mensagem de hoje, de OUTRA campanha, para outro prospect.
     with tenant_session(prospect_pesquisado["tenant_id"]) as session:
-        outra = Campaign(
-            tenant_id=prospect_pesquisado["tenant_id"], name="Agro BR", slug="agro-br"
-        )
+        outra = Campaign(tenant_id=prospect_pesquisado["tenant_id"], name="Agro BR", slug="agro-br")
         session.add(outra)
         session.flush()
         contato = Contact(

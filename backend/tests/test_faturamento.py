@@ -205,8 +205,9 @@ def test_fatura_emitida_nao_e_refeita(make_tenant):
             session, session.get(Invoice, fatura["id"]), InvoiceStatus.ISSUED.value
         )
 
-    with unscoped_session(reason="test:refazer") as session, pytest.raises(
-        faturamento.FaturaJaEmitida
+    with (
+        unscoped_session(reason="test:refazer") as session,
+        pytest.raises(faturamento.FaturaJaEmitida),
     ):
         faturamento.fechar(session, t["tenant_id"], PERIODO)
 
@@ -218,8 +219,9 @@ def test_pagar_sem_emitir_nao_vale(make_tenant):
     """Cobrança que o cliente nunca recebeu aparecendo como quitada."""
     t = make_tenant()
     fatura = _fechar(t["tenant_id"])
-    with unscoped_session(reason="test:pagar") as session, pytest.raises(
-        faturamento.TransicaoInvalida
+    with (
+        unscoped_session(reason="test:pagar") as session,
+        pytest.raises(faturamento.TransicaoInvalida),
     ):
         faturamento.mudar_estado(
             session, session.get(Invoice, fatura["id"]), InvoiceStatus.PAID.value
@@ -241,8 +243,9 @@ def test_o_ciclo_completo_guarda_as_datas(make_tenant):
         faturamento.mudar_estado(session, linha, InvoiceStatus.VOID.value)
         assert linha.status == InvoiceStatus.VOID.value
 
-    with unscoped_session(reason="test:anulada") as session, pytest.raises(
-        faturamento.TransicaoInvalida
+    with (
+        unscoped_session(reason="test:anulada") as session,
+        pytest.raises(faturamento.TransicaoInvalida),
     ):
         faturamento.mudar_estado(
             session, session.get(Invoice, fatura["id"]), InvoiceStatus.ISSUED.value
@@ -332,9 +335,7 @@ def test_pagar_sem_emitir_e_recusado_pela_api(client, make_tenant, auth_headers)
     assert r.json()["error"]["code"] == "invoice_transition_invalid"
 
 
-def test_uma_empresa_emitida_nao_para_o_fechamento_das_outras(
-    client, make_tenant, auth_headers
-):
+def test_uma_empresa_emitida_nao_para_o_fechamento_das_outras(client, make_tenant, auth_headers):
     """Virada de mês é operação em lote: parar na primeira deixa metade sem fechar."""
     t, headers = _admin(client, make_tenant, auth_headers)
     outra = make_tenant()
