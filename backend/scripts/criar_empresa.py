@@ -18,6 +18,7 @@ import re
 import secrets
 import sys
 
+from email_validator import EmailNotValidError, validate_email
 from sqlalchemy import select
 
 from app.core.security import hash_password
@@ -35,12 +36,40 @@ def _slug(nome: str) -> str:
     return base[:80] or "empresa"
 
 
+def _email_utilizavel(bruto: str) -> str | None:
+    """O email normalizado como o login vai procurá-lo, ou None com o motivo impresso.
+
+    Duas coisas que só apareciam no primeiro acesso do cliente, longe da causa:
+    o login compara `email.lower()` com o que está guardado, então maiúscula
+    gravada aqui virava "Email ou senha inválidos" para sempre — a mesma frase de
+    senha errada, porque ela é única de propósito; e a API valida email com o
+    mesmo `email_validator` do Pydantic, que recusa TLD reservado (`.test`,
+    `.local`, `.localhost`). Criar a empresa e descobrir no login que o endereço
+    não serve é fazer o cliente pagar pelo erro de digitação de quem provisionou.
+    """
+    email = bruto.strip().lower()
+    try:
+        # `check_deliverability=False`: provisionar não é hora de depender de DNS,
+        # e a API valida do mesmo jeito. O que se quer aqui é o formato.
+        validate_email(email, check_deliverability=False)
+    except EmailNotValidError as erro:
+        print(f"✗ o email '{bruto}' não serve para entrar na aplicação: {erro}")
+        print("  Corrija o endereço e rode de novo — nada foi criado.")
+        return None
+    return email
+
+
 def criar(
     *, nome: str, email: str, slug: str | None, plano: str, nome_completo: str
-) -> tuple[str, str] | None:
-    """Devolve (slug, senha) ou None se já existir. Não sobrescreve nada."""
+) -> tuple[str, str, str] | None:
+    """Devolve (slug, senha, email) ou None se já existir. Não sobrescreve nada."""
     slug = slug or _slug(nome)
     senha = secrets.token_urlsafe(TAMANHO_SENHA)
+
+    normalizado = _email_utilizavel(email)
+    if normalizado is None:
+        return None
+    email = normalizado
 
     with unscoped_session(reason="provisionamento:primeira-empresa") as session:
         if session.execute(select(Tenant).where(Tenant.slug == slug)).scalar_one_or_none():
@@ -70,7 +99,7 @@ def criar(
     with tenant_session(tenant_id) as session:
         session.add(CompanyProfile(tenant_id=tenant_id, legal_name=nome))
 
-    return slug, senha
+    return slug, senha, email
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -97,10 +126,11 @@ def main(argv: list[str] | None = None) -> int:
     if resultado is None:
         return 1
 
-    slug, senha = resultado
+    slug, senha, email = resultado
     print(f"✓ empresa '{args.nome}' criada (slug: {slug}, plano: {args.plano})")
     print()
-    print(f"  login: {args.email}")
+    # O email impresso é o normalizado, não o digitado: é ele que o login aceita.
+    print(f"  login: {email}")
     print(f"  senha: {senha}")
     print()
     print("Esta senha não é recuperável e não foi gravada em lugar nenhum além")

@@ -173,10 +173,10 @@ jobs:
           npm run e2e
 
   deploy-config:
-    # A stack de produção não é exercitada por nenhum teste — o que dá para
-    # verificar de graça é que o compose resolve e o script não tem erro de
-    # sintaxe. Erro de digitação em nome de variável aqui só apareceria no
-    # servidor de alguém, no meio de uma publicação.
+    # As verificações baratas da publicação: compose resolve, scripts sem erro
+    # de sintaxe, shellcheck. Erro de digitação em nome de variável aqui só
+    # apareceria no servidor de alguém, no meio de uma publicação. O job `stack`
+    # abaixo é o que sobe tudo de verdade.
     runs-on: ubuntu-latest
 
     steps:
@@ -202,4 +202,41 @@ jobs:
       - name: Shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck deploy/publicar.sh
+          shellcheck deploy/publicar.sh deploy/validar_stack.sh
+
+  stack:
+    name: stack de produção
+    # O job que faltava. Até aqui, o que se sabia da publicação era que o
+    # compose resolvia; nada provava que a imagem instala, que a migration
+    # aplica, que o proxy roteia, que o worker sobe ou que a aplicação
+    # responde por HTTPS. "Não sobe" descoberto no servidor do cliente, no dia
+    # da entrega, é o pior lugar possível para esse erro aparecer.
+    #
+    # Sobe a stack inteira — imagens de produção, ENVIRONMENT=production, o
+    # Caddyfile de verdade — e roda por cima dela a mesma fumaça do job `e2e`.
+    # A única diferença em relação a um servidor real é o certificado: o
+    # domínio de validação não tem DNS público, então o Caddy assina com a CA
+    # interna dele. A emissão pelo Let's Encrypt é o que nenhum CI valida.
+    runs-on: ubuntu-latest
+    needs: [backend, web]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Playwright para a fumaça
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: O domínio de validação resolve para esta máquina
+        run: echo "127.0.0.1 app.validacao.test" | sudo tee -a /etc/hosts
+
+      - name: Subir a stack de produção e validar
+        run: deploy/validar_stack.sh

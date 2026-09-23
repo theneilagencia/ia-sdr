@@ -150,10 +150,27 @@ async function diagnosticar() {
   }
 }
 
+/**
+ * Certificado não confiável, aceito só quando quem roda pede.
+ *
+ * Serve à validação da stack de produção (`deploy/validar_stack.sh`), onde o
+ * domínio é de teste e o Caddy assina com a CA interna dele: não há como um
+ * certificado público existir para um nome que não tem DNS. Fora disso fica
+ * desligado, porque fumaça que ignora TLS por padrão deixaria de perceber
+ * justamente o dia em que o certificado de produção quebrar.
+ */
+const TLS_FROUXO = process.env.E2E_TLS_INSECURE === "1";
+if (TLS_FROUXO) {
+  // O `fetch` do Node tem confiança própria, separada da do browser.
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+  console.error("· TLS sem verificação (E2E_TLS_INSECURE=1): validação de stack");
+}
+const CONTEXTO = TLS_FROUXO ? { ignoreHTTPSErrors: true } : {};
+
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || undefined,
 });
-const page = await browser.newPage();
+const page = await browser.newPage(CONTEXTO);
 
 try {
   await page.goto(`${WEB}/login`);
@@ -302,7 +319,7 @@ try {
 
   if (linkDoConvite) {
     // Contexto novo = navegador novo: nenhum cookie do owner atravessa.
-    const outroNavegador = await browser.newContext();
+    const outroNavegador = await browser.newContext(CONTEXTO);
     const convidada = await outroNavegador.newPage();
     // O host do link vem do backend (`APP_BASE_URL`), que em produção é o mesmo
     // domínio; aqui só o caminho importa.
@@ -447,7 +464,7 @@ try {
   checar(Boolean(linkSegundo), "convite para quem já tem empresa própria é emitido");
 
   if (linkSegundo) {
-    const terceiroNavegador = await browser.newContext();
+    const terceiroNavegador = await browser.newContext(CONTEXTO);
     const dupla = await terceiroNavegador.newPage();
     await dupla.goto(`${WEB}${new URL(linkSegundo).pathname}`);
     await dupla.waitForSelector('[data-hidratado="1"]', { state: "attached", timeout: 20000 });
@@ -1043,7 +1060,7 @@ try {
     "o segundo fechamento não desfaz a fatura emitida",
   );
 
-  const outra = await browser.newPage();
+  const outra = await browser.newPage(CONTEXTO);
   await outra.goto(`${WEB}/login`);
   await outra.fill('input[name="email"]', "owner@xyz.com");
   await outra.fill('input[name="password"]', SENHA);
