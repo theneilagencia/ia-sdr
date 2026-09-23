@@ -9,10 +9,11 @@ alguém ainda vai revisar, e o dado da empresa do lado.
 
 from __future__ import annotations
 
+import calendar
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.db.models.ai import AgentRun, RunStatus
 from app.db.models.engagement import (
@@ -534,3 +535,57 @@ def test_quem_nao_administra_nao_muda_o_prazo(client, auth_headers, membro, make
         json={"days": 30},
     )
     assert r.status_code == 403
+
+
+def test_a_borda_do_mes_e_a_mesma_do_fechamento(make_tenant):
+    """O último instante do mês faturado conta como daquele mês, e sai.
+
+    A definição de "mês" tem de ser a mesma nos dois lados. Enquanto a retenção
+    usava `extract(month, ...)`, ela dependia do fuso da sessão do banco: num
+    servidor em UTC-3, o evento de 31/08 23:30 UTC seria setembro para ela e
+    agosto para o fechamento. O desencontro apagaria consumo que sustenta fatura
+    ainda não emitida — e a conta errada só apareceria na cobrança seguinte.
+    """
+    t = make_tenant()
+    tid = t["tenant_id"]
+    ano, mes = VELHO.year, VELHO.month
+    ultimo_dia = calendar.monthrange(ano, mes)[1]
+    quase_virando = datetime(ano, mes, ultimo_dia, 23, 30, tzinfo=UTC)
+    ja_no_mes_seguinte = quase_virando + timedelta(hours=1)
+
+    with tenant_session(tid) as session:
+        for quando in (quase_virando, ja_no_mes_seguinte):
+            session.add(
+                UsageEvent(
+                    tenant_id=tid,
+                    kind=UsageKind.RESEARCH.value,
+                    units=1,
+                    quantity=1,
+                    cost_micro_usd=1,
+                    created_at=quando,
+                )
+            )
+    with unscoped_session(reason="test:retencao") as session:
+        session.add(
+            Invoice(
+                tenant_id=tid,
+                period_year=ano,
+                period_month=mes,
+                status=InvoiceStatus.ISSUED.value,
+                issued_at=AGORA,
+            )
+        )
+
+    _politica(tid, dias=30)
+
+    # A retenção roda numa sessão com fuso brasileiro de propósito: é a
+    # configuração em que o defeito aparecia. Com `extract`, o evento de
+    # 01/09 00:30 UTC (21:30 do dia 31/08 em São Paulo) era contado como agosto —
+    # mês faturado — e saía junto, apagando o consumo que sustenta a fatura de
+    # setembro, que ainda não existe.
+    with unscoped_session(reason="test:retencao") as session:
+        session.execute(text("SET TIME ZONE 'America/Sao_Paulo'"))
+        saiu = retencao.aplicar(session, tid, agora=AGORA)
+
+    assert saiu["usage_events"] == 1, "só o consumo do mês faturado sai"
+    assert _contar(tid, UsageEvent) == 1

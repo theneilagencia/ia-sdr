@@ -46,6 +46,7 @@ from app.db.models.engagement import (
 from app.db.models.jobs import Job, JobStatus
 from app.db.models.platform import AuditLog, Invoice, InvoiceStatus, Tenant, UsageEvent
 from app.db.models.sales import Contact, Prospect, ProspectStatus
+from app.services import faturamento
 
 #: Chave dentro de `tenants.settings`. Mesmo padrão da política de envio: o que é
 #: configuração de operação mora no JSONB, o que é contrato mora em coluna.
@@ -124,15 +125,24 @@ def _periodos_faturados(session: Session, tenant_id) -> list[tuple[int, int]]:
 
 
 def _condicao_de_consumo(session: Session, tenant_id, corte: datetime):
-    """Consumo velho **e** de um mês já faturado. Sem fatura, não sai."""
+    """Consumo velho **e** de um mês já faturado. Sem fatura, não sai.
+
+    O mês é definido pela **mesma** faixa que o fechamento usa
+    (`faturamento.Periodo.inicio/fim`, em UTC), e não por `extract(month, ...)`.
+    A diferença não é estilo: `extract` sobre `timestamptz` converte para o fuso
+    da sessão do banco, então num servidor configurado em UTC-3 o evento de
+    31/08 23:30 UTC contaria como setembro aqui e como agosto no fechamento. O
+    lado ruim desse desencontro é apagar consumo que sustenta uma fatura ainda
+    não emitida — e nenhuma reclamação chegaria antes da próxima cobrança.
+    """
     periodos = _periodos_faturados(session, tenant_id)
     if not periodos:
         return None
     dentro_de_periodo_faturado = or_(
         *[
             and_(
-                func.extract("year", UsageEvent.created_at) == ano,
-                func.extract("month", UsageEvent.created_at) == mes,
+                UsageEvent.created_at >= faturamento.Periodo(ano, mes).inicio,
+                UsageEvent.created_at <= faturamento.Periodo(ano, mes).fim,
             )
             for ano, mes in periodos
         ]
