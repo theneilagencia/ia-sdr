@@ -197,6 +197,16 @@ if [ -n "$senha" ]; then
   verificar "o dono criado entra pela API, atravessando o proxy" entra_pela_borda
 fi
 
+# ------------------------------------------------- 6b. o pré-voo do go-live
+# Numa instalação recém-criada ele **tem** de reclamar: a empresa nasce sem chave
+# da Anthropic e sem conta de email. Um pré-voo que dissesse "pronto" aqui estaria
+# mentindo, e é essa mentira que o teste procura.
+preflight_reclama() {
+  saida_pf="$($COMPOSE exec -T api python -m scripts.pronto_para_ir_ao_ar 2>&1)" && return 1
+  printf '%s' "$saida_pf" | grep -q "sem chave da Anthropic"
+}
+verificar "o pré-voo do go-live acusa a empresa sem chave e sem email" preflight_reclama
+
 # ------------------------------------------------------------- 7. o worker
 worker_vivo() { $COMPOSE logs worker 2>&1 | grep -qi "worker"; }
 verificar "o worker subiu e está registrando o ciclo" worker_vivo

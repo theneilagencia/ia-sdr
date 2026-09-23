@@ -528,7 +528,29 @@ verdade é código que ainda não existe.
   O que fica fora de propósito: base de conhecimento, Company Brain, campanhas,
   faturas, contas e vínculos. É o acervo do cliente, e prazo de retenção não
   decide o que uma empresa precisa ter.
-- Busca vetorial na base de conhecimento — exige fornecedor de embeddings
+## O que continua fora, e por quê
+
+Três itens, e nenhum deles é trabalho que caberia aqui sem escolher pelo cliente
+ou construir às cegas:
+
+- **Busca vetorial na base de conhecimento** — exige fornecedor de embeddings, e a
+  Anthropic não tem API de embeddings. Seria um segundo fornecedor, uma chave a
+  mais e um custo por documento. A busca textual do PostgreSQL está em pé e
+  funciona; a troca só se justifica com volume de base que ainda não existe.
 - **SSO** para contratos enterprise — depende do provedor de identidade **do
-  cliente** (Okta, Entra, Workspace), não de uma conta nossa. Desenvolvível
-  contra um Keycloak local quando um contrato pedir
+  cliente** (Okta, Entra, Workspace), não de uma conta nossa. Desenvolvível contra
+  um Keycloak local quando um contrato pedir. O segundo fator, que era a metade
+  que não dependia de ninguém, já está construído.
+- **Enriquecimento de prospects por provedores externos** — dado firmográfico e de
+  contato se compra; não há como implementar antes de existir um contrato com um
+  fornecedor. O que é gratuito e público no Brasil (CNPJ na Receita) cobre parte da
+  firmografia e é o primeiro lugar a olhar quando alguém pedir.
+
+E dois que dependem de uma pessoa, não de código:
+
+- **O primeiro disparo de verdade** — chave real, alvo real, alguém lendo o que a
+  IA escreveu antes de aprovar ([07-primeiro-disparo.md](07-primeiro-disparo.md)).
+- **Os três pontos do contrato do RAVI** a alinhar com quem cuida dele: `source` sem
+  valor para prospecção outbound, `stage` versus `stage_id`, e o contrato lido do
+  repositório público porque o privado não abriu. Divergindo, o que quebra é o
+  teste de conexão e o envio — em voz alta, com o corpo da resposta no erro.
