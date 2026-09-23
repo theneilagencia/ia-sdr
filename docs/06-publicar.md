@@ -1,7 +1,7 @@
 # Publicar a aplicação
 
 O que segue é o caminho de um servidor vazio até a aplicação no ar, com HTTPS,
-respondendo num domínio seu. São cinco passos e nenhum deles exige saber
+respondendo num domínio seu. São seis passos e nenhum deles exige saber
 programar.
 
 A stack sobe com Docker: banco, API, worker, web e um proxy que cuida do
@@ -81,6 +81,17 @@ A senha aparece uma vez na tela. Entre em `https://app.suaempresa.com` com ela.
 Cada cliente novo é outra empresa: rode o mesmo comando com outro nome e outro
 email. Os dados de uma nunca aparecem para a outra — isso é garantido pelo banco,
 não pelo código da aplicação.
+
+## 6. Confira se está pronto para operar
+
+```
+docker compose -f docker-compose.prod.yml exec api \
+  python -m scripts.pronto_para_ir_ao_ar
+```
+
+O comando diz, empresa por empresa, o que impede de operar e o que é escolha sua.
+O roteiro completo do go-live — inclusive o que nenhum comando verifica (backup
+que restaura, DNS, SPF/DKIM/DMARC) — está em [08-go-live.md](08-go-live.md).
 
 ## Depois de entrar
 

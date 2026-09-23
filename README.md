@@ -16,7 +16,7 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
 criptografia de credenciais e painel de plataforma. 117 endpoints, 26 tabelas,
-504 testes contra PostgreSQL de verdade.
+512 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
@@ -331,6 +331,24 @@ docs/               arquitetura e decisões
 - [Roadmap](docs/05-roadmap.md)
 - [Publicar a aplicação](docs/06-publicar.md)
 - [O primeiro disparo real](docs/07-primeiro-disparo.md)
+
+## Ir ao ar
+
+Publicar e estar pronto para operar são coisas diferentes, e um comando diz a
+distância:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api \
+  python -m scripts.pronto_para_ir_ao_ar
+```
+
+Ele separa o que **impede** de operar (role do banco com privilégio demais,
+segredo de exemplo, empresa sem chave da Anthropic ou sem email conectado,
+ninguém com a marca de platform admin) do que é **escolha** (sem prazo de
+descarte, sem preço no contrato, sem Redis). E lista o que nenhum comando pode
+verificar — backup que restaura, DNS propagado, SPF/DKIM/DMARC e a qualidade do
+que a IA escreve —, porque afirmar o que não se verificou é pior do que não
+verificar. O roteiro completo está em [docs/08-go-live.md](docs/08-go-live.md).
 
 ## Painel da plataforma
 

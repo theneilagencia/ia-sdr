@@ -199,6 +199,20 @@ verdade é código que ainda não existe.
   cumulativos, aderência ao ICP por banda e o consumo do mês contra o limite do
   plano
 
+- **Pré-voo do go-live ✅.** "Está publicado" e "está pronto para operar" eram a
+  mesma frase, e não são: a distância entre as duas é uma lista de configuração que
+  ninguém decora — chave por empresa, email conectado e testado, marca de platform
+  admin, segredo próprio dos links de descadastro. Cada item faltando produz uma
+  falha diferente, e todas no pior momento.
+
+  `scripts/pronto_para_ir_ao_ar.py` roda contra a instalação de verdade e separa o
+  que impede de operar do que é escolha consciente, saindo com erro só no
+  primeiro caso — pré-voo que reclama de tudo ninguém roda duas vezes. E lista o
+  que **não** consegue verificar (backup que restaura, DNS propagado, SPF/DKIM/DMARC,
+  qualidade do texto dos agentes), porque marcar ✓ no que não foi verificado é
+  mentira com aparência de rigor. Oito testes, inclusive o de que essa lista
+  continua na saída.
+
 ## Transversal (quando a operação exigir)
 
 - **Telas do web app ✅ — nenhuma capacidade da API ficou sem tela.** Funil e
