@@ -385,7 +385,25 @@ try {
   const linkErrado = await convidarPelaTela(errada, "viewer");
   checar(Boolean(linkErrado), "o convite errado é emitido");
   const linhaErrada = page.locator(`[data-convite="${errada}"]`);
-  const apareceu = await ate(async () => (await linhaErrada.count()) === 1);
+  // Mesma regra da revogação logo abaixo: o que esta verificação afirma é o
+  // efeito — o convite está na lista e pode ser revogado —, não a velocidade do
+  // repinte. A ação chama `revalidatePath("/team")` antes de devolver, então a
+  // lista costuma vir junto com o link; sob carga (dois jobs de fumaça no mesmo
+  // runner) já se viu a árvore revalidada não chegar ao cliente, e uma recarga
+  // desempata: aparece depois dela significa que o convite existe e só a pintura
+  // ficou atrás; não aparece significa que o convite não foi criado — e aí o
+  // defeito é de verdade, com o link na mão para provar a contradição.
+  let apareceu = await ate(async () => (await linhaErrada.count()) === 1, { limite: 8000 });
+  if (!apareceu) {
+    await page.reload();
+    await hidratada();
+    apareceu = (await linhaErrada.count()) === 1;
+    console.error(
+      `  diagnóstico: a linha do convite novo não apareceu sozinha — ` +
+        `erro na tela: ${JSON.stringify(await page.locator(".erro").allInnerTexts())}; ` +
+        `depois da recarga, apareceu: ${apareceu}`,
+    );
+  }
   checar(apareceu, "o convite errado aparece na lista de pendentes, para poder ser revogado");
   if (apareceu) {
     await linhaErrada.locator('button:has-text("Revogar")').click();
