@@ -219,21 +219,42 @@ def test_periodicos_agendados_por_empresa_ativa(make_tenant):
 
     criados = runner.agendar_periodicos(AGORA)
 
-    # leitura de caixa, envio, avanço das cadências e envio para o CRM — só
-    # para a empresa ativa
-    assert criados == 4
+    # leitura de caixa, envio, avanço das cadências, envio para o CRM e a
+    # retenção do dia — só para a empresa ativa
+    assert criados == 5
     with tenant_session(a["tenant_id"]) as session:
         tipos = {j.kind for j in session.execute(select(Job)).scalars()}
-    assert tipos == {"fetch_inbox", "send_queued", "sequence_tick", "ravi_sync"}
+    assert tipos == {"fetch_inbox", "send_queued", "sequence_tick", "ravi_sync", "retention"}
     with tenant_session(b["tenant_id"]) as session:
         assert session.execute(select(Job)).scalars().all() == []
 
 
 def test_ciclo_seguinte_nao_duplica_periodicos(make_tenant):
     make_tenant()
-    assert runner.agendar_periodicos(AGORA) == 4
+    assert runner.agendar_periodicos(AGORA) == 5
     # Ciclo lento não acumula fila.
     assert runner.agendar_periodicos(AGORA) == 0
+
+
+def test_a_retencao_e_diaria_e_nao_a_cada_ciclo(make_tenant):
+    """Varrer o banco a cada cinco minutos custaria I/O por nada.
+
+    O que vence em cinco minutos é desprezível num prazo medido em dias, então a
+    chave de deduplicação carrega a data: o segundo job do mesmo dia não é
+    criado, e o primeiro do dia seguinte é.
+    """
+    make_tenant()
+    assert runner.agendar_periodicos(AGORA) == 5
+
+    # Mesmo dia, ciclo seguinte: nada novo.
+    assert runner.agendar_periodicos(AGORA + timedelta(minutes=5)) == 0
+
+    # Dia seguinte: a retenção volta. Só ela — os outros quatro periódicos
+    # continuam pendentes na fila (ninguém os executou neste teste) e a
+    # deduplicação deles, que é por tipo, segura a segunda cópia. É o
+    # comportamento certo: fila de periódico não acumula.
+    amanha = AGORA + timedelta(days=1)
+    assert runner.agendar_periodicos(amanha) == 1
 
 
 def test_resposta_recebida_aciona_o_agente_de_conversa(empresa_com_conversa, monkeypatch):

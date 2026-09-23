@@ -208,6 +208,28 @@ export async function salvarVolume(_: Resultado, form: FormData): Promise<Result
   return resultado;
 }
 
+export async function salvarRetencao(_: Resultado, form: FormData): Promise<Resultado> {
+  const dias = Number(form.get("days") ?? 0);
+  if (!Number.isInteger(dias) || dias < 0) {
+    return { ok: false, message: "O prazo precisa ser um número inteiro de dias, ou 0 para nunca descartar." };
+  }
+  const resultado = await executar(
+    () =>
+      api("/api/v1/settings/retention", {
+        method: "PUT",
+        body: {
+          days: dias,
+          include_cold_prospects: form.get("include_cold_prospects") === "on",
+        },
+      }),
+    dias === 0
+      ? "Prazo removido: nada mais é descartado automaticamente."
+      : `Prazo salvo: ${dias} dias. O descarte roda uma vez por dia, em segundo plano.`,
+  );
+  revalidatePath("/settings");
+  return resultado;
+}
+
 export async function enviarMensagem(_: Resultado, form: FormData): Promise<Resultado> {
   const id = String(form.get("id"));
   const resultado = await executar(

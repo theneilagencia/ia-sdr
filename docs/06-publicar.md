@@ -177,6 +177,13 @@ Se o Redis cair, a aplicação **não** cai: o freio volta a contar por processo
 API avisa no log a cada subida e no primeiro erro. Pior do que o ideal, melhor do
 que abrir a porta — e o log diz qual dos dois está valendo.
 
+**Descarte automático** (retenção). Por empresa, em **Configurações → Descarte
+automático**: nasce desligado, e ligado descarta o rastro operacional mais velho
+que o prazo, uma vez por dia. A tela mostra o que sairia **antes** de sair, e diz
+o que nunca é apagado — o registro de quem pediu para não receber mais email, o
+consumo ainda não faturado, a auditoria dos últimos 90 dias e o rascunho à espera
+de revisão. Nada disso precisa de comando no servidor.
+
 **Ver o que está acontecendo:**
 
 ```

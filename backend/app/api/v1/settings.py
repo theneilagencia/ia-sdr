@@ -16,7 +16,7 @@ from app.api.deps import get_db, require
 from app.api.v1 import schemas
 from app.db.models.platform import Tenant
 from app.rbac.roles import Permission
-from app.services import ai_credentials, audit, email_accounts, ravi
+from app.services import ai_credentials, audit, email_accounts, ravi, retencao
 from app.tenancy.context import TenantContext
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -281,6 +281,83 @@ def set_sending_policy(
     audit.record(
         db,
         action="sending_policy.updated",
+        resource_type="tenant",
+        resource_id=ctx.tenant_id,
+        payload=payload.model_dump(),
+        context=ctx,
+    )
+    return payload
+
+
+# --------------------------------------------------------------- retenção
+#
+# Fica nesta tela, e não no painel da plataforma, porque o dado é do cliente: é
+# a empresa que decide por quanto tempo guarda o rastro do próprio trabalho.
+
+
+@router.get("/retention", response_model=schemas.RetentionPolicy)
+def get_retention_policy(
+    ctx: TenantContext = Depends(require(Permission.TENANT_READ)),
+    db: Session = Depends(get_db),
+):
+    pol = retencao.politica(db.get(Tenant, ctx.tenant_id))
+    return schemas.RetentionPolicy(days=pol.dias, include_cold_prospects=pol.leads_frios)
+
+
+@router.get("/retention/preview", response_model=schemas.RetentionPreview)
+def preview_retention(
+    days: int | None = None,
+    include_cold_prospects: bool | None = None,
+    ctx: TenantContext = Depends(require(Permission.TENANT_READ)),
+    db: Session = Depends(get_db),
+):
+    """O que sairia hoje, por classe, sem apagar nada.
+
+    Aceita prazo por parâmetro para a tela poder responder "e se eu puser 90
+    dias?" **antes** de salvar. Apagar não tem desfazer, e ver "5.312 mensagens"
+    é o que faz alguém reler o número antes de confirmar.
+    """
+    tenant = db.get(Tenant, ctx.tenant_id)
+    atual = retencao.politica(tenant)
+    hipotetica = retencao.Politica(
+        dias=atual.dias if days is None else days,
+        leads_frios=(
+            atual.leads_frios if include_cold_prospects is None else include_cold_prospects
+        ),
+    )
+    # A simulação não pode gravar a política: quem pediu uma previsão não pediu
+    # para mudar nada. Guarda o que estava, calcula, devolve ao lugar.
+    guardado = tenant.settings
+    try:
+        retencao.salvar(tenant, hipotetica)
+        db.flush()
+        contagens = retencao.previsao(db, ctx.tenant_id)
+    finally:
+        tenant.settings = guardado
+        db.flush()
+    return schemas.RetentionPreview(
+        days=hipotetica.dias,
+        include_cold_prospects=hipotetica.leads_frios,
+        counts=contagens,
+    )
+
+
+@router.put("/retention", response_model=schemas.RetentionPolicy)
+def set_retention_policy(
+    payload: schemas.RetentionPolicy,
+    ctx: TenantContext = Depends(require(Permission.TENANT_WRITE)),
+    db: Session = Depends(get_db),
+):
+    tenant = db.get(Tenant, ctx.tenant_id)
+    retencao.salvar(
+        tenant,
+        retencao.Politica(dias=payload.days, leads_frios=payload.include_cold_prospects),
+    )
+    # Auditar é especialmente importante aqui: é a configuração que faz dado
+    # desaparecer sozinho, e "desde quando está assim?" vira pergunta um dia.
+    audit.record(
+        db,
+        action="retention_policy.updated",
         resource_type="tenant",
         resource_id=ctx.tenant_id,
         payload=payload.model_dump(),

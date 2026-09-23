@@ -246,6 +246,53 @@ try {
     "escolher servidor próprio revela host e porta",
   );
 
+  // Descarte automático: o que a tela promete não apagar vale mais do que o
+  // formulário, porque é isso que quem lê "descartar depois de 90 dias" precisa
+  // ver antes de confiar no número.
+  const retencao = page.locator('[data-secao="retencao"]');
+  checar(
+    (await retencao.innerText()).includes("nunca descartar"),
+    "a tela diz que o padrão é não descartar nada",
+  );
+  checar(
+    (await retencao.innerText()).includes("descadastro"),
+    "a tela promete preservar o registro de quem pediu para não receber mais",
+  );
+  checar(
+    (await retencao.locator('[data-secao="previsao-da-retencao"]').count()) === 0,
+    "sem prazo definido, a tela não mostra previsão de descarte",
+  );
+  await retencao.locator('input[name="days"]').fill("120");
+  await retencao.locator('button:has-text("Salvar prazo")').click();
+  checar(
+    await ate(async () => (await retencao.locator("p.ok, p.erro").count()) > 0),
+    "salvar o prazo de retenção responde",
+  );
+  await page.reload();
+  await page.waitForSelector('input[name="api_key"]', { timeout: 10000 });
+  const retencaoDepois = page.locator('[data-secao="retencao"]');
+  checar(
+    (await retencaoDepois.locator('input[name="days"]').inputValue()) === "120",
+    "o prazo volta na recarga",
+  );
+  checar(
+    (await retencaoDepois.locator('[data-secao="previsao-da-retencao"]').count()) === 1,
+    "com prazo salvo, a tela mostra o que sairia hoje antes de qualquer descarte",
+  );
+  // De volta a zero: a fumaça não deixa uma empresa com descarte ligado, e o
+  // caminho de desligar é o que alguém vai usar depois de se assustar.
+  await retencaoDepois.locator('input[name="days"]').fill("0");
+  await retencaoDepois.locator('button:has-text("Salvar prazo")').click();
+  checar(
+    await ate(async () => {
+      const texto = await page
+        .locator('[data-secao="retencao"] p.ok, [data-secao="retencao"] p.erro')
+        .allInnerTexts();
+      return texto.some((t) => t.includes("Prazo removido"));
+    }),
+    "desligar o descarte responde dizendo que nada mais é descartado",
+  );
+
   // As três telas do backoffice: o caminho crítico de cada uma, não o CRUD
   // inteiro — esse está coberto pelos testes de backend.
   await page.goto(`${WEB}/brain`);

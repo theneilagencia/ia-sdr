@@ -988,6 +988,29 @@ class InvoiceUpdate(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
 
 
+class RetentionPolicy(BaseModel):
+    """Por quanto tempo a empresa guarda o rastro do próprio trabalho.
+
+    Zero é o padrão e significa "nunca descarta": a plataforma não escolhe pelo
+    cliente o que ele pode perder. O teto de dez anos existe para o campo não
+    aceitar um número que só pode ser erro de digitação.
+    """
+
+    days: int = Field(default=0, ge=0, le=3650)
+    #: Leads que nunca responderam, nunca tiveram reunião e nunca foram
+    #: qualificados. Desligado por padrão: lead é ativo comercial, e apagar por
+    #: prazo precisa ser escolha explícita.
+    include_cold_prospects: bool = False
+
+
+class RetentionPreview(BaseModel):
+    """Quanto sairia hoje, por classe. Simulação: não apaga nada."""
+
+    days: int
+    include_cold_prospects: bool
+    counts: dict[str, int]
+
+
 class AdminTenantResponse(BaseModel):
     id: uuid.UUID
     name: str

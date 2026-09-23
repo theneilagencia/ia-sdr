@@ -5,6 +5,8 @@ import {
   type EmailAccount,
   type EmailPreset,
   type Me,
+  type RetentionPolicy,
+  type RetentionPreview,
   type SendingPolicy,
 } from "@/lib/api";
 
@@ -13,6 +15,7 @@ import AIForm from "./ai-form";
 import Exportar from "./exportar";
 import CrmForm from "./crm-form";
 import EmailForm from "./email-form";
+import RetentionForm from "./retention-form";
 import SendingForm from "./sending-form";
 
 /**
@@ -24,14 +27,21 @@ import SendingForm from "./sending-form";
  * lead para o RAVI.
  */
 export default async function SettingsPage() {
-  const [ia, email, presets, volume, crm, eu] = await Promise.all([
+  const [ia, email, presets, volume, crm, eu, retencao] = await Promise.all([
     api<AISettings>("/api/v1/settings/ai"),
     api<EmailAccount>("/api/v1/settings/email"),
     api<EmailPreset[]>("/api/v1/settings/email/presets"),
     api<SendingPolicy>("/api/v1/settings/sending"),
     api<CrmSettings>("/api/v1/settings/crm"),
     api<Me>("/api/v1/auth/me"),
+    api<RetentionPolicy>("/api/v1/settings/retention"),
   ]);
+  // A previsão só é buscada quando há prazo: sem prazo não há o que prever, e a
+  // consulta varre tabela grande para devolver zeros.
+  const previsao =
+    retencao.days > 0
+      ? await api<RetentionPreview>("/api/v1/settings/retention/preview")
+      : null;
 
   return (
     <>
@@ -47,6 +57,7 @@ export default async function SettingsPage() {
         <EmailForm estado={email} presets={presets} />
         <SendingForm politica={volume} />
         <CrmForm estado={crm} />
+        <RetentionForm politica={retencao} previsao={previsao} />
         <Exportar papel={eu.role} />
       </main>
     </>

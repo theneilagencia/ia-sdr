@@ -31,6 +31,9 @@ class JobKind(StrEnum):
     SEQUENCE_TICK = "sequence_tick"
     #: Empurra para o RAVI os prospects que mudaram. O CRM é lá; aqui é o motor.
     RAVI_SYNC = "ravi_sync"
+    #: Descarta o que passou do prazo de retenção daquela empresa. Não faz nada
+    #: em empresa sem prazo definido, que é o padrão.
+    RETENTION = "retention"
 
 
 class JobStatus(StrEnum):

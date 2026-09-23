@@ -563,6 +563,19 @@ export type Invoice = {
   created_at: string;
 };
 
+/** Por quanto tempo esta empresa guarda o rastro do próprio trabalho. */
+export type RetentionPolicy = {
+  //: Zero é "nunca descarta", e é o padrão: a plataforma não escolhe pelo
+  //: cliente o que ele pode perder.
+  days: number;
+  include_cold_prospects: boolean;
+};
+
+/** O que sairia hoje, por classe. Simulação: não apaga nada. */
+export type RetentionPreview = RetentionPolicy & {
+  counts: Record<string, number>;
+};
+
 export type PlatformUsage = {
   period_start: string;
   tenants: number;

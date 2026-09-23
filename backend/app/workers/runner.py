@@ -32,7 +32,7 @@ from app.db.session import tenant_session, unscoped_session, verify_database_rol
 from app.orchestrator.envelope import JobEnvelope
 from app.orchestrator.executors import register_default_executors
 from app.orchestrator.runner import run_job
-from app.services import email_receiver, email_sender, jobs, ravi, sequences
+from app.services import email_receiver, email_sender, jobs, ravi, retencao, sequences
 from app.tenancy.context import system_context, use_context
 
 logger = logging.getLogger("ia_sdr.worker")
@@ -61,6 +61,18 @@ def executar(tenant_id: uuid.UUID, kind: str, payload: dict) -> None:
             sequences.tick(session, tenant_id)
         elif kind == JobKind.RAVI_SYNC.value:
             ravi.sync_pending(session, tenant_id)
+        elif kind == JobKind.RETENTION.value:
+            saiu = retencao.aplicar(session, tenant_id)
+            # O log é a única prova de que a retenção rodou e o que ela levou: o
+            # dado apagado, por definição, não está mais lá para ser contado.
+            if any(saiu.values()):
+                logger.info(
+                    "retencao.aplicada",
+                    extra={
+                        "tenant_id": str(tenant_id),
+                        **{f"saiu_{classe}": n for classe, n in saiu.items()},
+                    },
+                )
         else:
             raise ValueError(f"Tipo de job desconhecido: {kind}")
 
@@ -128,6 +140,21 @@ def agendar_periodicos(agora: datetime | None = None) -> int:
                         max_attempts=1,  # periódico: falhou, o próximo ciclo tenta
                     ):
                         criados += 1
+
+                # A retenção é diária, não a cada ciclo: varrer o banco inteiro a
+                # cada cinco minutos custaria I/O por nada — o que vence em cinco
+                # minutos é desprezível num prazo medido em dias. A chave de
+                # deduplicação carrega a data, então o segundo job do mesmo dia
+                # não é criado, e o primeiro do dia seguinte é.
+                if jobs.enqueue(
+                    session,
+                    tenant_id=tenant_id,
+                    kind=JobKind.RETENTION,
+                    dedupe_key=f"{JobKind.RETENTION.value}:{agora:%Y-%m-%d}",
+                    run_at=agora,
+                    max_attempts=1,
+                ):
+                    criados += 1
         except Exception:  # noqa: BLE001 - ver comentário acima
             logger.exception(
                 "periodicos.falha_ao_agendar", extra={"tenant_id": str(tenant_id)}

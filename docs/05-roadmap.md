@@ -452,7 +452,39 @@ verdade é código que ainda não existe.
   atomicidade, e um dublê em Python concordaria com a implementação errada.
   Inclusive o teste do contraste — duas instâncias do backend de memória deixando
   passar o dobro, que é o defeito documentado.
-- Política de **retenção** automática por tenant (a exportação já existe)
+- **Retenção automática por empresa ✅ — e o que ela nunca apaga.** Guardar tudo
+  para sempre é uma decisão, e não é a segura: dado de quem nunca respondeu um
+  email não fica mais útil com o tempo, fica mais arriscado (a LGPD chama isso de
+  necessidade). Agora cada empresa define o prazo em **Configurações → Descarte
+  automático**, o worker aplica uma vez por dia, e a tela mostra **o que sairia
+  hoje** antes de qualquer coisa sair — apagar não tem desfazer, e ver "5.312
+  mensagens" é o que faz alguém reler o número antes de salvar.
+
+  Nasce em zero, que significa nunca descartar: um padrão de 90 dias apagaria
+  histórico de quem nunca pediu isso. As travas valem mais que o descarte, e cada
+  uma tem teste:
+
+  - **Contato descadastrado nunca sai**, em nenhum prazo. Apagar o registro do
+    pedido faria a plataforma escrever para essa pessoa de novo no próximo import
+    — e honrar o pedido é obrigação legal, não cortesia.
+  - **Consumo de mês sem fatura emitida não sai**: é a base de uma cobrança que
+    ainda vai acontecer. Fatura em rascunho também não libera, porque rascunho é
+    recalculado a cada fechamento.
+  - **Auditoria tem piso de 90 dias**, mesmo com prazo menor: quem configurou 7
+    dias estava pensando em rastro de job, não em apagar a prova de um incidente.
+  - **Rascunho e mensagem aprovada ficam**: é trabalho pendente, não histórico.
+  - **Lead frio só entra se a empresa marcar**, e "frio" exige nunca ter
+    respondido, nunca ter tido reunião e nunca ter sido qualificado.
+
+  O defeito que a suíte pegou no caminho vale registro: a ordem dos descartes
+  importava. Apagando as mensagens primeiro, um lead que respondeu há dois anos
+  passava a parecer que nunca respondeu — e a mesma rodada apagava a resposta e,
+  em seguida, o lead. Quem é lead frio passou a ser decidido **antes** de
+  qualquer delete.
+
+  O que fica fora de propósito: base de conhecimento, Company Brain, campanhas,
+  faturas, contas e vínculos. É o acervo do cliente, e prazo de retenção não
+  decide o que uma empresa precisa ter.
 - Busca vetorial na base de conhecimento — exige fornecedor de embeddings
 - **SSO** para contratos enterprise — depende do provedor de identidade **do
   cliente** (Okta, Entra, Workspace), não de uma conta nossa. Desenvolvível
