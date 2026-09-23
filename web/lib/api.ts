@@ -530,6 +530,37 @@ export type AdminTenant = {
   //: já existe para não apagar em silêncio o que não reenviou.
   limit_overrides: Record<string, number>;
   effective_limits: Record<string, number | string[]>;
+  //: O contrato, em centavos — dinheiro não anda em float. Zero significa "sem
+  //: preço ainda": o mês fecha, mostra o consumo e não cobra nada.
+  contract_monthly_cents: number;
+  contract_currency: string;
+  overage_cents_per_unit: number;
+};
+
+/** Uma fatura fechada: o consumo medido do mês virado em número a cobrar. */
+export type Invoice = {
+  id: string;
+  tenant_id: string;
+  tenant_name: string;
+  period_year: number;
+  period_month: number;
+  //: `draft` recalcula a cada fechamento; de `issued` em diante os números
+  //: congelam, porque fatura que muda de valor depois de enviada é discussão
+  //: com o cliente.
+  status: "draft" | "issued" | "paid" | "void";
+  currency: string;
+  subscription_cents: number;
+  ai_units: number;
+  ai_units_included: number;
+  ai_units_over: number;
+  overage_cents: number;
+  //: O que a Anthropic cobrou. Não entra no total do cliente: é a margem.
+  ai_cost_usd: number;
+  total_cents: number;
+  issued_at: string | null;
+  paid_at: string | null;
+  notes: string | null;
+  created_at: string;
 };
 
 export type PlatformUsage = {

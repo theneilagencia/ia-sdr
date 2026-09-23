@@ -15,8 +15,8 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 **Sprint 1 (Foundation) implementado e testado**: autenticação, tenants,
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
-criptografia de credenciais e painel de plataforma. 111 endpoints, 25 tabelas,
-429 testes contra PostgreSQL de verdade.
+criptografia de credenciais e painel de plataforma. 114 endpoints, 26 tabelas,
+450 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
@@ -199,6 +199,13 @@ O que está coberto:
   silêncio), a sequência que sobe a cada reenvio, e as guardas: descadastro
   recusa, teto diário e horário comercial não seguram, e a reunião fica gravada
   mesmo quando o convite não sai
+- `test_faturamento.py` — o fechamento do mês, protegendo quatro coisas nesta
+  ordem: não cobrar duas vezes o mesmo mês (a unicidade é do banco), não mexer no
+  valor de fatura já emitida, não baixar como paga uma fatura que nunca foi
+  emitida, e não vazar fatura de uma empresa para outra. Tem também o teste que
+  fixa o que a plataforma **não** faz: empresa sem preço fecha mostrando o consumo
+  e cobrando zero — um valor mensal inventado num campo de dinheiro vira cobrança
+  de verdade
 - `test_mfa.py` — o segundo fator: os seis vetores da RFC 6238 (é o que sustenta
   não ter trazido dependência), o mesmo código recusado na segunda vez, cinco
   chutes e a conta descansa, desligar exigindo senha **e** código, e o convite
@@ -231,7 +238,7 @@ O que está coberto:
   `MockTransport`: o token que nunca volta na resposta, o prospect sem nota que
   não sobe, o reenvio que não duplica, e um teste que usa o modelo do próprio
   Qualification Agent para a forma dos critérios não poder divergir em silêncio
-- `web/e2e/smoke.mjs` — browser de verdade: cento e quinze verificações cobrindo o
+- `web/e2e/smoke.mjs` — browser de verdade: cento e vinte e sete verificações cobrindo o
   caminho crítico de cada tela, inclusive o que é salvo no Company Brain voltar
   na recarga, o documento colado aparecer indexado, e o encadeamento que faz o
   funil andar — critério salvo na campanha, planilha do Excel em português
@@ -313,6 +320,15 @@ mesmo:
 python -m scripts.promover_admin --listar
 python -m scripts.promover_admin --email voce@suaempresa.com
 ```
+
+O **fechamento do mês** fica no mesmo painel: o contrato de cada empresa
+(mensalidade, moeda e preço da unidade de IA acima da cota) e o botão que gera uma
+fatura por empresa ativa com o consumo do período medido por trás. Refazer o
+fechamento é seguro — recalcula rascunho e não toca no que já foi emitido. Ao lado
+do total cobrado fica o custo real da Anthropic naquele mês, que é a leitura que
+responde se o contrato daquela empresa fecha em dinheiro. Empresa sem preço
+definido fecha mostrando o consumo e cobrando zero: a plataforma não inventa o
+preço de quem a opera.
 
 Vale para o token que já está na mão, e revogar vale no ato. O que a marca **não**
 concede é acesso ao dado comercial de uma empresa da qual a pessoa não é membro:

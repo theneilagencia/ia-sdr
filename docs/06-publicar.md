@@ -149,6 +149,17 @@ ilegível toda credencial de email e chave de API que as empresas já salvaram �
 o estrago não aparece na hora, aparece no próximo disparo. Enquanto a chave antiga
 estiver na lista, a API avisa no log a cada subida.
 
+**Fechar o mês.** No **Painel da plataforma**, a seção de fechamento gera uma
+fatura por empresa ativa com o consumo do mês que acabou. Antes disso, cada
+empresa precisa do contrato preenchido (mensalidade e, se houver, o preço da
+unidade de IA acima da cota) — sem preço, a fatura fecha mostrando o consumo e
+cobrando zero, de propósito: a plataforma não inventa quanto você cobra.
+
+Emitir congela os números daquela fatura; refazer o fechamento depois disso
+recalcula só os rascunhos. A nota fiscal continua saindo de onde você já emite —
+aqui fica o valor, o estado dele e o custo real de IA do período ao lado, que é o
+que diz se aquele contrato fecha em dinheiro.
+
 **Ver o que está acontecendo:**
 
 ```

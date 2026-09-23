@@ -1,7 +1,7 @@
 # Modelo de dados
 
-PostgreSQL 16, um banco, Row Level Security. 25 tabelas — duas de identidade e
-23 com `tenant_id` (a lista está em
+PostgreSQL 16, um banco, Row Level Security. 26 tabelas — duas de identidade e
+24 com `tenant_id` (a lista está em
 `backend/app/db/models/__init__.py::TENANT_SCOPED_TABLES`).
 
 ## Identidade
@@ -28,6 +28,7 @@ Fernet, como toda credencial daqui, e ao lado dele ficam o último passo aceito
 
 ```
 Plataforma      memberships · invitations · audit_logs · usage_events · jobs
+                invoices
 Comercial       companies · contacts · campaigns · prospects · research · scores
 Engajamento     sequences · sequence_enrollments · conversations · messages
                 qualifications · meetings
@@ -86,8 +87,35 @@ tenant em `tenants.limit_overrides`:
 | Growth     | 10        | 10.000        | 10       | 5            | 60.000          |
 | Enterprise | ilimitado | ilimitado     | ilimitado| ilimitado    | ilimitado       |
 
-Cobrança não entra no primeiro sprint; o **modelo** entra. Quando o gateway
-chegar, não se refaz o modelo de dados.
+## Fechamento do mês
+
+`invoices` é onde o consumo medido vira número a cobrar: uma linha por
+`(tenant_id, período)` — a unicidade é do banco, para o mesmo mês não ser cobrado
+duas vezes por dois cliques.
+
+O contrato mora em `tenants`: `contract_monthly_cents`, `contract_currency` e
+`overage_cents_per_unit`. Tudo em centavos inteiros, porque `float` em dinheiro
+erra centavo, e centavo errado em fatura é conversa com o cliente. Zero significa
+"ainda não precificado": o mês fecha, mostra o consumo e não cobra nada — a
+plataforma não inventa o preço de quem a opera.
+
+A fatura copia os números do contrato no fechamento em vez de apontar para ele:
+fatura é o retrato de um mês, e mexer no preço em outubro não pode mudar o que
+setembro cobrou.
+
+```
+draft ──▶ issued ──▶ paid
+  └──────────┴─────────┴──▶ void
+```
+
+`draft` recalcula a cada fechamento — refazer o fechamento é seguro de propósito.
+De `issued` em diante os números congelam, e pagar sem emitir é recusado: seria
+cobrança quitada que o cliente nunca recebeu. `void` sai dos três, inclusive de
+`paid`: quem baixou a fatura errada precisa de saída.
+
+Cobrança real (gateway, boleto, cartão) continua fora, e não é o que faltava:
+no Brasil quem emite nota é o contador ou um serviço de NFe, então gateway é
+conveniência de recebimento. O que destravava faturar era o número — e ele existe.
 
 ## Migrations
 

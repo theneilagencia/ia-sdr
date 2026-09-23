@@ -1114,6 +1114,14 @@ export async function salvarEmpresaDaPlataforma(
     overrides[chave] = valor;
   }
 
+  // Dinheiro: o formulário recebe na moeda do contrato e a API guarda em
+  // centavos. A conversão é aqui e não no componente porque um número de
+  // dinheiro montado no navegador é um número que o servidor não verificou.
+  const mensal = centavos(form, "contract_monthly_cents", "a mensalidade");
+  if ("erro" in mensal) return { ok: false, message: mensal.erro };
+  const excedente = centavos(form, "overage_cents_per_unit", "o preço da unidade extra");
+  if ("erro" in excedente) return { ok: false, message: excedente.erro };
+
   const resultado = await executar(
     () =>
       api(`/api/v1/admin/tenants/${id}`, {
@@ -1122,9 +1130,70 @@ export async function salvarEmpresaDaPlataforma(
           plan: String(form.get("plan") ?? "") || null,
           subscription_status: String(form.get("subscription_status") ?? "") || null,
           limit_overrides: overrides,
+          contract_monthly_cents: mensal.valor,
+          contract_currency: String(form.get("contract_currency") ?? "") || null,
+          overage_cents_per_unit: excedente.valor,
         },
       }),
-    "Salvo. O plano e os limites valem na próxima verificação de cota.",
+    "Salvo. O plano e os limites valem na próxima verificação de cota; o contrato, no próximo fechamento.",
+  );
+  revalidatePath("/platform");
+  return resultado;
+}
+
+/**
+ * Lê um campo de dinheiro na moeda do contrato e devolve centavos inteiros.
+ *
+ * Recusa em vez de adivinhar quando o valor tem separador de milhar: em pt-BR
+ * `1.999` é mil novecentos e noventa e nove, em en-US é um e noventa e nove —
+ * mil vezes de diferença no campo que vira cobrança. Errar por recusa custa
+ * uma mensagem; errar por palpite custa a fatura do cliente.
+ */
+function centavos(
+  form: FormData,
+  campo: string,
+  oQue: string,
+): { valor: number | null } | { erro: string } {
+  const bruto = String(form.get(campo) ?? "").trim();
+  if (bruto === "") return { valor: null };
+  if (!/^\d+([.,]\d{1,2})?$/.test(bruto)) {
+    return {
+      erro: `Não entendi ${oQue}: escreva sem separador de milhar e com até duas casas — 1999,90 em vez de 1.999,90.`,
+    };
+  }
+  const [inteiro, decimal = ""] = bruto.replace(",", ".").split(".");
+  return { valor: Number(inteiro) * 100 + Number(decimal.padEnd(2, "0")) };
+}
+
+// ----------------------------------------------------------- fechamento do mês
+
+export async function fecharMes(_: Resultado, form: FormData): Promise<Resultado> {
+  const ano = Number(form.get("year"));
+  const mes = Number(form.get("month"));
+  const resultado = await executar(
+    () =>
+      api(`/api/v1/admin/invoices/close`, {
+        method: "POST",
+        body: { year: ano, month: mes },
+      }),
+    "Mês fechado. Os rascunhos foram recalculados; o que já estava emitido ficou como estava.",
+  );
+  revalidatePath("/platform");
+  return resultado;
+}
+
+const SOBRE_A_FATURA: Record<string, string> = {
+  issued: "Fatura emitida. Os números congelaram: fechar o mês de novo não mexe mais nela.",
+  paid: "Fatura baixada como paga.",
+  void: "Fatura cancelada. Ela fica no histórico — cancelada não é apagada.",
+};
+
+export async function mudarEstadoDaFatura(_: Resultado, form: FormData): Promise<Resultado> {
+  const id = String(form.get("invoice_id"));
+  const estado = String(form.get("status"));
+  const resultado = await executar(
+    () => api(`/api/v1/admin/invoices/${id}`, { method: "PATCH", body: { status: estado } }),
+    SOBRE_A_FATURA[estado] ?? "Fatura atualizada.",
   );
   revalidatePath("/platform");
   return resultado;

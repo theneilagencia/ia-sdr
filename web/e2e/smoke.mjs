@@ -950,6 +950,81 @@ try {
     "o painel mostra o gasto do mês contra o teto contratado",
   );
 
+  // Contrato e fechamento do mês: o caminho que transforma consumo medido em
+  // número a cobrar. O valor vai na moeda do contrato e volta em centavos, e é
+  // justo aí que um painel de dinheiro erra por mil.
+  await depois.locator('input[name="contract_monthly_cents"]').fill("1999,90");
+  await depois.locator('select[name="contract_currency"]').selectOption("BRL");
+  await depois.locator('input[name="overage_cents_per_unit"]').fill("0,03");
+  await depois.locator('button:has-text("Salvar")').click();
+  checar(
+    await ate(async () => (await depois.locator("p.ok, p.erro").count()) > 0),
+    "salvar contrato no painel responde",
+  );
+  await page.reload();
+  await page.waitForSelector('[data-hidratado="1"]', { state: "attached", timeout: 20000 });
+  const comContrato = page.locator('[data-secao="empresa"]', { hasText: "Empresa XYZ" });
+  await comContrato.locator("summary").click();
+  checar(
+    (await comContrato.locator('input[name="contract_monthly_cents"]').inputValue()) === "1999.90",
+    "a mensalidade volta na recarga sem perder centavo",
+  );
+  checar(
+    (await comContrato.locator('input[name="overage_cents_per_unit"]').inputValue()) === "0.03",
+    "o preço da unidade extra volta na recarga",
+  );
+  // Separador de milhar é recusa e não palpite: em pt-BR `1.999` é mil
+  // novecentos e noventa e nove, em en-US é um e noventa e nove.
+  await comContrato.locator('input[name="contract_monthly_cents"]').fill("1.999,90");
+  await comContrato.locator('button:has-text("Salvar")').click();
+  checar(
+    await ate(async () => (await comContrato.locator("p.erro").count()) > 0),
+    "valor com separador de milhar é recusado em vez de adivinhado",
+  );
+
+  await page.locator('[data-secao="fechar-mes"] button').click();
+  checar(
+    await ate(async () => (await page.locator('[data-secao="fatura"]').count()) > 0),
+    "fechar o mês gera as faturas do período",
+  );
+  const fatura = page.locator('[data-secao="fatura"]', { hasText: "Empresa XYZ" });
+  checar(
+    (await fatura.innerText()).includes("1.999,90"),
+    "a fatura cobra a mensalidade do contrato",
+  );
+  checar(
+    (await fatura.getAttribute("data-estado")) === "draft",
+    "a fatura nasce rascunho, para o fechamento poder ser refeito",
+  );
+  await fatura.locator('button:has-text("Emitir")').click();
+  checar(
+    await ate(async () => {
+      const emitida = page.locator('[data-secao="fatura"]', { hasText: "Empresa XYZ" });
+      return (await emitida.getAttribute("data-estado")) === "issued";
+    }),
+    "emitir a fatura congela os números",
+  );
+  // Emitida não volta a rascunho: o botão de emitir some, e o de pagar aparece.
+  const emitida = page.locator('[data-secao="fatura"]', { hasText: "Empresa XYZ" });
+  checar(
+    (await emitida.locator('button:has-text("Emitir")').count()) === 0 &&
+      (await emitida.locator('button:has-text("Marcar como paga")').count()) === 1,
+    "de emitida em diante o único passo adiante é a baixa",
+  );
+  // E fechar o mês de novo não mexe no que já foi emitido — é o que separa
+  // refazer um fechamento de rediscutir um valor com o cliente.
+  await page.locator('[data-secao="fechar-mes"] button').click();
+  checar(
+    await ate(async () => (await page.locator('[data-secao="fechar-mes"] p.ok').count()) > 0),
+    "fechar o mês de novo é seguro",
+  );
+  checar(
+    (await page
+      .locator('[data-secao="fatura"]', { hasText: "Empresa XYZ" })
+      .getAttribute("data-estado")) === "issued",
+    "o segundo fechamento não desfaz a fatura emitida",
+  );
+
   const outra = await browser.newPage();
   await outra.goto(`${WEB}/login`);
   await outra.fill('input[name="email"]', "owner@xyz.com");

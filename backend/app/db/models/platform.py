@@ -53,6 +53,24 @@ class Tenant(Base, TimestampMixin):
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Overrides de limite por contrato; o default vem de app.billing.plans
     limit_overrides: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    # ------------------------------------------------------------- contrato
+    #
+    # Nasce zerado nos três casos, e isso é decisão: quanto custa o serviço é
+    # número comercial de quem opera a plataforma, não default para o código
+    # inventar. Com zero, o fechamento do mês continua fechando — ele só não
+    # cobra nada, e mostra o consumo, que é o que o operador precisa ver antes
+    # de decidir o preço.
+    #: Valor mensal contratado, em centavos.
+    contract_monthly_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Moeda do contrato. BRL por padrão porque é onde a plataforma opera; o
+    #: painel troca. Guardada aqui e não numa constante global porque nada
+    #: impede dois clientes em moedas diferentes.
+    contract_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="BRL")
+    #: Preço da unidade de IA além da cota do plano, em centavos. Zero significa
+    #: "não cobra excedente" — o limite do plano já recusa a execução, então
+    #: excedente só existe se o limite tiver sido levantado por contrato.
+    overage_cents_per_unit: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     settings: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
@@ -172,6 +190,71 @@ class AuditLog(Base, TenantScoped, TimestampMixin):
     request_id: Mapped[str | None] = mapped_column(String(64))
     ip_address: Mapped[str | None] = mapped_column(String(64))
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class InvoiceStatus(StrEnum):
+    """O ciclo de uma fatura, e cada passo existe por um motivo operacional.
+
+    * `draft` — o fechamento rodou e os números estão prontos. Nada foi cobrado,
+      e refazer o fechamento atualiza estes valores.
+    * `issued` — a cobrança foi mandada ao cliente (boleto, PIX, nota). A partir
+      daqui o fechamento **não** mexe mais nos números: fatura que muda depois de
+      emitida é discussão com o cliente, não correção de sistema.
+    * `paid` — entrou.
+    * `void` — anulada. Existe para não apagar: o histórico de uma cobrança
+      cancelada é exatamente o que alguém vai querer conferir depois.
+    """
+
+    DRAFT = "draft"
+    ISSUED = "issued"
+    PAID = "paid"
+    VOID = "void"
+
+
+class Invoice(Base, TenantScoped, TimestampMixin):
+    """O fechamento de um mês por empresa: o que consumiu e o que se cobra.
+
+    A plataforma media tudo — unidades, micro-dólares por modelo, por agente — e
+    não tinha como transformar isso em cobrança. Faltava o passo que um gateway
+    **não** resolve: no Brasil, quem emite nota fiscal é o contador ou um serviço
+    de NFe, então o gateway é conveniência de recebimento, não o que destrava
+    faturar.
+
+    Os números ficam congelados na linha, e não recalculados na leitura, porque
+    fatura é documento: o consumo do mês passado precisa continuar dizendo o que
+    dizia quando foi emitida, mesmo que a tabela de preços mude depois.
+    """
+
+    __tablename__ = "invoices"
+    __table_args__ = (
+        Index("ix_invoices_tenant_created", "tenant_id", "created_at"),
+        # Um fechamento por empresa por mês. Sem isto, rodar o fechamento duas
+        # vezes cria duas cobranças do mesmo período — e a segunda parece
+        # legítima.
+        UniqueConstraint("tenant_id", "period_year", "period_month", name="uq_invoices_periodo"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    period_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    period_month: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=InvoiceStatus.DRAFT.value
+    )
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="BRL")
+    #: O valor do contrato no momento do fechamento.
+    subscription_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Unidades de IA consumidas no mês, e quantas passaram da cota.
+    ai_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ai_units_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ai_units_over: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    overage_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: O que a Anthropic cobrou de verdade, em micro-dólares. Não entra na conta
+    #: do cliente: é a margem, e é o número que diz se o contrato faz sentido.
+    ai_cost_micro_usd: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text)
 
 
 class UsageEvent(Base, TenantScoped, TimestampMixin):

@@ -168,7 +168,33 @@ verdade é código que ainda não existe.
      abrir. Se divergir, o que quebra é o teste de conexão e o envio — em voz
      alta, com o corpo da resposta do RAVI no erro.
 
-- Billing: assinatura, cobrança por uso e faturas — exige gateway (Stripe)
+- **Fechamento mensal ✅ — faturar por contrato, sem gateway.** Este item dizia
+  "exige gateway (Stripe)", e estava errado sobre o que faltava. No Brasil quem
+  emite nota fiscal é o contador ou um serviço de NFe; gateway é conveniência de
+  recebimento. O que impedia faturar era não haver **número**: a plataforma media
+  o consumo de cada empresa e não sabia dizer quanto aquele mês custou.
+
+  Agora sabe. O contrato fica em `tenants` (mensalidade, moeda, preço da unidade
+  de IA acima da cota), o fechamento gera uma fatura por empresa ativa com o
+  consumo do período medido por trás, e `POST /admin/invoices/close` é idempotente
+  de propósito: refazer o fechamento recalcula rascunho e **não** toca no que já
+  foi emitido. O estado anda `draft → issued → paid`, e `void` é alcançável dos
+  três — quem baixou a fatura errada precisa de saída pela tela, não por `curl`;
+  pagar sem emitir, ao contrário, é recusado: seria cobrança quitada que o cliente
+  nunca recebeu.
+
+  Três decisões que o teste fixa. **Preço não tem default**: empresa sem
+  precificação fecha mostrando o consumo e cobrando zero — um valor mensal
+  inventado num campo de dinheiro vira cobrança de verdade. **A fatura copia os
+  números**, não aponta para o contrato: mexer no preço em outubro não pode mudar
+  o que setembro cobrou. E **dinheiro é inteiro em centavos** do começo ao fim,
+  inclusive no formulário, que recusa `1.999,90` em vez de adivinhar se o ponto é
+  milhar ou decimal — em pt-BR e en-US isso são mil vezes de diferença.
+
+  Ao lado do total cobrado, o painel mostra o custo real da Anthropic no período:
+  é a leitura que responde se o contrato daquela empresa fecha em dinheiro. O que
+  continua fora é receber automaticamente (boleto, cartão, assinatura recorrente)
+  e emitir a nota — ambos com fornecedor, ambos decisão comercial de quem opera
 - Dashboard do funil e de consumo ✅: é a tela inicial do web app — estágios
   cumulativos, aderência ao ICP por banda e o consumo do mês contra o limite do
   plano

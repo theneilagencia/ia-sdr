@@ -946,6 +946,48 @@ class AgentConfigUpdate(BaseModel):
 
 
 # ---------------------------------------------------------------- platform admin
+class InvoiceResponse(BaseModel):
+    """Uma fatura fechada, com o consumo que a sustenta."""
+
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    tenant_name: str = ""
+    period_year: int
+    period_month: int
+    status: str
+    currency: str
+    subscription_cents: int
+    ai_units: int
+    ai_units_included: int
+    ai_units_over: int
+    overage_cents: int
+    #: A margem: o que a Anthropic cobrou de verdade. Não entra no total do
+    #: cliente — é o número que diz se o contrato faz sentido.
+    ai_cost_usd: float
+    total_cents: int
+    issued_at: datetime | None = None
+    paid_at: datetime | None = None
+    notes: str | None = None
+    created_at: datetime
+
+
+class InvoiceCloseRequest(BaseModel):
+    """Qual mês fechar, e para quem."""
+
+    year: int = Field(ge=2024, le=2100)
+    month: int = Field(ge=1, le=12)
+    #: Vazio fecha todas as empresas ativas. É o uso normal: fechamento é
+    #: operação de virada de mês, não de cliente em cliente.
+    tenant_id: uuid.UUID | None = None
+
+
+class InvoiceUpdate(BaseModel):
+    #: `issued`, `paid` ou `void`. A ordem é verificada no serviço: pagar sem
+    #: emitir seria cobrança que o cliente nunca recebeu aparecendo como quitada.
+    status: str | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
 class AdminTenantResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -966,6 +1008,11 @@ class AdminTenantResponse(BaseModel):
     #: O que vale hoje: o limite do plano com os overrides aplicados. É o número
     #: que a cota usa, e é ele que responde "por que este cliente travou".
     effective_limits: dict = Field(default_factory=dict)
+    #: O contrato. Zerado significa "ainda não precificado": o fechamento do mês
+    #: continua fechando e mostra o consumo, só não cobra nada.
+    contract_monthly_cents: int = 0
+    contract_currency: str = "BRL"
+    overage_cents_per_unit: int = 0
 
 
 class AdminTenantUpdate(BaseModel):
@@ -973,6 +1020,12 @@ class AdminTenantUpdate(BaseModel):
     subscription_status: str | None = None
     is_active: bool | None = None
     limit_overrides: dict | None = None
+    #: Em centavos, para não usar float com dinheiro. `ge=0` porque cobrança
+    #: negativa é crédito, e crédito é outro documento — não um valor mensal
+    #: com sinal invertido.
+    contract_monthly_cents: int | None = Field(default=None, ge=0, le=100_000_000)
+    contract_currency: str | None = Field(default=None, min_length=3, max_length=3)
+    overage_cents_per_unit: int | None = Field(default=None, ge=0, le=1_000_000)
 
     @field_validator("limit_overrides")
     @classmethod
