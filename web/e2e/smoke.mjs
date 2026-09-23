@@ -769,6 +769,25 @@ try {
     "a reunião move o prospect no funil",
   );
 
+  // O convite de calendário. Sem conta de email configurada nesta empresa de
+  // demonstração, o envio recusa — e é justamente isso que se quer ver: a tela
+  // diz que o compromisso está anotado aqui e o lead não sabe, em vez de fingir
+  // que combinou. Marcar sem convite não pode virar "reunião marcada" silenciosa.
+  const convite = page.locator('[data-secao="convite-da-reuniao"]').first();
+  checar(
+    (await convite.locator("span.aviso").innerText()).includes("não sabe"),
+    "a reunião sem convite diz que o lead não sabe dela",
+  );
+  await convite.locator("button").click();
+  checar(
+    await ate(async () => (await convite.locator("p.erro, p.ok").count()) > 0),
+    "enviar o convite responde em vez de estourar",
+  );
+  checar(
+    !(await convite.locator("p.erro, p.ok").innerText()).includes("Traceback"),
+    "a recusa do convite vem em português, não como exceção",
+  );
+
   // Contas-alvo: criar e **corrigir**. O domínio trocado é o erro mais caro de
   // uma planilha — com ele, o agente pesquisa a empresa errada.
   await page.goto(`${WEB}/accounts`);

@@ -19,6 +19,7 @@ import {
 
 import Nav from "../../nav";
 import {
+  ConviteDaReuniao,
   Descadastrar,
   MandarAgente,
   MarcarReuniao,
@@ -208,6 +209,7 @@ export default async function ProspectPage({ params }: { params: Promise<{ id: s
                 <th>duração</th>
                 <th>onde</th>
                 <th>estado</th>
+                <th>convite</th>
               </tr>
             </thead>
             <tbody>
@@ -218,6 +220,18 @@ export default async function ProspectPage({ params }: { params: Promise<{ id: s
                   <td>{r.location ?? "—"}</td>
                   <td>
                     <span className="tag">{r.status}</span>
+                  </td>
+                  <td>
+                    {/* A coluna existe porque "marcado aqui" e "no calendário
+                        dele" são estados diferentes, e quem opera precisa saber
+                        qual dos dois tem na mão no dia da reunião. */}
+                    {podeOperar ? (
+                      <ConviteDaReuniao prospectId={prospect.id} reuniao={r} />
+                    ) : (
+                      <span className={r.invite_sent_at ? "ok" : "aviso"}>
+                        {r.invite_sent_at ? "● enviado" : "● não enviado"}
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}

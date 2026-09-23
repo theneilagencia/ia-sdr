@@ -438,6 +438,10 @@ export type Meeting = {
   location: string | null;
   notes: string | null;
   created_at: string;
+  /** Nulo é "marcado aqui, e o lead não sabe" — reunião anotada, não combinada. */
+  invite_sent_at: string | null;
+  /** Vem preenchido quando a reunião foi gravada e o convite não saiu. */
+  invite_error: string | null;
 };
 
 export type Contact = {

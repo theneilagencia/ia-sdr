@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import AppError, NotFound
 from app.db.models.engagement import (
     Conversation,
+    Meeting,
     Message,
     MessageDirection,
     MessageStatus,
@@ -41,7 +42,7 @@ from app.db.models.engagement import (
 from app.db.models.platform import Tenant
 from app.db.models.sales import Contact, Prospect, ProspectStatus
 from app.db.session import tenant_session
-from app.services import audit, email_accounts
+from app.services import audit, calendario, email_accounts
 from app.services.unsubscribe import link_for
 from app.tenancy.context import (
     TenantContext,
@@ -327,6 +328,122 @@ def send_message(
     )
     session.flush()
     return mensagem
+
+
+def send_calendar_invite(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    meeting_id: uuid.UUID,
+    agora: datetime | None = None,
+    context: TenantContext | None = None,
+) -> Meeting:
+    """Manda o convite de calendário da reunião pelo email da própria empresa.
+
+    **Por que não passa pelos mesmos freios do envio de prospecção**, e isto é
+    decisão, não esquecimento:
+
+    * O **teto diário** e o **aquecimento** existem para proteger a reputação do
+      domínio contra volume frio. Este email vai para quem respondeu e combinou
+      uma reunião — é transacional, e segurá-lo por cota faria o lead ficar sem o
+      compromisso no calendário por causa de um limite que protege de outra coisa.
+    * O **horário comercial** também não se aplica: quem marca reunião às 21h
+      precisa que o convite chegue, e não que espere as 9h do dia seguinte para
+      confirmar uma reunião que pode ser às 10h.
+
+    **O que continua valendo, e não é negociável:** quem pediu para não receber
+    mais mensagens não recebe nem convite. Descadastro não tem exceção
+    transacional — e uma reunião marcada com quem se descadastrou é uma
+    contradição que o resto da plataforma já recusa em outros pontos.
+
+    O `SEQUENCE` sobe a cada envio: sem isso, o segundo convite da mesma reunião é
+    ignorado pelo cliente de calendário, que já conhece aquele UID — o lead
+    receberia o email e a agenda dele não mudaria.
+    """
+    agora = agora or datetime.now(UTC)
+    ctx = context or get_current_context_or_none() or system_context(tenant_id)
+
+    reuniao = session.get(Meeting, meeting_id)
+    if reuniao is None:
+        raise NotFound("Reunião não encontrada")
+    prospect = session.get(Prospect, reuniao.prospect_id)
+    contato = session.get(Contact, prospect.contact_id) if prospect else None
+    if contato is None or not contato.email:
+        raise SendBlocked("Contato sem email: não há para onde mandar o convite")
+    if contato.opted_out:
+        raise SendBlocked("Contato pediu para não receber mais mensagens")
+
+    tenant = session.get(Tenant, tenant_id)
+    fuso = _tz(_policy(tenant)["timezone"])
+    local = reuniao.scheduled_at.astimezone(fuso)
+    credenciais = email_accounts.credentials(session, tenant_id)
+
+    quando = local.strftime("%d/%m/%Y às %H:%M")
+    assunto = f"Reunião {quando} — {tenant.name}"
+    corpo = (
+        f"Olá{', ' + contato.full_name if contato.full_name else ''},\n\n"
+        f"Confirmando nossa conversa: {quando} ({local.tzname()}), "
+        f"{reuniao.duration_minutes} minutos."
+        + (f"\nOnde: {reuniao.location}" if reuniao.location else "")
+        + "\n\nO convite está anexado — aceitando, ele entra no seu calendário."
+    )
+
+    ics = calendario.convite(
+        meeting_id=reuniao.id,
+        inicio=reuniao.scheduled_at,
+        duracao_minutos=reuniao.duration_minutes,
+        organizador_email=credenciais["from_email"],
+        organizador_nome=credenciais.get("from_name") or tenant.name,
+        convidado_email=contato.email,
+        convidado_nome=contato.full_name or None,
+        assunto=assunto,
+        descricao=reuniao.notes or "",
+        local=reuniao.location,
+        sequencia=reuniao.invite_sequence,
+        agora=agora,
+    )
+
+    email = _build(
+        remetente=credenciais["from_email"],
+        nome_remetente=credenciais["from_name"],
+        destinatario=contato.email,
+        assunto=assunto,
+        corpo=corpo,
+        link_descadastro=link_for(tenant_id, contato.id),
+    )
+    # Duas cópias do mesmo arquivo, e as duas são necessárias na prática: a
+    # alternativa `text/calendar; method=REQUEST` é o que faz o Gmail e o Outlook
+    # mostrarem os botões de resposta; o anexo é o que salva quem usa cliente que
+    # ignora a alternativa, e o que permite arrastar o arquivo para a agenda.
+    email.add_alternative(ics, subtype="calendar", params={"method": "REQUEST"})
+    email.add_attachment(
+        ics.encode("utf-8"),
+        maintype="text",
+        subtype="calendar",
+        filename="convite.ics",
+        params={"method": "REQUEST"},
+    )
+
+    try:
+        _transport(credenciais, email)
+    except (smtplib.SMTPException, OSError) as exc:
+        raise SendFailed(_traduzir(exc, credenciais)) from exc
+
+    reuniao.invite_sent_at = agora
+    reuniao.invite_sequence += 1
+    audit.record(
+        session,
+        action="meeting.invite_sent",
+        resource_type="meeting",
+        resource_id=reuniao.id,
+        payload={
+            "to": contato.email,
+            "scheduled_at": reuniao.scheduled_at.isoformat(),
+            "sequence": reuniao.invite_sequence - 1,
+        },
+        context=ctx,
+    )
+    return reuniao
 
 
 def send_queued(

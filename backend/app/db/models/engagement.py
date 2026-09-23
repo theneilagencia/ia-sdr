@@ -179,3 +179,12 @@ class Meeting(Base, TenantScoped, TimestampMixin):
     location: Mapped[str | None] = mapped_column(String(500))
     external_event_id: Mapped[str | None] = mapped_column(String(255))
     notes: Mapped[str | None] = mapped_column(Text)
+    #: Quando o convite de calendário (`.ics`) foi mandado ao lead. Nulo enquanto
+    #: não foi: a tela usa para oferecer "enviar" ou "reenviar", e quem opera
+    #: precisa saber se o compromisso está no calendário do outro lado ou só no
+    #: nosso banco.
+    invite_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: `SEQUENCE` do iCalendar. Cada reenvio incrementa, e é isso que faz o
+    #: cliente de calendário tratar o arquivo como atualização do mesmo evento em
+    #: vez de ignorá-lo por já conhecer o UID.
+    invite_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

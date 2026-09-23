@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require
 from app.api.v1 import schemas
-from app.core.errors import LimitExceeded, NotFound
+from app.core.errors import AppError, LimitExceeded, NotFound
 from app.db.models.engagement import (
     Conversation,
     Meeting,
@@ -21,7 +21,7 @@ from app.db.models.engagement import (
 )
 from app.db.models.sales import Campaign, Company, Contact, Prospect, ProspectStatus, Score
 from app.rbac.roles import Permission
-from app.services import audit, csv_import, ravi
+from app.services import audit, csv_import, email_sender, ravi
 from app.services.csv_import import CsvInvalido
 from app.services.usage import UsageKind, count_this_month, effective_limits, record_usage
 from app.tenancy.context import TenantContext
@@ -434,6 +434,44 @@ def book_meeting(
         payload={"prospect_id": str(prospect_id), "scheduled_at": payload.scheduled_at.isoformat()},
         context=ctx,
     )
+
+    resposta = schemas.MeetingResponse.model_validate(reuniao)
+    if payload.send_invite:
+        # A reunião fica gravada mesmo que o convite não saia: conta de email não
+        # configurada ou servidor fora não pode apagar o registro da conversão que
+        # esta plataforma existe para produzir. O erro volta na resposta e a tela
+        # oferece reenviar.
+        try:
+            email_sender.send_calendar_invite(db, tenant_id=ctx.tenant_id, meeting_id=reuniao.id)
+        except AppError as exc:
+            return resposta.model_copy(update={"invite_error": exc.message})
+        db.flush()
+        return schemas.MeetingResponse.model_validate(reuniao)
+    return resposta
+
+
+@router.post(
+    "/{prospect_id}/meetings/{meeting_id}/invite",
+    response_model=schemas.MeetingResponse,
+)
+def send_meeting_invite(
+    prospect_id: uuid.UUID,
+    meeting_id: uuid.UUID,
+    ctx: TenantContext = Depends(require(Permission.MEETING_WRITE)),
+    db: Session = Depends(get_db),
+):
+    """Manda (ou reenvia) o convite de calendário da reunião.
+
+    Reenviar é caso de uso de verdade: o lead apagou o email, o endereço estava
+    errado, ou a reunião foi remarcada. O `SEQUENCE` do iCalendar sobe a cada
+    envio, então o calendário do outro lado trata o novo arquivo como atualização
+    do mesmo compromisso em vez de ignorá-lo.
+    """
+    reuniao = db.get(Meeting, meeting_id)
+    if reuniao is None or reuniao.prospect_id != prospect_id:
+        raise NotFound("Reunião não encontrada")
+    email_sender.send_calendar_invite(db, tenant_id=ctx.tenant_id, meeting_id=meeting_id)
+    db.flush()
     return reuniao
 
 

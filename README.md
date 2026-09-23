@@ -15,8 +15,8 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 **Sprint 1 (Foundation) implementado e testado**: autenticação, tenants,
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
-criptografia de credenciais e painel de plataforma. 110 endpoints, 25 tabelas,
-410 testes contra PostgreSQL de verdade.
+criptografia de credenciais e painel de plataforma. 111 endpoints, 25 tabelas,
+429 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
@@ -193,6 +193,12 @@ O que está coberto:
   toda escrita cifrada e falha se a coluna não estiver declarada — uma rotação que
   esquece uma coluna não falha, ela apaga em silêncio a única cópia daquele
   segredo, e o estrago aparece semanas depois
+- `test_convite_de_calendario.py` — o `.ics` que dispensa OAuth: o arquivo
+  conforme (vírgula escapada, dobra em 75 **octetos** para não partir acento no
+  meio, CRLF no fio — cliente de calendário descarta arquivo malformado em
+  silêncio), a sequência que sobe a cada reenvio, e as guardas: descadastro
+  recusa, teto diário e horário comercial não seguram, e a reunião fica gravada
+  mesmo quando o convite não sai
 - `test_mfa.py` — o segundo fator: os seis vetores da RFC 6238 (é o que sustenta
   não ter trazido dependência), o mesmo código recusado na segunda vez, cinco
   chutes e a conta descansa, desligar exigindo senha **e** código, e o convite
@@ -225,13 +231,15 @@ O que está coberto:
   `MockTransport`: o token que nunca volta na resposta, o prospect sem nota que
   não sobe, o reenvio que não duplica, e um teste que usa o modelo do próprio
   Qualification Agent para a forma dos critérios não poder divergir em silêncio
-- `web/e2e/smoke.mjs` — browser de verdade: cento e doze verificações cobrindo o
+- `web/e2e/smoke.mjs` — browser de verdade: cento e quinze verificações cobrindo o
   caminho crítico de cada tela, inclusive o que é salvo no Company Brain voltar
   na recarga, o documento colado aparecer indexado, e o encadeamento que faz o
   funil andar — critério salvo na campanha, planilha do Excel em português
   importada com o relatório apontando a linha ruim, e o prospect importado
   aparecendo pelo nome no seletor de alvo do agente, a resposta escrita à mão
-  nascendo rascunho e chegando à fila de Revisão, e a reunião marcada movendo o
+  nascendo rascunho e chegando à fila de Revisão, a reunião marcada dizendo se o
+  convite de calendário chegou ao lead ou se o compromisso só existe aqui, e a
+  reunião marcada movendo o
   prospect no funil, a marca de platform admin nos dois sentidos — quem a tem
   enxerga as empresas, quem não a tem não ganha nem o link —, a cadência que
   nasce desativada e recusa inscrição até ser ativada, e a conexão com o RAVI

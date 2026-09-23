@@ -15,88 +15,14 @@ from sqlalchemy import select
 
 from app.db.models.engagement import Conversation, Message, MessageStatus
 from app.db.models.platform import Tenant
-from app.db.models.sales import Campaign, Company, Contact, Prospect
+from app.db.models.sales import Contact, Prospect
 from app.db.session import tenant_session
-from app.services import email_accounts, email_sender
+from app.services import email_sender
 from app.services.email_sender import SendBlocked, SendFailed
 from app.services.unsubscribe import InvalidUnsubscribeToken, make_token, parse_token
 
 # Uma terça-feira, 10h em São Paulo — dentro do horário comercial.
 HORA_BOA = datetime(2026, 9, 22, 13, 0, tzinfo=UTC)
-
-
-@pytest.fixture
-def enviados(monkeypatch):
-    """Captura o que sairia pelo SMTP, sem sair."""
-    capturados = []
-    monkeypatch.setattr(
-        email_sender, "_transport", lambda credenciais, mensagem: capturados.append(mensagem)
-    )
-    return capturados
-
-
-@pytest.fixture
-def pronto_para_enviar(make_tenant):
-    """Empresa com conta de email configurada e um rascunho já aprovado."""
-    t = make_tenant()
-    with tenant_session(t["tenant_id"]) as session:
-        email_accounts.store(
-            session,
-            t["tenant_id"],
-            provider="gmail",
-            from_email="vendas@apymine.com",
-            from_name="Vendas Apy Mine",
-            username=None,
-            password="senha-de-app",
-            host=None,
-            port=None,
-            created_by=t["user_id"],
-        )
-        campanha = Campaign(tenant_id=t["tenant_id"], name="Mining Canada", slug="mc")
-        empresa = Company(tenant_id=t["tenant_id"], name="Northern Ore")
-        session.add_all([campanha, empresa])
-        session.flush()
-        contato = Contact(
-            tenant_id=t["tenant_id"],
-            company_id=empresa.id,
-            full_name="Alice",
-            email="alice@northernore.ca",
-        )
-        session.add(contato)
-        session.flush()
-        prospect = Prospect(
-            tenant_id=t["tenant_id"],
-            campaign_id=campanha.id,
-            contact_id=contato.id,
-            company_id=empresa.id,
-            status="scored",
-        )
-        session.add(prospect)
-        session.flush()
-        conversa = Conversation(
-            tenant_id=t["tenant_id"],
-            prospect_id=prospect.id,
-            campaign_id=campanha.id,
-            subject="Turnos em Sudbury",
-        )
-        session.add(conversa)
-        session.flush()
-        mensagem = Message(
-            tenant_id=t["tenant_id"],
-            conversation_id=conversa.id,
-            direction="outbound",
-            status=MessageStatus.QUEUED.value,
-            subject="Turnos em Sudbury",
-            body="Alice, vi as vagas em Sudbury.",
-        )
-        session.add(mensagem)
-        session.flush()
-        return {
-            **t,
-            "message_id": mensagem.id,
-            "prospect_id": prospect.id,
-            "contact_id": contato.id,
-        }
 
 
 def _enviar(cenario, **kwargs):

@@ -935,29 +935,62 @@ export async function pedirRespostaAoAgente(_: Resultado, form: FormData): Promi
 }
 
 // ------------------------------------------------------- detalhe do prospect
+export async function reenviarConvite(_: Resultado, form: FormData): Promise<Resultado> {
+  const prospect = String(form.get("prospect_id"));
+  const reuniao = String(form.get("meeting_id"));
+  const resultado = await executar(
+    () =>
+      api(`/api/v1/prospects/${prospect}/meetings/${reuniao}/invite`, { method: "POST" }),
+    "Convite enviado. Cada reenvio conta como atualização do mesmo compromisso, " +
+      "não como um segundo evento na agenda do lead.",
+  );
+  revalidatePath(`/prospects/${prospect}`);
+  return resultado;
+}
+
 export async function marcarReuniao(_: Resultado, form: FormData): Promise<Resultado> {
   const id = String(form.get("prospect_id"));
   const quando = String(form.get("scheduled_at") ?? "");
   if (!quando) return { ok: false, message: "Escolha a data e a hora." };
+  const comConvite = form.get("send_invite") === "on";
 
+  let convite: string | null = null;
   const resultado = await executar(
-    () =>
-      api(`/api/v1/prospects/${id}/meetings`, {
-        method: "POST",
-        body: {
-          // O input datetime-local manda hora local sem fuso; o backend quer
-          // instante. A conversão é aqui, no servidor do Next, com o fuso de
-          // quem preencheu — não no banco, adivinhando.
-          scheduled_at: new Date(quando).toISOString(),
-          duration_minutes: Number(form.get("duration_minutes") ?? 30),
-          location: texto(form, "location"),
-          notes: texto(form, "notes"),
+    async () => {
+      const reuniao = await api<{ invite_error: string | null; invite_sent_at: string | null }>(
+        `/api/v1/prospects/${id}/meetings`,
+        {
+          method: "POST",
+          body: {
+            // O input datetime-local manda hora local sem fuso; o backend quer
+            // instante. A conversão é aqui, no servidor do Next, com o fuso de
+            // quem preencheu — não no banco, adivinhando.
+            scheduled_at: new Date(quando).toISOString(),
+            duration_minutes: Number(form.get("duration_minutes") ?? 30),
+            location: texto(form, "location"),
+            notes: texto(form, "notes"),
+            send_invite: comConvite,
+          },
         },
-      }),
-    "Reunião marcada. É a conversão que a plataforma existe para produzir.",
+      );
+      // A reunião fica gravada mesmo quando o convite não sai, e quem opera
+      // precisa saber a diferença: "está no calendário dele" e "está anotado
+      // aqui" levam a conversas bem diferentes no dia da reunião.
+      convite = reuniao.invite_error;
+      return reuniao;
+    },
+    comConvite
+      ? "Reunião marcada e convite enviado — ele aparece no calendário do lead quando aceitar."
+      : "Reunião marcada. É a conversão que a plataforma existe para produzir.",
   );
   revalidatePath(`/prospects/${id}`);
   revalidatePath("/");
+  if (resultado?.ok && convite) {
+    return {
+      ok: false,
+      message: `Reunião marcada, mas o convite não saiu: ${convite} Você pode reenviar abaixo.`,
+    };
+  }
   return resultado;
 }
 

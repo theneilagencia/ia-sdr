@@ -595,6 +595,10 @@ class MeetingCreate(BaseModel):
     location: str | None = None
     owner_user_id: uuid.UUID | None = None
     notes: str | None = None
+    #: Manda o convite de calendário (`.ics`) para o lead. Desligado por padrão:
+    #: quem registra uma reunião já combinada por telefone não quer disparar um
+    #: convite que o outro lado não está esperando.
+    send_invite: bool = False
 
 
 class MeetingResponse(ORMModel):
@@ -608,6 +612,14 @@ class MeetingResponse(ORMModel):
     location: str | None
     notes: str | None
     created_at: datetime
+    #: Nulo significa "marcado aqui, e o outro lado não sabe" — que é a diferença
+    #: entre reunião combinada e reunião anotada.
+    invite_sent_at: datetime | None = None
+    #: Preenchido quando a reunião foi criada mas o convite não saiu (conta de
+    #: email não configurada, servidor fora, contato sem endereço). A reunião
+    #: fica: perder o registro por causa do email seria trocar o que importa pelo
+    #: acessório.
+    invite_error: str | None = None
 
 
 class QualificationResponse(ORMModel):

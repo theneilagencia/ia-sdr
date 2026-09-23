@@ -34,6 +34,12 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from alembic import command  # noqa: E402
 from app.db.models import TENANT_SCOPED_TABLES  # noqa: E402
+from app.db.models.engagement import (  # noqa: E402
+    Conversation,
+    Message,
+    MessageStatus,
+)
+from app.db.models.sales import Campaign, Company, Contact, Prospect  # noqa: E402
 from app.db.session import (  # noqa: E402
     AdminSessionFactory,
     admin_engine,
@@ -43,6 +49,7 @@ from app.db.session import (  # noqa: E402
     verify_database_roles,
 )
 from app.main import app  # noqa: E402
+from app.services import email_accounts, email_sender  # noqa: E402
 from scripts.bootstrap_roles import main as bootstrap_roles  # noqa: E402
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -184,3 +191,84 @@ def membro(client, auth_headers):
 def db_for():
     """Sessão já escopada em um tenant, como a aplicação usa."""
     return tenant_session
+
+# ---------------------------------------------------- envio de email de verdade
+#
+# Estas duas vivem aqui, e não no arquivo de teste de envio, porque o convite de
+# calendário usa o mesmo cenário: empresa com conta de email configurada e um
+# prospect com contato que tem endereço. Duplicar a montagem faria os dois
+# arquivos divergirem no dia em que um campo novo entrasse.
+
+
+@pytest.fixture
+def enviados(monkeypatch):
+    """Captura o que sairia pelo SMTP, sem sair."""
+    capturados = []
+    monkeypatch.setattr(
+        email_sender, "_transport", lambda credenciais, mensagem: capturados.append(mensagem)
+    )
+    return capturados
+
+
+@pytest.fixture
+def pronto_para_enviar(make_tenant):
+    """Empresa com conta de email configurada e um rascunho já aprovado."""
+    t = make_tenant()
+    with tenant_session(t["tenant_id"]) as session:
+        email_accounts.store(
+            session,
+            t["tenant_id"],
+            provider="gmail",
+            from_email="vendas@apymine.com",
+            from_name="Vendas Apy Mine",
+            username=None,
+            password="senha-de-app",
+            host=None,
+            port=None,
+            created_by=t["user_id"],
+        )
+        campanha = Campaign(tenant_id=t["tenant_id"], name="Mining Canada", slug="mc")
+        empresa = Company(tenant_id=t["tenant_id"], name="Northern Ore")
+        session.add_all([campanha, empresa])
+        session.flush()
+        contato = Contact(
+            tenant_id=t["tenant_id"],
+            company_id=empresa.id,
+            full_name="Alice",
+            email="alice@northernore.ca",
+        )
+        session.add(contato)
+        session.flush()
+        prospect = Prospect(
+            tenant_id=t["tenant_id"],
+            campaign_id=campanha.id,
+            contact_id=contato.id,
+            company_id=empresa.id,
+            status="scored",
+        )
+        session.add(prospect)
+        session.flush()
+        conversa = Conversation(
+            tenant_id=t["tenant_id"],
+            prospect_id=prospect.id,
+            campaign_id=campanha.id,
+            subject="Turnos em Sudbury",
+        )
+        session.add(conversa)
+        session.flush()
+        mensagem = Message(
+            tenant_id=t["tenant_id"],
+            conversation_id=conversa.id,
+            direction="outbound",
+            status=MessageStatus.QUEUED.value,
+            subject="Turnos em Sudbury",
+            body="Alice, vi as vagas em Sudbury.",
+        )
+        session.add(mensagem)
+        session.flush()
+        return {
+            **t,
+            "message_id": mensagem.id,
+            "prospect_id": prospect.id,
+            "contact_id": contato.id,
+        }

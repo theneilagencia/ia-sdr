@@ -120,8 +120,30 @@ Tudo o que falta aqui depende de uma conta em serviço de terceiro, e por isso
 não foi construído às cegas: código de integração que nunca falou com a API de
 verdade é código que ainda não existe.
 
-- Integração de calendário — Google ou Microsoft (o agendamento manual já
-  existe e é o mesmo caminho)
+- **Convite de calendário ✅ — por `.ics`, sem OAuth de ninguém.** A integração com
+  Google Calendar ou Microsoft Graph estava aqui como "depende de terceiro", e o
+  que ela entrega de fato — o compromisso no calendário do lead — não dependia:
+  um `VEVENT` (RFC 5545, `METHOD:REQUEST`) anexado ao email que já sai pela conta
+  da própria empresa faz Gmail, Outlook e Apple Mail mostrarem "Aceitar" de forma
+  nativa. Sem aplicativo verificado, sem tela de consentimento por empresa, e sem
+  cliente ficando de fora por não autorizar.
+
+  O convite é opcional e desligado por padrão: quem registra reunião combinada
+  por telefone não quer disparar convite que o outro lado não espera. `SEQUENCE`
+  sobe a cada reenvio, senão o calendário do lead ignora o arquivo por já conhecer
+  o UID — o email chegaria e a agenda não mudaria. E `invite_sent_at` existe para
+  a tela distinguir **reunião combinada de reunião anotada**, que é a diferença
+  que aparece no dia.
+
+  Os freios de prospecção não se aplicam, e isso é decisão: teto diário e
+  aquecimento protegem reputação contra volume frio, e este email é resposta a um
+  acordo; horário comercial seguraria até as 9h um convite para uma reunião das
+  10h. O que **não** tem exceção transacional é o descadastro: quem pediu para não
+  receber não recebe nem convite.
+
+  O que o `.ics` não dá, e continua dependendo de OAuth: **ler** a agenda do
+  vendedor para oferecer só horários de fato livres. Marcar reunião segue sendo
+  trabalho de quem opera
 - **Integração com o RAVI** ✅ (`app/services/ravi.py`). Esta plataforma não tem
   CRM próprio e não vai ter: o lead vive no RAVI, e o que o AI SDR faz é
   pesquisar, pontuar, abordar e qualificar — empurrando isso para lá. Duas bases

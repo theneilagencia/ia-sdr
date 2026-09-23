@@ -6,6 +6,7 @@ import {
   dispararNoProspect,
   enviarParaRavi,
   marcarReuniao,
+  reenviarConvite,
   registrarDescadastro,
   registrarRespostaRecebida,
 } from "../../actions";
@@ -65,9 +66,8 @@ export function MarcarReuniao({ prospectId }: { prospectId: string }) {
       <MarcaDeHidratacao />
       <h3>Marcar reunião</h3>
       <p className="ajuda">
-        A conversão que a plataforma existe para produzir. A integração de calendário
-        ainda não existe; marcar aqui move o prospect para &ldquo;reunião marcada&rdquo; e
-        entra no funil da tela inicial.
+        A conversão que a plataforma existe para produzir. Marcar aqui move o prospect
+        para &ldquo;reunião marcada&rdquo; e entra no funil da tela inicial.
       </p>
       <form action={marcar} className="campos">
         <input type="hidden" name="prospect_id" value={prospectId} />
@@ -89,6 +89,17 @@ export function MarcarReuniao({ prospectId }: { prospectId: string }) {
           Notas
           <textarea name="notes" rows={2} />
         </label>
+        {/* Desligado por padrão: quem registra uma reunião já combinada por
+            telefone não quer disparar um convite que o outro lado não espera. */}
+        <label className="opcoes">
+          <input type="checkbox" name="send_invite" defaultChecked={false} />
+          Enviar convite de calendário para o lead
+        </label>
+        <p className="ajuda">
+          O convite vai pela conta de email desta empresa, como anexo de calendário.
+          Gmail, Outlook e Apple Mail mostram &ldquo;Aceitar&rdquo; direto na mensagem — não é
+          preciso conectar Google Calendar nem autorizar aplicativo nenhum.
+        </p>
         <button className="primary" type="submit" disabled={marcando}>
           {marcando ? "Marcando…" : "Marcar reunião"}
         </button>
@@ -200,5 +211,45 @@ export function Descadastrar({
         <p className={resultado.ok ? "ok" : "erro"}>{resultado.message}</p>
       ) : null}
     </section>
+  );
+}
+
+
+/**
+ * Reenviar o convite de uma reunião já marcada.
+ *
+ * Caso de uso de verdade: o lead apagou o email, o endereço estava errado, ou a
+ * reunião mudou de hora. O `SEQUENCE` do iCalendar sobe a cada envio, então o
+ * calendário do outro lado trata o arquivo novo como atualização do mesmo
+ * compromisso — e não como um segundo evento no mesmo horário.
+ */
+export function ConviteDaReuniao({
+  prospectId,
+  reuniao,
+}: {
+  prospectId: string;
+  reuniao: { id: string; invite_sent_at: string | null };
+}) {
+  const [resultado, reenviar, enviando] = useActionState(reenviarConvite, null);
+  const jaFoi = Boolean(reuniao.invite_sent_at);
+
+  return (
+    <div data-secao="convite-da-reuniao" data-reuniao={reuniao.id}>
+      <span className={jaFoi ? "ok" : "aviso"}>
+        {jaFoi
+          ? `● convite enviado em ${new Date(reuniao.invite_sent_at as string).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`
+          : "● convite não enviado — está marcado aqui, e o lead não sabe"}
+      </span>
+      <form action={reenviar} className="inline">
+        <input type="hidden" name="prospect_id" value={prospectId} />
+        <input type="hidden" name="meeting_id" value={reuniao.id} />
+        <button className="ghost" type="submit" disabled={enviando}>
+          {enviando ? "Enviando…" : jaFoi ? "Reenviar convite" : "Enviar convite"}
+        </button>
+      </form>
+      {resultado ? (
+        <p className={resultado.ok ? "ok" : "erro"}>{resultado.message}</p>
+      ) : null}
+    </div>
   );
 }
