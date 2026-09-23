@@ -12,33 +12,43 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 
 ## Estado atual
 
-**Sprint 1 (Foundation) implementado e testado**: autenticação, tenants,
-RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
-orquestrador de agentes, medição de consumo, limites de plano, auditoria,
-criptografia de credenciais e painel de plataforma. 117 endpoints, 26 tabelas,
-512 testes contra PostgreSQL de verdade.
+**Pronta para ir ao ar.** O caminho completo funciona: uma lista entra, os agentes
+pesquisam, pontuam, escrevem e qualificam, uma pessoa aprova, o email sai pela
+conta da própria empresa, a resposta volta para a conversa certa, o follow-up
+acontece sem ninguém lembrar, a reunião fecha o funil e o lead sobe para o RAVI.
+Um worker faz esse ciclo girar sem ninguém olhando, um web app deixa uma pessoa
+leiga operar tudo isso, e um comando põe a stack de pé num servidor com HTTPS.
 
-**Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
-estruturada e validada, busca na web, retomada de turno pausado, teto de custo
-por execução e custo real por token em cada evento de consumo. Em volta dele,
-o funil já funciona: contas-alvo, import de prospects com deduplicação e cota,
-pontuação contra o ICP com o cálculo aberto, e os números da tela inicial em
-`GET /api/v1/prospects/funnel`. O **Outreach Agent** escreve a primeira
-abordagem ancorada na pesquisa — e para no rascunho: disparar email escrito
-por IA sem ninguém ter lido o primeiro é como se queima um domínio. O
-**Conversation Agent** responde quando o lead responde — e escala para humano
-quando a resposta não está na base, quando o assunto é preço ou jurídico, ou
-quando ele próprio recusa. E o **Qualification Agent** avalia o lead critério
-a critério contra a campanha — com dois freios no código, não no prompt:
-critério cumprido sem evidência é rebaixado, e confiança baixa não vira
-"qualificado". Os quatro agentes do MVP estão ligados.
+117 endpoints, 26 tabelas, 512 testes contra PostgreSQL de verdade, 134
+verificações num Chromium de verdade, e a stack de produção subindo inteira no
+CI — com a fumaça rodando por cima das imagens de produção.
 
-O **web app** (`web/`, Next.js) já mostra o funil, a fila de revisão com
-aprovar e recusar, os prospects e as campanhas. O token fica num cookie
-httpOnly e todas as chamadas à API saem do servidor do Next: nenhuma
-credencial chega ao browser.
+**Os quatro agentes chamam o modelo de verdade.** Research pesquisa a conta com
+busca na web e devolve achados com evidência e fonte; Outreach escreve a
+abordagem ancorada nessa pesquisa e para no rascunho; Conversation responde pela
+base de conhecimento do tenant e escala para humano quando não sabe; Qualification
+avalia critério a critério contra a campanha, com os freios no código e não no
+prompt. Modelo, instruções e teto de resposta são configuráveis por empresa e por
+agente, na tela.
 
-Veja [`docs/05-roadmap.md`](docs/05-roadmap.md) para o que vem a seguir.
+**Em volta deles, a operação inteira:** contas-alvo, contatos, import por CSV com
+deduplicação e cota, pontuação contra o ICP, fila de revisão humana, envio com
+limite diário e aquecimento de domínio, recebimento por IMAP com bounce
+reconhecido, cadência multi-passo com regras de parada, base de conhecimento com
+busca por relevância, convite de calendário por `.ics`, segundo fator por TOTP,
+fechamento mensal por contrato, descarte automático por prazo, exportação completa
+e painel de plataforma.
+
+**O que ainda depende de uma pessoa:** o primeiro disparo de verdade — chave real,
+alvo real, alguém lendo o que a IA escreveu antes de aprovar. A mecânica está
+testada; o texto que um modelo real produz, não. O roteiro está em
+[`docs/07-primeiro-disparo.md`](docs/07-primeiro-disparo.md), e o do go-live em
+[`docs/08-go-live.md`](docs/08-go-live.md).
+
+**O que depende de fornecedor, e por isso não foi construído às cegas:**
+enriquecimento de prospects (dado se compra), busca vetorial (exige fornecedor de
+embeddings) e SSO (depende do provedor de identidade do cliente). O que sobra está
+em [`docs/05-roadmap.md`](docs/05-roadmap.md), com o motivo de cada um.
 
 ## Rodando
 
