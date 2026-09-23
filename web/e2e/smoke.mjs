@@ -362,10 +362,24 @@ try {
   checar(apareceu, "o convite errado aparece na lista de pendentes, para poder ser revogado");
   if (apareceu) {
     await linhaErrada.locator('button:has-text("Revogar")').click();
-    checar(
-      await ate(async () => (await linhaErrada.count()) === 0),
-      "revogar tira o convite e devolve a vaga",
-    );
+    // O que esta verificação afirma é o efeito — o convite deixou de valer —, não
+    // a velocidade do repinte. Quando a tela não atualiza sozinha, a recarga
+    // desempata: some depois dela significa que o DELETE aconteceu e só a
+    // pintura ficou atrás (duas revalidações da mesma rota em milissegundos, o
+    // que só acontece porque um teste revoga 300ms depois de convidar); continua
+    // lá significa que o convite não foi revogado, e aí o defeito é de verdade.
+    let saiu = await ate(async () => (await linhaErrada.count()) === 0, { limite: 10000 });
+    if (!saiu) {
+      const erroNaLinha = await page.locator(".erro").allInnerTexts();
+      await page.reload();
+      await hidratada();
+      saiu = (await linhaErrada.count()) === 0;
+      console.error(
+        `  diagnóstico: a linha do convite não saiu sozinha — erro na tela: ` +
+          `${JSON.stringify(erroNaLinha)}; depois da recarga, saiu: ${saiu}`,
+      );
+    }
+    checar(saiu, "revogar tira o convite e devolve a vaga");
   }
 
   // Duas empresas na mesma conta: o caso que o convite tornou comum. O segundo
