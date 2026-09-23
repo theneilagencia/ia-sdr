@@ -7,6 +7,13 @@
  *
  *   node e2e/smoke.mjs
  *
+ * **Precisa do limitador de requisições afrouxado** (`RATE_LIMIT_REQUESTS`). Um
+ * navegador dirigido por script percorre as dezenove telas em menos de um
+ * minuto, e a execução passa de 300 chamadas com o mesmo token — o teto de
+ * produção por janela de 60s. Quando ele trava, o que falha é a tela em que a
+ * cota acabou, e a mensagem não tem nada a ver com a causa. O CI já sobe a API
+ * com o teto alto.
+ *
  * **Precisa de um banco recém-semeado** (`seed_demo` mais `promover_admin` no
  * owner da Apy Mine, que é o que o CI faz). Várias verificações contam linhas
  * antes e depois de uma ação, então rodar duas vezes contra o mesmo banco falha
@@ -49,6 +56,35 @@ async function ate(condicao, { limite = 20000, passo = 250 } = {}) {
     if (Date.now() >= fim) return false;
     await page.waitForTimeout(passo);
   }
+}
+
+/**
+ * Convidar pela tela, dizendo o que falhou quando falha.
+ *
+ * As três chamadas de convite deste teste faziam o mesmo fill-select-click, e
+ * quando uma delas não produzia efeito a mensagem era só "não apareceu". O
+ * clique de formulário é o ponto mais frágil desta suíte: se ele cair antes de o
+ * React assumir a página, é engolido em silêncio — foi a causa da intermitência
+ * que já apareceu duas vezes aqui. Então: espera pelo link (prova de que a ação
+ * rodou), e se não vier, reclica uma vez e conta o que a tela dizia.
+ */
+async function convidarPelaTela(email, papel = "operator") {
+  const secao = page.locator('[data-secao="convidar"]');
+  const link = secao.locator('[data-campo="link-de-convite"]');
+  for (const tentativa of [1, 2]) {
+    await secao.locator('input[name="email"]').fill(email);
+    await secao.locator("select").selectOption(papel);
+    await secao.locator('button[type="submit"]').click();
+    if (await ate(async () => (await link.count()) > 0, { limite: 15000 })) {
+      return await link.inputValue();
+    }
+    console.error(
+      `  diagnóstico: convite de ${email} não produziu link na tentativa ${tentativa} — ` +
+        `erro na tela: ${JSON.stringify(await page.locator(".erro").allInnerTexts())}; ` +
+        `tela de falha: ${await page.locator('h1:has-text("Algo falhou")').count()}`,
+    );
+  }
+  return "";
 }
 
 /**
@@ -218,16 +254,8 @@ try {
     page.locator('[data-secao="convites-pendentes"] tbody tr').count();
   const pendentesAntes = await pendentes();
   const convidadaEmail = `convidada-${Date.now()}@example.com`;
-  const convidar = page.locator('[data-secao="convidar"]');
-  await convidar.locator('input[name="email"]').fill(convidadaEmail);
-  await convidar.locator("select").selectOption("operator");
-  await convidar.locator('button[type="submit"]').click();
-  const linkNaTela = convidar.locator('[data-campo="link-de-convite"]');
-  checar(
-    await ate(async () => (await linkNaTela.count()) > 0),
-    "convidar devolve o link de aceite",
-  );
-  const linkDoConvite = (await linkNaTela.count()) > 0 ? await linkNaTela.inputValue() : "";
+  const linkDoConvite = await convidarPelaTela(convidadaEmail);
+  checar(Boolean(linkDoConvite), "convidar devolve o link de aceite");
   checar(linkDoConvite.includes("/convite/"), "o link aponta para a tela de aceite");
 
   await page.reload();
@@ -327,19 +355,18 @@ try {
 
   // Revogar: o caminho de quem convidou o email errado.
   const errada = `errada-${Date.now()}@example.com`;
-  await page.locator('[data-secao="convidar"] input[name="email"]').fill(errada);
-  await page.locator('[data-secao="convidar"] button[type="submit"]').click();
-  checar(
-    await ate(async () => (await page.locator(`[data-convite="${errada}"]`).count()) === 1),
-    "o convite errado aparece para poder ser revogado",
-  );
-  await page
-    .locator(`[data-convite="${errada}"] button:has-text("Revogar")`)
-    .click();
-  checar(
-    await ate(async () => (await page.locator(`[data-convite="${errada}"]`).count()) === 0),
-    "revogar tira o convite e devolve a vaga",
-  );
+  const linkErrado = await convidarPelaTela(errada, "viewer");
+  checar(Boolean(linkErrado), "o convite errado é emitido");
+  const linhaErrada = page.locator(`[data-convite="${errada}"]`);
+  const apareceu = await ate(async () => (await linhaErrada.count()) === 1);
+  checar(apareceu, "o convite errado aparece na lista de pendentes, para poder ser revogado");
+  if (apareceu) {
+    await linhaErrada.locator('button:has-text("Revogar")').click();
+    checar(
+      await ate(async () => (await linhaErrada.count()) === 0),
+      "revogar tira o convite e devolve a vaga",
+    );
+  }
 
   // Duas empresas na mesma conta: o caso que o convite tornou comum. O segundo
   // owner do seed é convidado para cá, e a partir daí precisa conseguir ir e
@@ -357,14 +384,7 @@ try {
     (await page.locator('[data-campo="link-de-convite"]').count()) === 0,
     "a recarga limpa o link anterior da tela",
   );
-  await page.locator('[data-secao="convidar"] input[name="email"]').fill(SEGUNDO_EMAIL);
-  await page.locator('[data-secao="convidar"] select').selectOption("viewer");
-  await page.locator('[data-secao="convidar"] button[type="submit"]').click();
-  const linkSegundo = await ate(
-    async () => (await page.locator('[data-campo="link-de-convite"]').count()) > 0,
-  )
-    ? await page.locator('[data-campo="link-de-convite"]').inputValue()
-    : "";
+  const linkSegundo = await convidarPelaTela(SEGUNDO_EMAIL, "viewer");
   checar(Boolean(linkSegundo), "convite para quem já tem empresa própria é emitido");
 
   if (linkSegundo) {

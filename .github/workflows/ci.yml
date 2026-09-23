@@ -113,6 +113,15 @@ jobs:
       SECRETS_ENCRYPTION_KEY: ci-encryption-key
       API_URL: http://localhost:8000
       WEB_URL: http://localhost:3000
+      # A fumaça percorre as dezenove telas em menos de um minuto, e cada tela
+      # faz várias chamadas do servidor do Next: a execução inteira passa de 300
+      # requisições com o mesmo token, que é exatamente o teto de produção por
+      # janela de 60s. No runner, rápido, tudo cai na mesma janela e o limitador
+      # começa a recusar — e o teste acusava a tela em que a cota acabou, não o
+      # limite. Aqui é a mesma decisão que a suíte de testes já toma no conftest:
+      # navegador dirigido em velocidade de máquina não é o tráfego que esse
+      # freio existe para moldar, e ele tem testes próprios em test_rate_limit.py.
+      RATE_LIMIT_REQUESTS: "10000"
 
     steps:
       - uses: actions/checkout@v4

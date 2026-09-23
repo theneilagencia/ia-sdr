@@ -215,7 +215,7 @@ O que está coberto:
   `MockTransport`: o token que nunca volta na resposta, o prospect sem nota que
   não sobe, o reenvio que não duplica, e um teste que usa o modelo do próprio
   Qualification Agent para a forma dos critérios não poder divergir em silêncio
-- `web/e2e/smoke.mjs` — browser de verdade: cento e uma verificações cobrindo o
+- `web/e2e/smoke.mjs` — browser de verdade: cento e duas verificações cobrindo o
   caminho crítico de cada tela, inclusive o que é salvo no Company Brain voltar
   na recarga, o documento colado aparecer indexado, e o encadeamento que faz o
   funil andar — critério salvo na campanha, planilha do Excel em português
@@ -236,7 +236,11 @@ O que está coberto:
   fica nos testes de backend — repetir tudo no browser só somaria tempo e
   superfície de intermitência. Pega o
   que build e typecheck não pegam, como Server Action que compila e falha ao
-  executar
+  executar. Precisa do limitador de requisições afrouxado: um navegador dirigido
+  por script percorre as dezenove telas em menos de um minuto e passa das 300
+  chamadas com o mesmo token — o teto de produção por janela de 60s. Com ele
+  ligado, o que falha é a tela em que a cota acabou, e a mensagem não tem
+  relação com a causa
 
 ## Estrutura
 
