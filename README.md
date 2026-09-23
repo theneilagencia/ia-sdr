@@ -16,7 +16,7 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
 orquestrador de agentes, medição de consumo, limites de plano, auditoria,
 criptografia de credenciais e painel de plataforma. 110 endpoints, 25 tabelas,
-399 testes contra PostgreSQL de verdade.
+410 testes contra PostgreSQL de verdade.
 
 **Sprint 2 em andamento**: o Research Agent chama o modelo de verdade — saída
 estruturada e validada, busca na web, retomada de turno pausado, teto de custo
@@ -187,6 +187,12 @@ O que está coberto:
   migrado é o que os modelos descrevem (um `--autogenerate` agora não escreveria
   nada), as migrations formam uma linha só sem ramo, e nenhum erro da API
   compartilha código com outro
+- `test_rotacao_de_chave.py` — a resposta a "e se a chave de cifra vazar?". A
+  chave é uma lista: a primeira cifra, qualquer uma decifra, e o script recifra o
+  que está guardado. O teste que mais importa é o tripwire que procura no código
+  toda escrita cifrada e falha se a coluna não estiver declarada — uma rotação que
+  esquece uma coluna não falha, ela apaga em silêncio a única cópia daquele
+  segredo, e o estrago aparece semanas depois
 - `test_mfa.py` — o segundo fator: os seis vetores da RFC 6238 (é o que sustenta
   não ter trazido dependência), o mesmo código recusado na segunda vez, cinco
   chutes e a conta descansa, desligar exigindo senha **e** código, e o convite

@@ -362,7 +362,24 @@ verdade é código que ainda não existe.
   tabela de consumo, e `voice` aparece nos recursos do plano Enterprise — mas
   não há código atrás de nenhuma das duas. Hoje são promessa no modelo de dados,
   não funcionalidade; ficam aqui para que ninguém as venda antes de existirem
-- Secrets manager externo (hoje a chave Fernet vive no `.env` do servidor)
+- **Rotação da chave de cifra ✅.** O risco real nunca foi *onde* a chave Fernet
+  mora: era não haver caminho para trocá-la. Se ela vazasse, a única resposta era
+  "perca toda credencial de email e chave de API já salva" — o que na prática
+  significa nunca trocar, e é assim que um incidente vira permanente.
+
+  Agora a chave é uma lista (`MultiFernet`): a primeira cifra, qualquer uma
+  decifra. `scripts/rotacionar_chave.py` recifra o que está guardado sem o
+  conteúdo passar pelo nosso código, `--verificar` sai com erro se algum segredo
+  não abrir — é o que autoriza apagar a chave antiga —, e a API avisa no log
+  enquanto a rotação está pela metade. A sequência está em `docs/06-publicar.md`.
+
+  As colunas cifradas ficam **declaradas** em `app/core/segredos_guardados.py`,
+  com tripwire: uma rotação que esquece uma coluna não falha, ela apaga em
+  silêncio a única cópia daquele segredo. O teste procura no código toda escrita
+  cifrada e falha nomeando a coluna que ficou fora — e `mfa_secret` é a prova de
+  que uma lista por convenção de nome (`*_encrypted`) não serviria
+- Secrets manager externo (hoje a chave Fernet vive no `.env` do servidor; com a
+  rotação no lugar, o vault deixou de ser o que separa um vazamento de uma perda)
 - Rate limiting distribuído (Redis) — hoje é por processo, o que basta para uma
   réplica só
 - Política de **retenção** automática por tenant (a exportação já existe)

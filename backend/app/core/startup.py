@@ -123,6 +123,18 @@ def verify_production_secrets() -> None:
             "Configuração insegura para produção:\n- " + "\n- ".join(problemas)
         )
 
+    if settings.previous_encryption_keys:
+        # Também não é fatal, e não pode ser: subir com a chave antiga na lista é
+        # justamente o passo do meio de uma rotação. O que não pode é ficar
+        # assim — chave velha que nunca sai da configuração anula a rotação, que
+        # existe para tirar de circulação a chave que vazou.
+        logger.warning(
+            "SECRETS_ENCRYPTION_KEYS_PREVIOUS tem %d chave(s) antiga(s): a rotação "
+            "está no meio. Rode `python -m scripts.rotacionar_chave`, confira com "
+            "`--verificar` e só então apague a chave antiga do .env.",
+            len(settings.previous_encryption_keys),
+        )
+
     locais = [o for o in settings.cors_origins if "localhost" in o or "127.0.0.1" in o]
     if locais:
         # Não é fatal: com token em Authorization, o CORS não é a fronteira. Mas

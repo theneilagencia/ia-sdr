@@ -82,7 +82,22 @@ class Settings(BaseSettings):
     #: diferentes, e um link de convite apontando para a API daria 404.
     app_base_url: str = "http://localhost:3000"
 
+    #: Chaves Fernet **anteriores**, separadas por vírgula. Existem para que
+    #: rotacionar a chave não signifique perder tudo o que já está cifrado: a
+    #: primeira chave cifra, e qualquer uma da lista decifra. Depois de rodar
+    #: `scripts/rotacionar_chave.py`, esta variável volta a ficar vazia.
+    #:
+    #: Sem isto, a única resposta a "a chave vazou" era "perca toda credencial de
+    #: email e chave de API que as empresas já salvaram" — o que na prática
+    #: significa não rotacionar nunca.
+    secrets_encryption_keys_previous: str = ""
+
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+
+    @property
+    def previous_encryption_keys(self) -> list[str]:
+        """As chaves antigas, já sem espaço nem entrada vazia."""
+        return [k.strip() for k in self.secrets_encryption_keys_previous.split(",") if k.strip()]
 
     @property
     def effective_admin_url(self) -> str:

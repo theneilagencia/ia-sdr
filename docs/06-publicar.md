@@ -57,7 +57,8 @@ O script grava ali as senhas do banco e três chaves:
 
 - **`SECRETS_ENCRYPTION_KEY`** decifra as credenciais de email e as chaves de API
   que as empresas salvarem. **Perder esse arquivo é perder o acesso a tudo isso** —
-  não tem recuperação, por desenho.
+  não tem recuperação, por desenho. Trocá-la, porém, tem caminho: ver *Trocar a
+  chave de cifra* em Manutenção.
 - **`JWT_SECRET`** assina os tokens de sessão. Rotacioná-lo derruba todas as
   sessões abertas, o que é exatamente o que se quer depois de um vazamento.
 - **`UNSUBSCRIBE_SECRET`** assina os links de descadastro, que **não expiram**:
@@ -118,6 +119,35 @@ docker compose -f docker-compose.prod.yml exec db \
 
 Um dump sem o `.env` não restaura as credenciais das empresas: o dump guarda o
 texto cifrado, a chave está no `.env`.
+
+**Trocar a chave de cifra** (rotação). A resposta a "a chave vazou" não pode ser
+"perca tudo": a chave é uma lista, a primeira cifra e qualquer uma decifra. A
+ordem dos passos é o que separa rotacionar de perder dado.
+
+```
+# 1. gere a nova
+openssl rand -base64 32 | tr '+/' '-_'
+
+# 2. no deploy/.env: a nova em SECRETS_ENCRYPTION_KEY, e a que estava lá em
+#    SECRETS_ENCRYPTION_KEYS_PREVIOUS
+
+# 3. suba. Nada quebra: a nova cifra, a antiga ainda decifra
+cd deploy && ./publicar.sh
+
+# 4. recifre o que está guardado
+docker compose -f docker-compose.prod.yml exec api python -m scripts.rotacionar_chave
+
+# 5. confira antes de tirar a rede
+docker compose -f docker-compose.prod.yml exec api python -m scripts.rotacionar_chave --verificar
+
+# 6. só agora apague SECRETS_ENCRYPTION_KEYS_PREVIOUS do .env e suba de novo
+```
+
+O passo 5 existe para que o passo 6 não seja um palpite: ele sai com erro se
+algum segredo não abrir com as chaves configuradas. Fazer o 6 antes do 4 torna
+ilegível toda credencial de email e chave de API que as empresas já salvaram — e
+o estrago não aparece na hora, aparece no próximo disparo. Enquanto a chave antiga
+estiver na lista, a API avisa no log a cada subida.
 
 **Ver o que está acontecendo:**
 

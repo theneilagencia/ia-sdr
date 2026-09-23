@@ -113,6 +113,25 @@ def test_url_do_app_ruim_impede_o_boot(producao, monkeypatch, url):
         verify_production_secrets()
 
 
+def test_chave_antiga_na_lista_avisa_sem_impedir_o_boot(producao, monkeypatch, caplog):
+    """Subir com a chave antiga é o passo do meio da rotação — não pode ser fatal.
+
+    Mas também não pode ser silencioso: chave que nunca sai da lista anula a
+    rotação, que existe para tirar de circulação a chave que vazou.
+    """
+    import base64
+    import os
+
+    antiga = base64.urlsafe_b64encode(os.urandom(32)).decode()
+    monkeypatch.setattr(producao, "secrets_encryption_keys_previous", antiga)
+
+    with caplog.at_level(logging.WARNING):
+        verify_production_secrets()
+    # `caplog.text` traz as mensagens já formatadas; `record.message` cru ainda
+    # tem os `%s` e não casaria com o que a pessoa vê no log.
+    assert "rotacionar_chave" in caplog.text
+
+
 def test_erro_junta_todos_os_problemas(producao, monkeypatch):
     """Quem está publicando não deveria descobrir um problema por subida."""
     monkeypatch.setattr(producao, "jwt_secret", "change-me-in-production")

@@ -43,6 +43,10 @@ services:
       DATABASE_ADMIN_URL: postgresql+psycopg://${DB_ADMIN_USER}:${DB_ADMIN_PASSWORD}@db:5432/${DB_NAME}
       JWT_SECRET: ${JWT_SECRET:?gere com openssl rand -base64 48}
       SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?gere uma chave Fernet}
+      # Vazio no dia a dia. Numa rotação, a chave que sai fica aqui até o
+      # `rotacionar_chave` recifrar o que está guardado — a API avisa no log
+      # enquanto isso não termina.
+      SECRETS_ENCRYPTION_KEYS_PREVIOUS: ${SECRETS_ENCRYPTION_KEYS_PREVIOUS:-}
       # Vazio herda o JWT_SECRET, que é como as instalações antigas assinavam.
       # Preenchido, os links de descadastro sobrevivem à rotação do JWT_SECRET.
       UNSUBSCRIBE_SECRET: ${UNSUBSCRIBE_SECRET:-}
