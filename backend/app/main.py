@@ -52,7 +52,13 @@ async def lifespan(app: FastAPI):
     # Antes de aceitar a primeira requisição: o role da aplicação consegue
     # mesmo ser filtrado pelo RLS? Se não, é melhor não subir do que servir
     # dados de todos os tenants para todo mundo.
-    verify_database_roles()
+    #
+    # O modo vai para o log porque a diferença importa numa investigação: em
+    # "atributo" nem o dono da tabela escapa das políticas; em "posse" (o único
+    # possível em Postgres gerenciado) o dono é justamente quem atravessa.
+    logging.getLogger("ia_sdr").info(
+        "Isolamento por RLS verificado (modo: %s)", verify_database_roles()
+    )
     # E os segredos são de verdade, ou sobraram do .env.example?
     verify_production_secrets()
     register_default_executors()

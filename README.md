@@ -209,6 +209,14 @@ O que está coberto:
   silêncio), a sequência que sobe a cada reenvio, e as guardas: descadastro
   recusa, teto diário e horário comercial não seguram, e a reunião fica gravada
   mesmo quando o convite não sai
+- `test_postgres_gerenciado.py` — o arranjo que Render, Neon, Supabase e RDS
+  permitem: nenhum deles dá superusuário, e `CREATEROLE` não concede `BYPASSRLS`.
+  O banco do teste é montado com esses privilégios exatos, e o que ele prova é
+  que trocar `FORCE ROW LEVEL SECURITY` por bypass do **dono** não custou
+  isolamento nenhum — uma empresa continua sem enxergar a outra, e gravar com
+  `tenant_id` alheio continua sendo recusado pelo banco. Mais a proteção que
+  substitui o `FORCE`: a aplicação recusa subir se o role dela for dono de
+  tabela com `tenant_id`
 - `test_segredo_por_arquivo.py` — segredo vindo de arquivo, que é o que torna
   qualquer gerenciador externo utilizável sem SDK de fornecedor. O teste que mais
   importa é o do erro: `_FILE` apontando para caminho inexistente **derruba a

@@ -223,7 +223,7 @@ def main() -> int:  # pragma: no cover - laço de processo
     # O worker escreve dado de cliente como a API escreve: as mesmas condições
     # valem aqui. Um worker que ignora o RLS executaria o job de uma empresa com
     # a configuração de outra — e ninguém estaria olhando quando isso acontece.
-    verify_database_roles()
+    logger.info("Isolamento por RLS verificado (modo: %s)", verify_database_roles())
     verify_production_secrets()
     register_default_executors()
 

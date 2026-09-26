@@ -22,8 +22,24 @@ WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid
 
 Quatro detalhes importam:
 
-- **`FORCE`** faz a política valer inclusive para o dono da tabela. Sem isso, o
-  RLS seria decorativo para quem roda as migrations.
+- **`FORCE`** faz a política valer inclusive para o dono da tabela — e é a única
+  das quatro que depende de onde o banco roda. Em servidor próprio ela fica
+  ligada, e nem quem rodou as migrations escapa. Em **Postgres gerenciado**
+  (Render, Neon, Supabase, RDS, Cloud SQL) ela sai, por um motivo que não é
+  escolha: nenhum provedor dá superusuário, `CREATEROLE` **não** concede
+  `BYPASSRLS` — só um superusuário concede —, e sem um dos dois a parte
+  administrativa (autenticação, painel, worker) não teria como enxergar mais de
+  uma empresa. O caminho que sobra é o do próprio PostgreSQL: o dono da tabela
+  atravessa as políticas. Então lá o dono é o role administrativo, `FORCE` sai, e
+  **o isolamento do role da aplicação não muda em nada** — `FORCE` nunca valeu
+  para quem não é dono. Quem decide é o `bootstrap_roles`, conforme os
+  privilégios que aquele banco permite, e o modo em vigor (`atributo` ou `posse`)
+  aparece no log da subida. A rede de proteção que `FORCE` dava — apontar a
+  aplicação para o dono por engano — passa a ser uma verificação explícita: a
+  aplicação recusa subir se o role dela for dono de qualquer tabela com
+  `tenant_id`. Há sete testes contra um banco montado com os privilégios exatos
+  de um provedor gerenciado, incluindo o que prova que uma empresa não enxerga a
+  outra nesse modo.
 - **`WITH CHECK`** impede *gravar* linha com `tenant_id` alheio, não só lê-la.
   Sem isso, dá para escrever no tenant do vizinho.
 - **Esquecer o escopo não vaza**: sessão sem `app.tenant_id` não lê nada, em

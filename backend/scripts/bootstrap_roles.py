@@ -24,6 +24,30 @@ from app.core.config import settings
 TABLE_PRIVILEGES = sql.SQL("SELECT, INSERT, UPDATE, DELETE")
 
 
+def _tem_bypassrls(conn) -> bool:
+    return bool(
+        conn.execute("SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user").fetchone()[0]
+    )
+
+
+def _e_dono(conn, tabela: str) -> bool:
+    """Se o role atual é dono daquela tabela do schema `public`.
+
+    Com o filtro de schema e de tipo, e não só `WHERE relname = %s`: `pg_class`
+    guarda índices, sequências e catálogos, e `relname` não é único entre
+    schemas — a primeira versão disto respondia sobre a linha errada e acusava
+    uma tabela "de outro dono" que não existia.
+    """
+    return bool(
+        conn.execute(
+            "SELECT pg_get_userbyid(c.relowner) = current_user "
+            "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname = %s",
+            (tabela,),
+        ).fetchone()[0]
+    )
+
+
 def _connect(url) -> psycopg.Connection:
     return psycopg.connect(
         host=url.host or "localhost",
@@ -102,6 +126,57 @@ def main() -> int:
             ).format(role_id)
         )
         print(f"✓ privilégios concedidos a '{role}' em {database}")
+
+        # --------------------------------------------------- FORCE ou não FORCE
+        #
+        # `FORCE ROW LEVEL SECURITY` sujeita **o dono da tabela** às políticas.
+        # Em servidor próprio isso é a rede de proteção que se quer: nem o dono
+        # escapa, então apontar a aplicação para o role errado não vaza nada.
+        #
+        # Em Postgres gerenciado (Render, Neon, Supabase, RDS, Cloud SQL) não há
+        # superusuário e `CREATEROLE` não concede BYPASSRLS — só superusuário
+        # concede. O único caminho que sobra para a parte administrativa
+        # (autenticação, painel da plataforma, worker) atravessar o RLS é ser
+        # dona das tabelas. Com FORCE ligado, ela é barrada: um INSERT do próprio
+        # dono devolve "new row violates row-level security policy". Então, nesse
+        # caso, FORCE sai — e o isolamento do role da aplicação não muda em nada,
+        # porque FORCE nunca valeu para quem não é dono.
+        tabelas = [
+            linha[0]
+            for linha in conn.execute(
+                "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relrowsecurity"
+            ).fetchall()
+        ]
+        if admin_is_superuser or _tem_bypassrls(conn):
+            for tabela in tabelas:
+                conn.execute(
+                    sql.SQL("ALTER TABLE {} FORCE ROW LEVEL SECURITY").format(
+                        sql.Identifier(tabela)
+                    )
+                )
+            print(f"✓ FORCE ROW LEVEL SECURITY em {len(tabelas)} tabela(s): nem o dono escapa")
+        else:
+            nao_proprias = [t for t in tabelas if not _e_dono(conn, t)]
+            if nao_proprias:
+                print(
+                    f"✗ o role administrativo não tem BYPASSRLS nem é dono de "
+                    f"{len(nao_proprias)} tabela(s) com RLS. Rode as migrations com o "
+                    "usuário que o provedor criou (o dono do banco) e tente de novo."
+                )
+                return 1
+            for tabela in tabelas:
+                conn.execute(
+                    sql.SQL("ALTER TABLE {} NO FORCE ROW LEVEL SECURITY").format(
+                        sql.Identifier(tabela)
+                    )
+                )
+            print(
+                f"· Postgres gerenciado: FORCE desligado em {len(tabelas)} tabela(s). "
+                "A parte administrativa atravessa o RLS por ser dona das tabelas — "
+                "é o único caminho sem superusuário. O role da aplicação continua "
+                "isolado do mesmo jeito: FORCE nunca valeu para quem não é dono."
+            )
 
         rolsuper, rolbypassrls = conn.execute(
             "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = %s", (role,)
