@@ -15,13 +15,16 @@ from app.db.models.ai import (
 )
 from app.db.models.engagement import (
     Conversation,
+    EnrollmentStatus,
     Meeting,
     Message,
     MessageDirection,
     MessageStatus,
     Qualification,
     Sequence,
+    SequenceEnrollment,
 )
+from app.db.models.jobs import Job, JobKind, JobStatus
 from app.db.models.knowledge import (
     CompanyProfile,
     DocumentStatus,
@@ -30,6 +33,9 @@ from app.db.models.knowledge import (
 )
 from app.db.models.platform import (
     AuditLog,
+    Invitation,
+    Invoice,
+    InvoiceStatus,
     Membership,
     Plan,
     SubscriptionStatus,
@@ -49,9 +55,17 @@ from app.db.models.sales import (
 )
 
 #: Tabelas que carregam dados de cliente e, portanto, recebem RLS.
+#:
+#: A lista é mantida à mão, e por isso a suíte prova que ela está completa:
+#: `test_rls.py` falha se alguma tabela mapeada tiver `tenant_id` e não estiver
+#: aqui. Foi assim que `memberships` apareceu — carregava `tenant_id` desde a
+#: primeira migration e não tinha política nenhuma.
 TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "audit_logs",
+    "memberships",
+    "invitations",
     "usage_events",
+    "invoices",
     "companies",
     "contacts",
     "campaigns",
@@ -59,6 +73,7 @@ TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "research",
     "scores",
     "sequences",
+    "sequence_enrollments",
     "conversations",
     "messages",
     "qualifications",
@@ -69,6 +84,7 @@ TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "ai_agents",
     "agent_runs",
     "integrations",
+    "jobs",
 )
 
 __all__ = [
@@ -78,6 +94,9 @@ __all__ = [
     "AgentKind",
     "AgentRun",
     "AuditLog",
+    "Invitation",
+    "Invoice",
+    "InvoiceStatus",
     "Campaign",
     "CampaignStatus",
     "Company",
@@ -87,6 +106,9 @@ __all__ = [
     "DocumentStatus",
     "Integration",
     "IntegrationProvider",
+    "Job",
+    "JobKind",
+    "JobStatus",
     "KnowledgeChunk",
     "KnowledgeDocument",
     "Meeting",
@@ -102,6 +124,8 @@ __all__ = [
     "RunStatus",
     "Score",
     "Sequence",
+    "SequenceEnrollment",
+    "EnrollmentStatus",
     "SubscriptionStatus",
     "Tenant",
     "UsageEvent",

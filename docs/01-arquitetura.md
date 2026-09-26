@@ -47,7 +47,7 @@ Platform
 ```
 
 O **Tenant** é a empresa cliente (`Tenant: Apy Mine`, `tnt_001`). Tudo que
-pertence ao cliente carrega `tenant_id` — a regra vale para as 19 tabelas
+pertence ao cliente carrega `tenant_id` — a regra vale para as 23 tabelas
 listadas em `backend/app/db/models/__init__.py::TENANT_SCOPED_TABLES`.
 
 ## Camadas
@@ -126,6 +126,13 @@ do job anterior, porque o contexto é derivado do envelope, não do processo.
 falha e o trabalho de domínio é desfeito, o registro de que ela aconteceu — e
 quanto custou — permanece. Falha de agente não pode virar buraco no histórico
 nem na fatura.
+
+**Entrega repetida não executa duas vezes.** O `job_id` do envelope é estável e
+sobrevive ao requeue, então uma execução já feita é devolvida, não refeita. Isso
+importa porque a fila devolve à fila o job que passa de quinze minutos em
+execução — e ela não tem como distinguir "o worker morreu" de "a pesquisa ainda
+está buscando na web". Sem idempotência, o segundo worker pagaria a mesma conta e
+deixaria dois rascunhos quase iguais esperando aprovação.
 
 ## Documentos relacionados
 

@@ -17,6 +17,17 @@ dependencies = [
     "cryptography>=43.0",
     "python-multipart>=0.0.12",
     "email-validator>=2.2",
+    "anthropic>=0.69",
+    # Cliente HTTP do lado de fora: a integração com o RAVI fala HTTP. Já vinha
+    # instalado como dependência do SDK da Anthropic; depender disso por
+    # transitividade é o tipo de coisa que quebra numa atualização dele.
+    "httpx>=0.27",
+    # Opcional em uso, obrigatório na instalação: é o backend compartilhado do
+    # limitador de requisições (`REDIS_URL`). Sem a variável, nada é importado —
+    # mas deixar a biblioteca fora do pacote faria "ligar o Redis" virar
+    # "reconstruir a imagem", que é o tipo de passo que ninguém quer descobrir
+    # no meio de um incidente.
+    "redis>=5.0",
 ]
 
 [project.optional-dependencies]
@@ -49,3 +60,4 @@ ignore = ["B008"]
 [tool.ruff.lint.per-file-ignores]
 # Migration gerada pelo autogenerate: não vale reformatar à mão.
 "alembic/versions/0001_foundation.py" = ["E501"]
+"alembic/versions/0004_jobs.py" = ["E501"]

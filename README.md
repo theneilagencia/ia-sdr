@@ -12,17 +12,43 @@ conhecimento, suas credenciais e suas políticas. O mesmo motor atende todos.
 
 ## Estado atual
 
-**Sprint 1 (Foundation) implementado e testado**: autenticação, tenants,
-RBAC, PostgreSQL com Row Level Security, contexto de tenant, Company Brain,
-orquestrador de agentes, medição de consumo, limites de plano, auditoria,
-criptografia de credenciais e painel de plataforma. 21 endpoints, 22 tabelas,
-48 testes contra PostgreSQL de verdade.
+**Pronta para ir ao ar.** O caminho completo funciona: uma lista entra, os agentes
+pesquisam, pontuam, escrevem e qualificam, uma pessoa aprova, o email sai pela
+conta da própria empresa, a resposta volta para a conversa certa, o follow-up
+acontece sem ninguém lembrar, a reunião fecha o funil e o lead sobe para o RAVI.
+Um worker faz esse ciclo girar sem ninguém olhando, um web app deixa uma pessoa
+leiga operar tudo isso, e um comando põe a stack de pé num servidor com HTTPS.
 
-A execução dos agentes tem a fronteira pronta e testada (isolamento, cota,
-registro, consumo), com a chamada ao modelo como ponto de extensão — é o
-Sprint 3. Não há web app ainda: só a API.
+117 endpoints, 26 tabelas, 512 testes contra PostgreSQL de verdade, 134
+verificações num Chromium de verdade, e a stack de produção subindo inteira no
+CI — com a fumaça rodando por cima das imagens de produção.
 
-Veja [`docs/05-roadmap.md`](docs/05-roadmap.md) para o que vem a seguir.
+**Os quatro agentes chamam o modelo de verdade.** Research pesquisa a conta com
+busca na web e devolve achados com evidência e fonte; Outreach escreve a
+abordagem ancorada nessa pesquisa e para no rascunho; Conversation responde pela
+base de conhecimento do tenant e escala para humano quando não sabe; Qualification
+avalia critério a critério contra a campanha, com os freios no código e não no
+prompt. Modelo, instruções e teto de resposta são configuráveis por empresa e por
+agente, na tela.
+
+**Em volta deles, a operação inteira:** contas-alvo, contatos, import por CSV com
+deduplicação e cota, pontuação contra o ICP, fila de revisão humana, envio com
+limite diário e aquecimento de domínio, recebimento por IMAP com bounce
+reconhecido, cadência multi-passo com regras de parada, base de conhecimento com
+busca por relevância, convite de calendário por `.ics`, segundo fator por TOTP,
+fechamento mensal por contrato, descarte automático por prazo, exportação completa
+e painel de plataforma.
+
+**O que ainda depende de uma pessoa:** o primeiro disparo de verdade — chave real,
+alvo real, alguém lendo o que a IA escreveu antes de aprovar. A mecânica está
+testada; o texto que um modelo real produz, não. O roteiro está em
+[`docs/07-primeiro-disparo.md`](docs/07-primeiro-disparo.md), e o do go-live em
+[`docs/08-go-live.md`](docs/08-go-live.md).
+
+**O que depende de fornecedor, e por isso não foi construído às cegas:**
+enriquecimento de prospects (dado se compra), busca vetorial (exige fornecedor de
+embeddings) e SSO (depende do provedor de identidade do cliente). O que sobra está
+em [`docs/05-roadmap.md`](docs/05-roadmap.md), com o motivo de cada um.
 
 ## Rodando
 
@@ -45,6 +71,16 @@ cp .env.example .env
 .venv/bin/python -m scripts.seed_demo
 .venv/bin/uvicorn app.main:app --reload
 ```
+
+Cada empresa configura a própria chave da Anthropic e a própria conta de email
+na tela de **Configurações** — escrita para quem não sabe o que é SMTP nem API
+key. As duas são testadas antes de salvar, ficam cifradas no banco e nunca
+voltam para a tela: a chave aparece como `…1234`, a senha não aparece.
+
+Isso significa que o consumo de IA cai na conta da Anthropic de cada cliente.
+Se você preferir operar com uma chave da plataforma e revender tokens, ligue
+`AI_PLATFORM_KEY_FALLBACK=true` no `backend/.env` — o código suporta os dois
+modelos sem mudança.
 
 O `.env` tem **duas** URLs de banco, e a diferença entre elas é o que sustenta
 o isolamento: `DATABASE_ADMIN_URL` (dono das tabelas, com `BYPASSRLS`, usado
@@ -82,10 +118,35 @@ faria os tenants enxergarem os dados uns dos outros. Rode
 `python -m scripts.bootstrap_roles` e aponte `DATABASE_URL` para o role de
 aplicação, deixando o administrativo em `DATABASE_ADMIN_URL`.
 
+## Publicar
+
+```bash
+cd deploy
+./publicar.sh app.suaempresa.com voce@suaempresa.com
+```
+
+Sobe banco, API, worker, web e um proxy com HTTPS automático num servidor com
+Docker. O script gera as senhas e as chaves — só o proxy publica porta, o resto
+fica na rede interna. Depois, uma linha por cliente:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api \
+  python -m scripts.criar_empresa --nome "Sua Empresa" --email voce@suaempresa.com
+```
+
+O passo a passo completo, incluindo DNS, backup e atualização, está em
+[docs/06-publicar.md](docs/06-publicar.md).
+
+Em produção a API recusa subir com segredo de exemplo, com chave de cifra
+inválida ou com `PUBLIC_BASE_URL` sem HTTPS. É proposital: um deploy que herda o
+`.env.example` funciona perfeitamente — e é por funcionar que ninguém descobre
+que o segredo que assina os tokens está publicado no repositório.
+
 ## Testes
 
 ```bash
-make test        # ou: cd backend && .venv/bin/pytest
+make test        # backend: cd backend && .venv/bin/pytest
+cd web && npm run e2e   # com API e web no ar
 ```
 
 Os testes rodam contra PostgreSQL de verdade, porque metade do que eles
@@ -95,19 +156,172 @@ verificam — Row Level Security — não existe em outro banco. Aponte
 O que está coberto:
 
 - `test_rls.py` — isolamento no banco: leitura, escrita, update e delete
-  cruzados; sessão sem escopo; política presente em todas as tabelas; e o
-  privilégio do role com que a aplicação conecta, que é o que decide se tudo
-  isso vale alguma coisa
+  cruzados; sessão sem escopo; política presente em todas as tabelas — **e a
+  lista dessas tabelas conferida contra os modelos**, porque ela é mantida à mão
+  e foi assim que `memberships` apareceu carregando `tenant_id` sem política
+  nenhuma; e o privilégio do role com que a aplicação conecta, que é o que decide
+  se tudo isso vale alguma coisa
 - `test_api_isolation.py` — isolamento pela API, token forjado, credencial que
   não vaza na resposta, auditoria
 - `test_rbac.py` — matriz de papéis e enforcement na rota
 - `test_orchestrator.py` — contexto de IA só com dado do próprio tenant,
   envelope, cota e registro de execução
-- `test_usage_and_limits.py` — consumo, limites de plano e criptografia
+- `test_usage_and_limits.py` — consumo, limites de plano e criptografia. Cada
+  limite que o plano declara tem agora o teste da sua imposição, e um tripwire
+  falha se alguém declarar um limite novo sem impor: limite anunciado e não
+  verificado é promessa não cumprida
+- `test_research_agent.py` — o agente real com cliente falso: retomada de turno
+  pausado, teto de custo, persistência, custo por token e recusa de alvo de
+  outro tenant
+- `test_prospects_and_scoring.py` — import com deduplicação e cota, pontuação,
+  e o funil que não empurra ninguém para trás
+- `test_outreach_agent.py` — o rascunho que nasce rascunho, e os quatro
+  motivos para não escrever: sem pesquisa, descadastro, campanha pausada,
+  teto diário
+- `test_conversation_agent.py` — escalonamento para humano, descadastro
+  obedecido no ato e recusa do modelo tratada como sinal, não como erro
+- `test_qualification_agent.py` — os freios contra falso positivo: evidência
+  obrigatória, piso de confiança, e campanha sem critérios que não qualifica
+- `test_review_queue.py` — o portão humano: aprovar, recusar com motivo, e
+  quem não pode aprovar
+- `test_startup.py` — as verificações de boot em produção: segredo de exemplo,
+  chave Fernet inválida e URL pública que o mundo não alcança; e o link de
+  descadastro sobrevivendo à rotação do `JWT_SECRET`
+- `test_rate_limit.py` — a janela deslizante, os baldes que não podem colidir
+  entre empresas, as chaves que precisam sair da memória, e `limit=0` devolvendo
+  429 em vez de estourar
+- `test_worker.py` — o ciclo que roda sem ninguém olhando: reserva sem dois
+  workers pegarem o mesmo job, backoff, job preso que volta para a fila, e a
+  conversa já respondida que **não** pode voltar para a fila do agente
+- `test_migrations.py` — as propriedades que ninguém verifica de olho: o banco
+  migrado é o que os modelos descrevem (um `--autogenerate` agora não escreveria
+  nada), as migrations formam uma linha só sem ramo, e nenhum erro da API
+  compartilha código com outro
+- `test_rotacao_de_chave.py` — a resposta a "e se a chave de cifra vazar?". A
+  chave é uma lista: a primeira cifra, qualquer uma decifra, e o script recifra o
+  que está guardado. O teste que mais importa é o tripwire que procura no código
+  toda escrita cifrada e falha se a coluna não estiver declarada — uma rotação que
+  esquece uma coluna não falha, ela apaga em silêncio a única cópia daquele
+  segredo, e o estrago aparece semanas depois
+- `test_convite_de_calendario.py` — o `.ics` que dispensa OAuth: o arquivo
+  conforme (vírgula escapada, dobra em 75 **octetos** para não partir acento no
+  meio, CRLF no fio — cliente de calendário descarta arquivo malformado em
+  silêncio), a sequência que sobe a cada reenvio, e as guardas: descadastro
+  recusa, teto diário e horário comercial não seguram, e a reunião fica gravada
+  mesmo quando o convite não sai
+- `test_postgres_gerenciado.py` — o arranjo que Render, Neon, Supabase e RDS
+  permitem: nenhum deles dá superusuário, e `CREATEROLE` não concede `BYPASSRLS`.
+  O banco do teste é montado com esses privilégios exatos, e o que ele prova é
+  que trocar `FORCE ROW LEVEL SECURITY` por bypass do **dono** não custou
+  isolamento nenhum — uma empresa continua sem enxergar a outra, e gravar com
+  `tenant_id` alheio continua sendo recusado pelo banco. Mais a proteção que
+  substitui o `FORCE`: a aplicação recusa subir se o role dela for dono de
+  tabela com `tenant_id`
+- `test_segredo_por_arquivo.py` — segredo vindo de arquivo, que é o que torna
+  qualquer gerenciador externo utilizável sem SDK de fornecedor. O teste que mais
+  importa é o do erro: `_FILE` apontando para caminho inexistente **derruba a
+  subida** em vez de cair no valor padrão, porque o padrão é o segredo de
+  desenvolvimento publicado neste repositório — e subir com ele funciona
+  perfeitamente, só deixa qualquer pessoa assinar token válido
+- `test_retencao.py` — o descarte automático, e a ordem dos testes é a ordem do
+  risco: o que importa não é o descarte funcionar, é ele **não** pegar o que não
+  pode. Contato descadastrado nunca sai (apagar o pedido faria a plataforma
+  escrever de novo para quem pediu para não receber), consumo de mês sem fatura
+  emitida fica, auditoria tem piso de 90 dias mesmo com prazo menor, rascunho à
+  espera de revisão fica, e lead que respondeu uma vez nunca é frio — inclusive
+  quando a própria retenção já apagou a mensagem que provava a resposta, que era
+  um defeito de ordem e virou teste
+- `test_limitador_compartilhado.py` — o freio de requisições com balde único,
+  contra um Redis de verdade porque o que se verifica é atomicidade: duas
+  réplicas que leem "299 usados" no mesmo milissegundo não podem passar as duas.
+  Inclui o contraste (dois baldes em memória deixando passar o dobro, que é o
+  defeito) e o Redis fora do ar caindo para o balde em memória em vez de abrir a
+  porta ou derrubar a aplicação
+- `test_provisionamento.py` — o comando que cria a primeira empresa do cliente:
+  email que a API recusa não cria nada, maiúscula no endereço não tranca o dono
+  fora, e a senha impressa é a que entra
+- `test_faturamento.py` — o fechamento do mês, protegendo quatro coisas nesta
+  ordem: não cobrar duas vezes o mesmo mês (a unicidade é do banco), não mexer no
+  valor de fatura já emitida, não baixar como paga uma fatura que nunca foi
+  emitida, e não vazar fatura de uma empresa para outra. Tem também o teste que
+  fixa o que a plataforma **não** faz: empresa sem preço fecha mostrando o consumo
+  e cobrando zero — um valor mensal inventado num campo de dinheiro vira cobrança
+  de verdade
+- `test_mfa.py` — o segundo fator: os seis vetores da RFC 6238 (é o que sustenta
+  não ter trazido dependência), o mesmo código recusado na segunda vez, cinco
+  chutes e a conta descansa, desligar exigindo senha **e** código, e o convite
+  que deixou de ser a porta que contornava o MFA
+- `test_auth_and_members.py` — troca de senha que encerra as sessões abertas, as
+  travas que impedem uma empresa de ficar sem ninguém que possa administrar, e a
+  troca de empresa ativa: o `tenant_id` vem do cliente, então o que se testa são
+  as recusas — vínculo que não existe e vínculo desativado
+- `test_invitations.py` — o convite que a pessoa aceita: o que o convite **não**
+  conta e o que o aceite exige. O teste central compara duas respostas campo a
+  campo — convidar um email que já tem conta e um que não existe em lugar nenhum
+  precisam ser indistinguíveis —, e o mesmo vale na outra ponta: senha errada de
+  conta existente devolve exatamente a recusa de senha curta em conta nova
+- `test_knowledge.py` — fatiamento, ingestão idempotente, escopo por campanha e
+  a busca por relevância; inclusive o teste que confere que é o trecho certo
+  que chega ao contexto do agente, e não o documento mais recente
+- `test_conversations_and_contacts.py` — a caixa de entrada, o descadastro que
+  não se desfaz e o contato com histórico que não se apaga
+- `test_sequences.py` — as regras de parada da cadência, que importam mais que
+  a cadência: resposta, descadastro, reunião, qualificação
+- `test_bounce_csv_export.py` — bounce permanente versus temporário, planilha do
+  Excel em português e a exportação que não leva segredo junto. A verificação do
+  segredo é uma **propriedade**, não um exemplo: percorre toda coluna de toda
+  coleção exportada, porque a versão anterior olhava um valor conhecido ("a chave
+  não está no arquivo") e por isso não viu a coluna cifrada passando
+- `test_platform_admin.py` — a marca que destranca o painel da plataforma, e o
+  que ela **não** concede: ver a conta de um cliente e ler as conversas dele são
+  coisas diferentes, e há teste para provar que só a primeira está lá
+- `test_ravi.py` — a integração com o CRM contra um RAVI de mentira em
+  `MockTransport`: o token que nunca volta na resposta, o prospect sem nota que
+  não sobe, o reenvio que não duplica, e um teste que usa o modelo do próprio
+  Qualification Agent para a forma dos critérios não poder divergir em silêncio
+- `web/e2e/smoke.mjs` — browser de verdade: cento e trinta e quatro verificações cobrindo o
+  caminho crítico de cada tela, inclusive o que é salvo no Company Brain voltar
+  na recarga, o documento colado aparecer indexado, e o encadeamento que faz o
+  funil andar — critério salvo na campanha, planilha do Excel em português
+  importada com o relatório apontando a linha ruim, e o prospect importado
+  aparecendo pelo nome no seletor de alvo do agente, a resposta escrita à mão
+  nascendo rascunho e chegando à fila de Revisão, a reunião marcada dizendo se o
+  convite de calendário chegou ao lead ou se o compromisso só existe aqui, e a
+  reunião marcada movendo o
+  prospect no funil, a marca de platform admin nos dois sentidos — quem a tem
+  enxerga as empresas, quem não a tem não ganha nem o link —, a cadência que
+  nasce desativada e recusa inscrição até ser ativada, e a conexão com o RAVI
+  que recusa credencial que não funciona em vez de salvar às cegas, e o convite
+  ponta a ponta — o link gerado numa aba e aceito em **outro navegador**, sem
+  cookie do administrador, porque aceitar na mesma aba não provaria nada —, as
+  recusas que a tela precisa mostrar em vez de estourar (menu sem o link que a
+  API recusaria, auditoria explicando a recusa, exportação devolvendo 403
+  legível, id inexistente virando página não encontrada), a troca de empresa de
+  quem serve duas, com as contas da empresa nova substituindo as da anterior, e o
+  segundo fator ponta a ponta — com o código TOTP calculado pelo próprio teste
+  em `node:crypto`, porque reusar a implementação do servidor provaria apenas que
+  ele concorda consigo mesmo. O CRUD
+  completo das telas
+  fica nos testes de backend — repetir tudo no browser só somaria tempo e
+  superfície de intermitência. Pega o
+  que build e typecheck não pegam, como Server Action que compila e falha ao
+  executar. Precisa do limitador de requisições afrouxado: um navegador dirigido
+  por script percorre as dezenove telas em menos de um minuto e passa das 300
+  chamadas com o mesmo token — o teto de produção por janela de 60s. Com ele
+  ligado, o que falha é a tela em que a cota acabou, e a mensagem não tem
+  relação com a causa
 
 ## Estrutura
 
 ```
+web/                  Next.js: funil, revisão e envio, conversas, prospects
+                      com import de lista e detalhe, campanhas, agentes,
+                      cadências, Company Brain, base de conhecimento, equipe
+                      com convite por link, verificação em duas etapas e a tela
+                      pública de aceite, seletor de empresa para quem serve mais
+                      de uma,
+                      configurações (IA, email, volume e CRM) e o painel da
+                      plataforma
 backend/
   app/
     api/            rotas HTTP, dependências, middleware
@@ -118,9 +332,11 @@ backend/
     rbac/           papéis e permissões
     services/       auditoria, consumo, limites
     tenancy/        contexto de tenant
+    workers/        o worker que faz o ciclo rodar sem ninguém olhando
   alembic/          migrations (inclui as políticas de RLS)
-  scripts/          seed de demonstração
+  scripts/          bootstrap de roles, provisionamento, promoção de admin e seed
   tests/
+deploy/             compose de produção, proxy com HTTPS e script de publicação
 docs/               arquitetura e decisões
 ```
 
@@ -131,6 +347,67 @@ docs/               arquitetura e decisões
 - [Modelo de dados](docs/03-modelo-de-dados.md)
 - [AI Orchestrator e Company Brain](docs/04-ai-orchestrator.md)
 - [Roadmap](docs/05-roadmap.md)
+- [Publicar a aplicação](docs/06-publicar.md)
+- [O primeiro disparo real](docs/07-primeiro-disparo.md)
+
+## Ir ao ar
+
+Publicar e estar pronto para operar são coisas diferentes, e um comando diz a
+distância:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api \
+  python -m scripts.pronto_para_ir_ao_ar
+```
+
+Ele separa o que **impede** de operar (role do banco com privilégio demais,
+segredo de exemplo, empresa sem chave da Anthropic ou sem email conectado,
+ninguém com a marca de platform admin) do que é **escolha** (sem prazo de
+descarte, sem preço no contrato, sem Redis). E lista o que nenhum comando pode
+verificar — backup que restaura, DNS propagado, SPF/DKIM/DMARC e a qualidade do
+que a IA escreve —, porque afirmar o que não se verificou é pior do que não
+verificar. O roteiro completo está em [docs/08-go-live.md](docs/08-go-live.md).
+
+## Painel da plataforma
+
+Quem opera a plataforma enxerga as empresas, o consumo e a saúde do sistema, e
+mexe em plano e limites — por `/api/v1/admin/*`. A marca que destranca isso não
+nasce de uma rota, porque o primeiro administrador não pode se autenticar em si
+mesmo:
+
+```bash
+python -m scripts.promover_admin --listar
+python -m scripts.promover_admin --email voce@suaempresa.com
+```
+
+O **fechamento do mês** fica no mesmo painel: o contrato de cada empresa
+(mensalidade, moeda e preço da unidade de IA acima da cota) e o botão que gera uma
+fatura por empresa ativa com o consumo do período medido por trás. Refazer o
+fechamento é seguro — recalcula rascunho e não toca no que já foi emitido. Ao lado
+do total cobrado fica o custo real da Anthropic naquele mês, que é a leitura que
+responde se o contrato daquela empresa fecha em dinheiro. Empresa sem preço
+definido fecha mostrando o consumo e cobrando zero: a plataforma não inventa o
+preço de quem a opera.
+
+Vale para o token que já está na mão, e revogar vale no ato. O que a marca **não**
+concede é acesso ao dado comercial de uma empresa da qual a pessoa não é membro:
+as rotas normais continuam exigindo vínculo e o Row Level Security continua
+filtrando. Ver a conta de um cliente e ler as conversas dele são coisas
+diferentes.
+
+## O CRM é o RAVI
+
+Esta plataforma não tem CRM e não vai ter. O lead nasce e vive no
+[RAVI](https://github.com/ApyMine/ravi); aqui é o motor que pesquisa, pontua,
+aborda e qualifica — e empurra o resultado para lá, por `POST /leads`, com
+upsert por email ou telefone do lado do RAVI.
+
+A conexão é por empresa, em **Configurações → CRM**: URL, token de agente e o
+identificador da empresa no RAVI. Testada antes de salvar, cifrada, nunca
+devolvida à tela.
+
+Prospect sem pontuação não sobe: o `score` é obrigatório no RAVI, e lead sem
+nota nem pesquisa é linha que ninguém sabe de onde veio.
 
 ## Duas regras que não se negociam
 

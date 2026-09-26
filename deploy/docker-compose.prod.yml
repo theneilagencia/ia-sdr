@@ -1,0 +1,164 @@
+# Stack de produção: banco, API, worker, web e proxy com HTTPS automático.
+#
+# A diferença em relação ao compose de desenvolvimento não é cosmética:
+#
+# * Só o proxy publica porta. Banco, API e web ficam na rede interna — um
+#   Postgres exposto na internet com senha em variável de ambiente é como a
+#   maioria dos vazamentos começa.
+# * ENVIRONMENT=production liga as verificações de boot: segredo de exemplo,
+#   chave Fernet inválida ou PUBLIC_BASE_URL apontando para localhost impedem
+#   a API de subir, em vez de virar problema silencioso.
+# * Nenhum valor sensível está neste arquivo. Todos vêm do .env ao lado, que
+#   o publicar.sh gera e que não vai para o repositório.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+
+name: ia-sdr
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      # Este é o role administrativo: superusuário, dono das tabelas, com
+      # BYPASSRLS. A aplicação NÃO usa ele — usa o role sem privilégio que o
+      # bootstrap cria. É essa separação que faz o Row Level Security valer.
+      POSTGRES_USER: ${DB_ADMIN_USER:?defina DB_ADMIN_USER no .env}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?defina DB_ADMIN_PASSWORD no .env}
+      POSTGRES_DB: ${DB_NAME:?defina DB_NAME no .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  api:
+    build: ../backend
+    environment: &backend_env
+      ENVIRONMENT: production
+      DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg://${APP_DB_USER:?}:${APP_DB_PASSWORD:?}@db:5432/${DB_NAME}
+      DATABASE_ADMIN_URL: postgresql+psycopg://${DB_ADMIN_USER}:${DB_ADMIN_PASSWORD}@db:5432/${DB_NAME}
+      # Os dois jeitos de entregar segredo, e o de arquivo vence quando existe.
+      #
+      # O `.env` é o caminho normal e o que o publicar.sh gera. Quem usa
+      # gerenciador de segredo externo (Vault com agente, AWS Secrets Manager via
+      # ECS, Kubernetes Secret, Docker secret, systemd credentials) recebe o
+      # segredo como **arquivo**: nesse caso, monte o diretório e aponte o
+      # `_FILE`, deixando a variável de valor vazia. Sem nenhum dos dois, a API
+      # recusa subir em produção e a mensagem diz como gerar — o que é melhor do
+      # que o compose recusar, porque também pega o caso do segredo de exemplo.
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_SECRET_FILE: ${JWT_SECRET_FILE:-}
+      SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:-}
+      SECRETS_ENCRYPTION_KEY_FILE: ${SECRETS_ENCRYPTION_KEY_FILE:-}
+      # Vazio no dia a dia. Numa rotação, a chave que sai fica aqui até o
+      # `rotacionar_chave` recifrar o que está guardado — a API avisa no log
+      # enquanto isso não termina.
+      SECRETS_ENCRYPTION_KEYS_PREVIOUS: ${SECRETS_ENCRYPTION_KEYS_PREVIOUS:-}
+      # Vazio herda o JWT_SECRET, que é como as instalações antigas assinavam.
+      # Preenchido, os links de descadastro sobrevivem à rotação do JWT_SECRET.
+      UNSUBSCRIBE_SECRET: ${UNSUBSCRIBE_SECRET:-}
+      UNSUBSCRIBE_SECRET_FILE: ${UNSUBSCRIBE_SECRET_FILE:-}
+      # Base do link de descadastro que vai em todo email. Errada, o link não
+      # abre — e email frio sem saída queima o domínio da empresa.
+      PUBLIC_BASE_URL: https://${DOMAIN:?defina DOMAIN no .env}
+      # Base do link de convite, que abre uma **tela**, não um endpoint. Aqui é o
+      # mesmo domínio da API porque o Caddy divide um domínio só por caminho
+      # (/api/* para a API, o resto para o web); em desenvolvimento são portas
+      # diferentes, e é por isso que são dois ajustes e não um.
+      APP_BASE_URL: https://${DOMAIN}
+      CORS_ORIGINS: '["https://${DOMAIN}"]'
+      # Chave da plataforma. Fica vazia por padrão: cada empresa configura a
+      # própria pela tela de Configurações, e o fallback abaixo é o interruptor
+      # entre "o cliente paga o consumo dele" e "você revende tokens".
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_PLATFORM_KEY_FALLBACK: ${AI_PLATFORM_KEY_FALLBACK:-false}
+      # Vazio: o freio de requisições conta dentro de cada processo, o que basta
+      # para uma réplica. Com mais de uma, o teto anunciado passa a valer o dobro
+      # — cada réplica conta o seu balde. Preencher com redis://redis:6379/0 e
+      # subir com `--profile escala` faz o balde ser um só.
+      REDIS_URL: ${REDIS_URL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Na subida, em ordem e tudo idempotente: schema e políticas de RLS,
+    # role de aplicação sem privilégio, servidor.
+    # --proxy-headers: atrás do Caddy, sem isso a API vê todo request vindo do
+    # IP do proxy e o log de auditoria registra o endereço errado.
+    command: >
+      sh -c "alembic upgrade head
+      && python -m scripts.bootstrap_roles
+      && uvicorn app.main:app --host 0.0.0.0 --port 8000
+      --proxy-headers --forwarded-allow-ips='*'"
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    restart: unless-stopped
+
+  worker:
+    build: ../backend
+    environment: *backend_env
+    depends_on:
+      api:
+        condition: service_healthy
+    command: python -m app.workers.runner
+    restart: unless-stopped
+
+  web:
+    build: ../web
+    environment:
+      NODE_ENV: production
+      # O browser nunca fala com a API direto: quem chama é o servidor do Next,
+      # pela rede interna. Nenhuma credencial chega ao cliente.
+      API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Só entra com `docker compose --profile escala up -d`. Fica fora do caminho
+  # normal de propósito: uma instalação de um servidor não precisa dele, e um
+  # container a mais para manter é custo real para quem opera. O dia em que
+  # precisar é o dia de rodar mais de uma réplica da API.
+  redis:
+    image: redis:7-alpine
+    profiles: ["escala"]
+    # Sem persistência: é contador de janela de 60 segundos. Perder o conteúdo
+    # num reinício custa uma janela de freio, e gravar em disco custaria I/O no
+    # caminho de toda requisição.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?email para o certificado}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

@@ -34,9 +34,10 @@ class IntegrationProvider(StrEnum):
     OUTLOOK = "outlook"
     SMTP = "smtp"
     GOOGLE_CALENDAR = "google_calendar"
-    HUBSPOT = "hubspot"
-    SALESFORCE = "salesforce"
-    PIPEDRIVE = "pipedrive"
+    #: O CRM é o RAVI, que já existe e já é o sistema de registro do lead. Esta
+    #: plataforma não tem CRM próprio nem vai ter: duas bases com o mesmo lead
+    #: divergem em uma semana, e a partir daí ninguém sabe qual está certa.
+    RAVI = "ravi"
 
 
 class AIAgent(Base, TenantScoped, TimestampMixin):
@@ -52,7 +53,7 @@ class AIAgent(Base, TenantScoped, TimestampMixin):
     id: Mapped[uuid.UUID] = uuid_pk()
     kind: Mapped[str] = mapped_column(String(40), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    model: Mapped[str] = mapped_column(String(120), nullable=False, default="claude-sonnet-5")
+    model: Mapped[str] = mapped_column(String(120), nullable=False, default="claude-opus-5")
     instructions: Mapped[str] = mapped_column(Text, nullable=False, default="")
     temperature: Mapped[int] = mapped_column(Integer, nullable=False, default=30)  # 0-100
     max_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=2000)

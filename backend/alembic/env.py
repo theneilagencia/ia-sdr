@@ -20,7 +20,11 @@ config = context.config
 config.set_main_option("sqlalchemy.url", settings.effective_admin_url)
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: o padrão do fileConfig é True, e isso
+    # desliga todo logger já criado — incluindo os da aplicação, quando as
+    # migrations rodam no mesmo processo (suíte de testes, script de subida).
+    # O sintoma é logging que simplesmente para de sair, sem erro nenhum.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
@@ -44,9 +48,7 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata, compare_type=True
-        )
+        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
         with context.begin_transaction():
             context.run_migrations()
 

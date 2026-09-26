@@ -1,0 +1,45 @@
+# Proxy de borda: é o único serviço com porta aberta para a internet.
+#
+# Um domínio só, dividido por caminho: isso mantém o cookie de sessão
+# same-site e evita a configuração de CORS mais frouxa que dois domínios
+# exigiriam. O link de descadastro que vai nos emails
+# (/api/v1/public/unsubscribe/...) sai por aqui, com TLS.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Certificado é emitido e renovado automaticamente pelo Caddy (Let's
+	# Encrypt). Nada a fazer além de apontar o DNS para este servidor.
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	# Liveness para monitor de uptime. Só devolve {"status":"ok"} — a versão
+	# que consulta o banco (/health/ready) fica na rede interna.
+	handle /health {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}

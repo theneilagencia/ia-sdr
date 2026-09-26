@@ -28,8 +28,11 @@ def test_matriz_de_permissoes(role, permission, esperado):
 
 
 def test_papeis_sao_cumulativos():
-    for menor, maior in ((Role.VIEWER, Role.OPERATOR), (Role.OPERATOR, Role.ADMIN),
-                         (Role.ADMIN, Role.OWNER)):
+    for menor, maior in (
+        (Role.VIEWER, Role.OPERATOR),
+        (Role.OPERATOR, Role.ADMIN),
+        (Role.ADMIN, Role.OWNER),
+    ):
         assert set(permissions_for(menor)) < set(permissions_for(maior))
 
 
@@ -59,9 +62,9 @@ def test_operator_nao_convida_usuario_pela_api(client, make_tenant, auth_headers
     assert criar_campanha.status_code == 201
 
     convidar = client.post(
-        "/api/v1/tenants/me/members",
+        "/api/v1/tenants/me/invitations",
         headers=headers,
-        json={"email": "novo@example.com", "password": "senha-forte-123", "role": "viewer"},
+        json={"email": "novo@example.com", "role": "viewer"},
     )
     assert convidar.status_code == 403
     assert convidar.json()["error"]["code"] == "permission_denied"

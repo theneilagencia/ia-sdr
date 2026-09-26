@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 
 from app.db.models.platform import Plan
 
+UNLIMITED = -1
+
 
 @dataclass(frozen=True, slots=True)
 class PlanLimits:
@@ -19,6 +21,12 @@ class PlanLimits:
     email_accounts: int
     ai_units_per_month: int
     knowledge_documents: int
+    #: Teto de **custo real** em dólares por mês, o freio que a unidade não dá.
+    #: A unidade é a moeda que o cliente compra; este é o que a Anthropic cobra.
+    #: Nasce ilimitado nos três planos de propósito: quanto vale a pena gastar
+    #: com cada cliente é decisão comercial de quem opera a plataforma, não
+    #: número para um default inventar. Ligado por contrato, no painel.
+    ai_cost_usd_per_month: int = UNLIMITED
     features: frozenset[str] = field(default_factory=frozenset)
 
     def as_dict(self) -> dict:
@@ -28,12 +36,11 @@ class PlanLimits:
             "users": self.users,
             "email_accounts": self.email_accounts,
             "ai_units_per_month": self.ai_units_per_month,
+            "ai_cost_usd_per_month": self.ai_cost_usd_per_month,
             "knowledge_documents": self.knowledge_documents,
             "features": sorted(self.features),
         }
 
-
-UNLIMITED = -1
 
 PLAN_LIMITS: dict[Plan, PlanLimits] = {
     Plan.STARTER: PlanLimits(
@@ -61,9 +68,12 @@ PLAN_LIMITS: dict[Plan, PlanLimits] = {
         email_accounts=UNLIMITED,
         ai_units_per_month=UNLIMITED,
         knowledge_documents=UNLIMITED,
-        features=frozenset(
-            {"research", "outreach", "conversation", "qualification", "crm", "voice", "sso"}
-        ),
+        # `voice` e `sso` saíram desta lista. Não é redução de escopo: nenhum dos
+        # dois existe, e o painel mostrava "recursos: ..., voice, sso" para quem
+        # opera — que é como um recurso inexistente entra numa proposta comercial.
+        # Voltam no dia em que houver código atrás deles; o teste
+        # `test_plano_nao_anuncia_recurso_inexistente` falha se voltarem antes.
+        features=frozenset({"research", "outreach", "conversation", "qualification", "crm"}),
     ),
 }
 
