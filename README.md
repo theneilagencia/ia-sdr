@@ -19,7 +19,7 @@ acontece sem ninguém lembrar, a reunião fecha o funil e o lead sobe para o RAV
 Um worker faz esse ciclo girar sem ninguém olhando, um web app deixa uma pessoa
 leiga operar tudo isso, e um comando põe a stack de pé num servidor com HTTPS.
 
-117 endpoints, 26 tabelas, 512 testes contra PostgreSQL de verdade, 134
+117 endpoints, 26 tabelas, 530 testes contra PostgreSQL de verdade, 134
 verificações num Chromium de verdade, e a stack de produção subindo inteira no
 CI — com a fumaça rodando por cima das imagens de produção.
 
@@ -136,6 +136,14 @@ docker compose -f docker-compose.prod.yml exec api \
 
 O passo a passo completo, incluindo DNS, backup e atualização, está em
 [docs/06-publicar.md](docs/06-publicar.md).
+
+Quem preferir não cuidar de máquina tem o [`render.yaml`](render.yaml) na raiz e
+o passo a passo em [docs/09-render.md](docs/09-render.md) — a mesma aplicação no
+Render, por cerca de cinco vezes o custo. O isolamento entre empresas continua
+valendo lá: sem superusuário, a parte administrativa atravessa o Row Level
+Security por ser **dona** das tabelas, e o role da aplicação continua sem
+privilégio nenhum. Isso é demonstrado, não afirmado, em
+`backend/tests/test_postgres_gerenciado.py`.
 
 Em produção a API recusa subir com segredo de exemplo, com chave de cifra
 inválida ou com `PUBLIC_BASE_URL` sem HTTPS. É proposital: um deploy que herda o
@@ -338,6 +346,7 @@ backend/
   tests/
 deploy/             compose de produção, proxy com HTTPS e script de publicação
 docs/               arquitetura e decisões
+render.yaml         o outro caminho de publicação: Render, sem servidor para cuidar
 ```
 
 ## Documentação
@@ -349,6 +358,8 @@ docs/               arquitetura e decisões
 - [Roadmap](docs/05-roadmap.md)
 - [Publicar a aplicação](docs/06-publicar.md)
 - [O primeiro disparo real](docs/07-primeiro-disparo.md)
+- [Go-live](docs/08-go-live.md)
+- [Publicar no Render](docs/09-render.md)
 
 ## Ir ao ar
 

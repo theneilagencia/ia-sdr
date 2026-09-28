@@ -18,4 +18,6 @@ COPY --from=build /app/.next ./.next
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/next.config.ts ./next.config.ts
 EXPOSE 3000
-CMD ["npx", "next", "start", "-p", "3000"]
+# Mesma razão do backend: a porta é do ambiente, e `exec` deixa o Next receber o
+# SIGTERM em vez de o `sh` engoli-lo.
+CMD ["sh", "-c", "exec npx next start -p ${PORT:-3000}"]

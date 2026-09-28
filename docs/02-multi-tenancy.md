@@ -58,7 +58,18 @@ Quatro detalhes importam:
 
 `python -m scripts.bootstrap_roles` cria o role de aplicação e concede a ele
 `SELECT/INSERT/UPDATE/DELETE` — nada de DDL, nada de `TRUNCATE`. É idempotente
-e roda em toda subida.
+e roda em toda subida. Se o usuário administrativo não puder criar role, ele
+recusa e explica: sem o segundo role não existe isolamento, então não há o que
+fazer sem trocar de provedor de banco.
+
+**Em Postgres gerenciado, o nome e a senha do role de aplicação chegam por
+`APP_DB_USER` e `APP_DB_PASSWORD`**, e não dentro da `DATABASE_URL`. A razão é
+que esses provedores criam **um** usuário e injetam a URL inteira na variável de
+ambiente, sem como recombinar host, porta e banco com outro usuário. Então o
+endereço vem do provedor e as credenciais da aplicação entram por cima — as
+duas juntas, sempre: com só uma delas a aplicação conectaria com as credenciais
+do administrativo, que atravessa o RLS, e a configuração é recusada em vez de
+aceita pela metade.
 
 **Por que isso não é detalhe de deploy.** A imagem oficial do PostgreSQL cria o
 `POSTGRES_USER` como **superusuário**, e superusuário ignora RLS inteiro —

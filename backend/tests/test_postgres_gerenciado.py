@@ -304,3 +304,76 @@ def test_a_recusa_antiga_continua_para_quem_nao_e_dono_nem_tem_bypassrls(migrado
         # O role da aplicação no lugar do administrativo: não é dono de nada.
         verify_database_roles(app_engine, app_engine)
     assert "dono" in str(erro.value)
+
+
+#: Um provedor pior: dono do banco, mas sem poder criar role. É a hipótese que
+#: não deu para verificar na documentação de nenhum fornecedor sem abrir conta —
+#: então o que se garante é o comportamento, não o fornecedor.
+DONO_TRAVADO = "dono_travado_teste"
+SENHA_TRAVADO = "travado-de-teste"
+BANCO_TRAVADO = "ia_sdr_travado_teste"
+
+
+@pytest.fixture
+def banco_sem_createrole():
+    """Banco cujo dono não pode criar role — o pior caso de provedor gerenciado."""
+    if not _superusuario_disponivel():
+        pytest.skip("montar o cenário exige superusuário; aponte TEST_SUPERUSER_URL para um")
+
+    def _limpar(conn):
+        conn.execute(sa.text(f'DROP DATABASE IF EXISTS "{BANCO_TRAVADO}"'))
+        conn.execute(sa.text(f'DROP ROLE IF EXISTS "{DONO_TRAVADO}"'))
+
+    motor = sa.create_engine(
+        sa.engine.make_url(SUPERUSUARIO).set(database="postgres"), isolation_level="AUTOCOMMIT"
+    )
+    with motor.connect() as conn:
+        _limpar(conn)
+        conn.execute(
+            sa.text(
+                f"CREATE ROLE \"{DONO_TRAVADO}\" LOGIN PASSWORD '{SENHA_TRAVADO}' "
+                "NOCREATEROLE NOSUPERUSER NOBYPASSRLS"
+            )
+        )
+        conn.execute(sa.text(f'CREATE DATABASE "{BANCO_TRAVADO}" OWNER "{DONO_TRAVADO}"'))
+    motor.dispose()
+
+    yield _url(DONO_TRAVADO, SENHA_TRAVADO, BANCO_TRAVADO)
+
+    motor = sa.create_engine(
+        sa.engine.make_url(SUPERUSUARIO).set(database="postgres"), isolation_level="AUTOCOMMIT"
+    )
+    with motor.connect() as conn:
+        _limpar(conn)
+    motor.dispose()
+
+
+def test_provedor_sem_createrole_e_recusado_com_o_comando_da_verificacao(
+    banco_sem_createrole, monkeypatch, capsys
+):
+    """Sem um segundo role não existe isolamento, e a recusa precisa ser útil.
+
+    O erro cru do Postgres é `permission denied to create role`: correto e
+    inútil, porque não diz por que a aplicação quer um segundo role nem como
+    descobrir, **antes** de contratar, se aquele provedor serve. Este teste
+    prende as duas coisas que tornam a recusa acionável: o comando que responde
+    a pergunta e a palavra `CREATEROLE`.
+    """
+    from app.core.config import settings
+    from scripts.bootstrap_roles import main as bootstrap
+
+    monkeypatch.setattr(settings, "database_admin_url", banco_sem_createrole)
+    monkeypatch.setattr(
+        settings,
+        "database_url",
+        sa.engine.make_url(banco_sem_createrole)
+        .set(username="app_que_nao_sera_criado", password="x")
+        .render_as_string(hide_password=False),
+    )
+
+    assert bootstrap() == 1, "sem segundo role, subir seria subir sem isolamento"
+
+    saida = capsys.readouterr().out
+    assert "rolcreaterole" in saida, "a recusa precisa dizer como verificar o provedor"
+    assert "CREATEROLE" in saida
+    assert "isolamento" in saida

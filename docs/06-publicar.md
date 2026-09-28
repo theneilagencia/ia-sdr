@@ -8,6 +8,12 @@ A stack sobe com Docker: banco, API, worker, web e um proxy que cuida do
 certificado. Roda em qualquer máquina Linux com Docker — Hetzner, DigitalOcean,
 Contabo, AWS, ou um servidor na sua sala.
 
+**Não quer administrar servidor?** Há um segundo caminho, em
+[09-render.md](09-render.md): a mesma aplicação no Render, a partir do
+`render.yaml` que está na raiz do repositório. Custa cerca de cinco vezes mais e
+poupa você de atualizar sistema operacional, configurar certificado e olhar
+disco. Os dois caminhos entregam a mesma aplicação; nenhum é obrigatório.
+
 ## 1. Um servidor
 
 Peça a menor máquina que aguente: **2 vCPU e 4 GB de RAM** é o piso confortável

@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 
+import { apiUrl } from "./api-url";
 import { getToken } from "./session";
 
-const API_URL = process.env.API_URL ?? "http://localhost:8000";
+const API_URL = apiUrl();
 
 export class ApiError extends Error {
   constructor(

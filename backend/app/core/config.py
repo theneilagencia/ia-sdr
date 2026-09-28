@@ -22,8 +22,9 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,46 @@ def _valores_de_arquivo(campos: set[str]) -> dict[str, str]:
     return achados
 
 
+#: Esquemas que o libpq entende e o SQLAlchemy não. Postgres gerenciado (Render,
+#: Neon, Supabase, RDS) entrega a URL pronta para o `psql`, e é essa string que a
+#: pessoa copia do painel — ou que o provedor injeta sozinho na variável de
+#: ambiente, sem ninguém para editar no meio.
+ESQUEMAS_SEM_DRIVER = ("postgresql://", "postgres://")
+
+#: O driver que esta aplicação usa. Fixo, e não "o que estiver instalado":
+#: `psycopg` (3) tem API diferente de `psycopg2`, e adivinhar aqui trocaria um
+#: erro de configuração legível por um `ModuleNotFoundError` no primeiro query.
+DRIVER = "postgresql+psycopg://"
+
+
+def com_driver(url: str) -> str:
+    """`postgres://…` e `postgresql://…` viram `postgresql+psycopg://…`.
+
+    Sem isto, publicar em Postgres gerenciado exige editar à mão a variável que o
+    provedor gerou — e o SQLAlchemy recusa `postgres://` desde a 1.4 com uma
+    mensagem sobre dialeto, que não parece nada com "cole a URL do painel".
+    Uma URL que já traz driver (`postgresql+asyncpg://`, por exemplo) passa
+    intacta: quem foi explícito quis aquilo.
+    """
+    for esquema in ESQUEMAS_SEM_DRIVER:
+        if url.startswith(esquema):
+            return DRIVER + url[len(esquema) :]
+    return url
+
+
+def com_credenciais(url: str, usuario: str, senha: str) -> str:
+    """A mesma URL, com outro usuário e outra senha — host, porta e banco intactos.
+
+    Existe por uma limitação concreta de provedor gerenciado: ele cria **um**
+    usuário, e a referência que o arquivo de infraestrutura consegue injetar é a
+    URL inteira, sem como recombinar pedaços. Esta aplicação precisa de dois
+    roles — o administrativo, que é o do provedor, e o da aplicação, sem
+    privilégio, que é o que faz o Row Level Security valer. Então o endereço vem
+    do provedor e as credenciais do role de aplicação entram por cima.
+    """
+    return make_url(url).set(username=usuario, password=senha).render_as_string(hide_password=False)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="", extra="ignore")
 
@@ -93,6 +134,16 @@ class Settings(BaseSettings):
     #   manutenção.
     database_url: str = "postgresql+psycopg://ia_sdr_app:ia_sdr_app@localhost:5432/ia_sdr"
     database_admin_url: str | None = None
+    #: Credenciais do role de APLICAÇÃO, quando o endereço do banco vem do
+    #: provedor. Preenchidos, substituem usuário e senha da `database_url`
+    #: mantendo host, porta e banco — ver `com_credenciais`. Em servidor próprio
+    #: ficam vazios: lá a `DATABASE_URL` já é escrita inteira.
+    #:
+    #: Os dois andam juntos de propósito. Preencher só um significava conectar
+    #: como o role administrativo sem querer, e o isolamento entre empresas
+    #: dependeria de um acidente de digitação não ter acontecido.
+    app_db_user: str = ""
+    app_db_password: str = ""
     db_pool_size: int = 10
     db_max_overflow: int = 20
     db_echo: bool = False
@@ -165,6 +216,31 @@ class Settings(BaseSettings):
     secrets_encryption_keys_previous: str = ""
 
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+
+    @model_validator(mode="after")
+    def _urls_do_banco(self) -> "Settings":
+        """Aceita a URL como o provedor a entrega, e aplica o role de aplicação.
+
+        Aqui, e não no ponto de conexão, porque a URL é lida em quatro lugares
+        (engine da aplicação, engine administrativa, alembic e bootstrap de
+        roles) e normalizar em quatro lugares é normalizar em três, na prática.
+        """
+        self.database_url = com_driver(self.database_url)
+        if self.database_admin_url:
+            self.database_admin_url = com_driver(self.database_admin_url)
+
+        if bool(self.app_db_user) != bool(self.app_db_password):
+            faltando = "APP_DB_PASSWORD" if self.app_db_user else "APP_DB_USER"
+            raise ValueError(
+                f"APP_DB_USER e APP_DB_PASSWORD andam juntos, e {faltando} está vazia. "
+                "Com só um dos dois, a aplicação conectaria com as credenciais do "
+                "role administrativo — que atravessa o Row Level Security."
+            )
+        if self.app_db_user:
+            self.database_url = com_credenciais(
+                self.database_url, self.app_db_user, self.app_db_password
+            )
+        return self
 
     @property
     def previous_encryption_keys(self) -> list[str]:

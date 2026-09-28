@@ -173,6 +173,24 @@ const browser = await chromium.launch({
 const page = await browser.newPage(CONTEXTO);
 
 try {
+  // `/api/*` no domínio do web chega à API.
+  //
+  // Em servidor próprio quem roteia é o Caddy, e esta verificação passa por
+  // causa dele. Em plataforma gerenciada, que publica um serviço por domínio e
+  // não tem proxy nosso na frente, quem roteia é o handler em
+  // `app/api/[...caminho]/route.ts`. É por esse caminho que sai o link de
+  // descadastro de todo email — obrigação legal — e por isso ele não pode
+  // depender de alguém lembrar de configurar um proxy.
+  //
+  // Sem autenticação de propósito: o que se prova é o roteamento. 401 em JSON é
+  // a API respondendo; 404 em HTML seria o Next não tendo achado rota nenhuma.
+  const pelaReescrita = await fetch(`${WEB}/api/v1/tenants/me/usage`);
+  const corpoDaReescrita = (await pelaReescrita.text()).trimStart();
+  checar(
+    pelaReescrita.status === 401 && corpoDaReescrita.startsWith("{"),
+    `/api/* no domínio do web chega à API (${pelaReescrita.status} ${corpoDaReescrita.slice(0, 30)})`,
+  );
+
   await page.goto(`${WEB}/login`);
   await page.fill('input[name="email"]', EMAIL);
   await page.fill('input[name="password"]', SENHA);

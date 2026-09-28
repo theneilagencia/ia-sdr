@@ -220,6 +220,14 @@ jobs:
           SECRETS_ENCRYPTION_KEY: ci
         run: docker compose -f docker-compose.prod.yml config --quiet
 
+      - name: Blueprint do Render confere
+        # O outro caminho de publicação. Erro aqui — referência para recurso que
+        # não existe, variável exigida que não chega, `off` sem aspas — só
+        # apareceria como deploy quebrado na conta de alguém.
+        run: |
+          pip install pyyaml
+          python3 deploy/validar_render.py
+
       - name: Script de publicação sem erro de sintaxe
         run: bash -n deploy/publicar.sh
 

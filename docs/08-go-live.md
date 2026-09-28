@@ -4,8 +4,9 @@ Publicar e estar pronto para operar são coisas diferentes. Este documento é a
 distância entre as duas, na ordem em que ela se percorre, com o que a aplicação
 verifica sozinha separado do que só uma pessoa pode fazer.
 
-O passo a passo da publicação em si está em [06-publicar.md](06-publicar.md).
-Aqui começa depois: a stack está de pé.
+O passo a passo da publicação em si está em [06-publicar.md](06-publicar.md)
+para servidor próprio e em [09-render.md](09-render.md) para o Render. Aqui
+começa depois: a stack está de pé, por qualquer um dos dois caminhos.
 
 ## O comando que diz o que falta
 
@@ -68,9 +69,10 @@ horas. Nenhum dos itens pode virar ✓ automático sem virar mentira.
 
 | O que | Como |
 |---|---|
-| Regras de negócio, isolamento, cotas, agentes, fila, email, cobrança, retenção | 512 testes contra PostgreSQL de verdade (`make test`) |
+| Regras de negócio, isolamento, cotas, agentes, fila, email, cobrança, retenção | 530 testes contra PostgreSQL de verdade (`make test`) |
 | As telas, ponta a ponta | 134 verificações num Chromium de verdade (`web/e2e/smoke.mjs`) |
 | A stack de produção sobe, migra, roteia e responde por HTTPS | `deploy/validar_stack.sh`, e o job `stack` do CI |
+| O blueprint do Render referencia o que existe e entrega o que a aplicação exige | `deploy/validar_render.py`, no job `deploy-config` |
 | Esta instalação está configurada para operar | `python -m scripts.pronto_para_ir_ao_ar` |
 | Backup, DNS, reputação de domínio e qualidade do texto | uma pessoa, uma vez, conforme acima |
 

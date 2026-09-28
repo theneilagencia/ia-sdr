@@ -48,15 +48,25 @@ def _e_dono(conn, tabela: str) -> bool:
     )
 
 
+def _conninfo(url) -> str:
+    """A URL no formato que o libpq entende, com tudo o que vem depois do `?`.
+
+    O `+psycopg` sai porque é informação do SQLAlchemy: o libpq não conhece
+    dialeto, e receber `postgresql+psycopg://` faz ele recusar o esquema.
+    """
+    return url.set(drivername="postgresql").render_as_string(hide_password=False)
+
+
 def _connect(url) -> psycopg.Connection:
-    return psycopg.connect(
-        host=url.host or "localhost",
-        port=url.port or 5432,
-        user=url.username,
-        password=url.password,
-        dbname=url.database,
-        autocommit=True,
-    )
+    """Conecta pela URL inteira, e não por host/porta/usuário separados.
+
+    A primeira versão desmontava a URL em argumentos, o que jogava fora tudo o
+    que vem depois do `?`. Em Postgres gerenciado isso é exatamente o parâmetro
+    que não pode faltar: `sslmode=require`. O resultado era um bootstrap que
+    falhava na conexão, com uma mensagem sobre SSL, num script que a pessoa não
+    escreveu — enquanto a aplicação, que usa a URL inteira, conectava.
+    """
+    return psycopg.connect(_conninfo(url), autocommit=True)
 
 
 def main() -> int:
@@ -80,6 +90,34 @@ def main() -> int:
     role_id = sql.Identifier(role)
 
     with _connect(admin_url) as conn:
+        # Primeiro: este usuário consegue mexer em role?
+        #
+        # Perguntado antes de tentar, e não capturando o erro depois, porque o
+        # mesmo privilégio faltando estraga dois passos — criar o role e trocar a
+        # senha dele — e o erro cru do Postgres ("permission denied to create
+        # role") não diz o que fazer nem por que a aplicação precisa de um
+        # segundo role. Em provedor gerenciado essa resposta é um veredito sobre o
+        # provedor, não um descuido de quem publicou: sem um segundo role, a
+        # aplicação conectaria como dona das tabelas e o Row Level Security não
+        # separaria empresa nenhuma.
+        pode_criar_role = conn.execute(
+            "SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user"
+        ).fetchone()[0]
+        if not pode_criar_role:
+            print(
+                f"✗ o usuário '{admin_url.username}' não tem CREATEROLE, e sem um segundo "
+                f"role ('{role}') o isolamento entre empresas deixa de existir: a aplicação "
+                "conectaria como dona das tabelas e o Row Level Security não valeria "
+                "para ela.\n"
+                "  Para conferir isso em qualquer provedor, antes de contratar:\n"
+                '    psql "$URL_DO_BANCO" -c '
+                '"select rolcreaterole from pg_roles where rolname = current_user"\n'
+                "  `f` ali significa que este banco gerenciado não serve para esta "
+                "aplicação. Use um provedor cujo usuário tenha CREATEROLE, ou um "
+                "Postgres em servidor próprio."
+            )
+            return 1
+
         exists = conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)).fetchone()
         if not exists:
             conn.execute(sql.SQL("CREATE ROLE {} LOGIN").format(role_id))
