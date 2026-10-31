@@ -41,6 +41,24 @@ UNIT_COST: dict[UsageKind, int] = {
 #: Só contam contra a cota de IA; import de prospect tem cota própria.
 _AI_KINDS = frozenset(k for k, cost in UNIT_COST.items() if cost > 0)
 
+#: Declarados na moeda interna e **sem código atrás**. Registrar consumo de um
+#: deles é recusado, e a recusa é o ponto: um tipo com preço na tabela e nenhuma
+#: operação que o produza é promessa esperando alguém vendê-la. Enquanto estiverem
+#: aqui, a plataforma diz em voz alta que não faz isso; quando alguém construir,
+#: tirar da lista é um passo explícito e visível no diff.
+KINDS_RESERVADOS = frozenset({UsageKind.DEEP_RESEARCH, UsageKind.VOICE_INTERACTION})
+
+
+class UsageKindReservado(RuntimeError):
+    """Tentativa de cobrar por operação que a plataforma ainda não faz."""
+
+    def __init__(self, kind: UsageKind) -> None:
+        super().__init__(
+            f"'{kind.value}' está declarado na tabela de consumo mas não existe "
+            "código que o produza. Cobrar por isso seria cobrar por nada — "
+            "remova de KINDS_RESERVADOS quando a operação existir de verdade."
+        )
+
 
 def _month_start(now: datetime | None = None) -> datetime:
     now = now or datetime.now(UTC)
@@ -53,6 +71,22 @@ def units_used_this_month(session: Session, tenant_id: uuid.UUID) -> int:
         .where(UsageEvent.tenant_id == tenant_id)
         .where(UsageEvent.created_at >= _month_start())
         .where(UsageEvent.kind.in_([k.value for k in _AI_KINDS]))
+    )
+    return int(session.execute(stmt).scalar_one())
+
+
+def cost_micro_usd_this_month(session: Session, tenant_id: uuid.UUID) -> int:
+    """Quanto a IA deste tenant custou de verdade no mês, em micro-dólares.
+
+    Soma **todos** os eventos, inclusive os de zero unidade: execução que falhou
+    depois de chamar o modelo gasta dólar e não gasta unidade nenhuma. Era
+    exatamente esse gasto que não tinha freio: a cota do plano conta unidade, e
+    um agente que falha em série nunca a consumia.
+    """
+    stmt = (
+        select(func.coalesce(func.sum(UsageEvent.cost_micro_usd), 0))
+        .where(UsageEvent.tenant_id == tenant_id)
+        .where(UsageEvent.created_at >= _month_start())
     )
     return int(session.execute(stmt).scalar_one())
 
@@ -80,15 +114,38 @@ def effective_limits(session: Session, tenant_id: uuid.UUID) -> dict:
 
 
 def check_ai_budget(session: Session, tenant_id: uuid.UUID, units: int) -> None:
-    """Chamado antes de gastar. Estourou a cota, não roda o agente."""
-    limit = effective_limits(session, tenant_id)["ai_units_per_month"]
-    if limit == UNLIMITED:
+    """Chamado antes de gastar. Estourou a cota, não roda o agente.
+
+    São dois freios, e eles medem coisas diferentes. A **unidade** é a moeda que
+    o cliente compra, e a conta é exata: sabe-se de antemão quantas unidades a
+    operação custa. O **dólar** é o que a Anthropic cobra, e aí não se sabe: o
+    custo de uma execução só existe depois dela. Por isso a regra do teto em
+    dólar é "já passou, não começa outra" — o excesso possível é de uma execução,
+    e essa está limitada pelo teto por execução (`ai_max_cost_micro_usd`).
+    """
+    limits = effective_limits(session, tenant_id)
+
+    limit = limits["ai_units_per_month"]
+    if limit != UNLIMITED:
+        used = units_used_this_month(session, tenant_id)
+        if used + units > limit:
+            raise LimitExceeded(
+                "Cota mensal de IA esgotada para este tenant",
+                details={"limit": limit, "used": used, "requested": units},
+            )
+
+    teto_usd = limits.get("ai_cost_usd_per_month", UNLIMITED)
+    if teto_usd == UNLIMITED:
         return
-    used = units_used_this_month(session, tenant_id)
-    if used + units > limit:
+    gasto = cost_micro_usd_this_month(session, tenant_id)
+    if gasto >= int(teto_usd) * 1_000_000:
         raise LimitExceeded(
-            "Cota mensal de IA esgotada para este tenant",
-            details={"limit": limit, "used": used, "requested": units},
+            "Teto mensal de custo de IA atingido para este tenant",
+            details={
+                "limit_usd": int(teto_usd),
+                "spent_usd": round(gasto / 1e6, 4),
+                "kind": "cost",
+            },
         )
 
 
@@ -104,6 +161,8 @@ def record_usage(
     cost_micro_usd: int = 0,
     notes: str | None = None,
 ) -> UsageEvent:
+    if kind in KINDS_RESERVADOS:
+        raise UsageKindReservado(kind)
     units = UNIT_COST[kind] * quantity
     event = UsageEvent(
         tenant_id=tenant_id,
@@ -143,7 +202,8 @@ def usage_summary(session: Session, tenant_id: uuid.UUID) -> dict:
         "period_start": _month_start().isoformat(),
         "ai_units_used": used,
         "ai_units_limit": limits["ai_units_per_month"],
-        "estimated_cost_usd": round(sum(v["cost_usd"] for v in by_kind.values()), 4),
+        "estimated_cost_usd": round(cost_micro_usd_this_month(session, tenant_id) / 1e6, 4),
+        "estimated_cost_limit_usd": limits.get("ai_cost_usd_per_month", UNLIMITED),
         "by_kind": by_kind,
         "limits": limits,
     }

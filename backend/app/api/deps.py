@@ -48,6 +48,7 @@ def get_current_context(
         user = session.get(User, user_id)
         if user is None or not user.is_active:
             raise AuthenticationError("Usuário inválido ou inativo")
+        _reject_token_older_than_password(claims, user)
         membership = session.execute(
             select(Membership)
             .where(Membership.user_id == user_id)
@@ -72,6 +73,21 @@ def get_current_context(
     )
     request.state.tenant_context = ctx
     return ctx
+
+
+def _reject_token_older_than_password(claims: dict, user: User) -> None:
+    """Trocar a senha encerra as sessões abertas.
+
+    Sem isso, trocar a senha não tira ninguém de dentro: o token que já estava
+    na mão de quem invadiu continua valendo até expirar — doze horas, por
+    padrão. O `iat` é truncado em segundos, então a comparação usa o mesmo
+    truncamento para não invalidar o token que a própria troca acabou de emitir.
+    """
+    if user.password_changed_at is None:
+        return
+    emitido_em = claims.get("iat")
+    if emitido_em is None or int(emitido_em) < int(user.password_changed_at.timestamp()):
+        raise AuthenticationError("Sessão encerrada porque a senha foi alterada. Entre de novo.")
 
 
 def get_db(ctx: TenantContext = Depends(get_current_context)) -> Iterator[Session]:
@@ -107,5 +123,6 @@ def require_platform_admin(
         user = session.get(User, uuid.UUID(claims["sub"]))
         if user is None or not user.is_active or not user.is_platform_admin:
             raise PermissionDenied("Acesso restrito a administradores da plataforma")
+        _reject_token_older_than_password(claims, user)
         session.expunge(user)
         return user

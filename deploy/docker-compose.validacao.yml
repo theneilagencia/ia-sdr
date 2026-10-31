@@ -1,0 +1,40 @@
+# Sobreposição usada só para validar a stack de produção numa máquina qualquer.
+#
+#   ./validar_stack.sh
+#
+# Não é um segundo ambiente: é o `docker-compose.prod.yml` inteiro, com as
+# mesmas imagens, o mesmo `ENVIRONMENT=production` e o mesmo Caddyfile. As três
+# diferenças existem porque não há domínio público numa validação:
+#
+# 1. O Caddy assina com a CA interna dele (ver caddy_cert_interno.awk).
+# 2. O limitador de requisições sobe alto: a fumaça percorre as telas em
+#    velocidade de máquina e passaria do teto de produção por janela, e o que
+#    falharia seria a tela em que a cota acabou — erro sem relação com a causa.
+#    O freio tem testes próprios em `test_rate_limit.py`.
+# 3. O Postgres publica porta em 127.0.0.1 para a validação poder olhar o banco
+#    de fora. Em produção nada disso é publicado, e é de propósito.
+
+services:
+  db:
+    ports:
+      - "127.0.0.1:55432:5432"
+
+  api:
+    environment:
+      RATE_LIMIT_REQUESTS: "10000"
+
+  worker:
+    environment:
+      RATE_LIMIT_REQUESTS: "10000"
+
+  caddy:
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy_cert_interno.awk:/etc/caddy/cert_interno.awk:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    command:
+      - sh
+      - -c
+      - awk -f /etc/caddy/cert_interno.awk /etc/caddy/Caddyfile > /tmp/Caddyfile
+        && caddy run --config /tmp/Caddyfile --adapter caddyfile

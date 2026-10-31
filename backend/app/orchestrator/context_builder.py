@@ -19,13 +19,18 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import CrossTenantAccess, NotFound
 from app.db.models.ai import AIAgent
-from app.db.models.knowledge import CompanyProfile, KnowledgeChunk, KnowledgeDocument
+from app.db.models.engagement import Message, MessageDirection
+from app.db.models.knowledge import CompanyProfile, KnowledgeChunk
 from app.db.models.platform import Tenant
 from app.db.models.sales import Campaign
 from app.orchestrator.agents import AGENT_DEFINITIONS
 from app.orchestrator.envelope import JobEnvelope
+from app.services import knowledge as knowledge_service
 
 MAX_KNOWLEDGE_CHUNKS = 20
+#: A pergunta vira tsquery; uma mensagem inteira de lead, com assinatura e
+#: histórico citado, só adiciona ruído ao ranqueamento.
+MAX_QUERY_CHARS = 600
 
 
 def assert_same_tenant(obj, tenant_id: uuid.UUID) -> None:
@@ -94,7 +99,7 @@ def build_context(session: Session, envelope: JobEnvelope) -> AgentContext:
     if agent_config is not None:
         assert_same_tenant(agent_config, tenant_id)
 
-    knowledge = _load_knowledge(session, tenant_id, campaign)
+    knowledge = _load_knowledge(session, tenant_id, campaign, _knowledge_query(session, envelope))
 
     return AgentContext(
         job_id=envelope.job_id,
@@ -112,11 +117,18 @@ def build_context(session: Session, envelope: JobEnvelope) -> AgentContext:
             "name": agent_config.name if agent_config else definition.default_name,
             "model": agent_config.model if agent_config else definition.default_model,
             "instructions": (
-                agent_config.instructions if agent_config and agent_config.instructions
+                agent_config.instructions
+                if agent_config and agent_config.instructions
                 else definition.base_instructions
             ),
             "tools": list(agent_config.tools) if agent_config else list(definition.tools),
-            "max_output_tokens": agent_config.max_output_tokens if agent_config else 2000,
+            # Sem configuração própria, fica **vazio** para o executor aplicar o
+            # padrão da plataforma (`ai_max_output_tokens`). Antes vinha 2000
+            # fixo, e como o executor faz `... or settings.ai_max_output_tokens`,
+            # o 2000 sempre ganhava: o ajuste de 8000 nunca valeu para ninguém, e
+            # a mensagem de resposta truncada mandava aumentar um número que não
+            # tinha efeito nenhum.
+            "max_output_tokens": agent_config.max_output_tokens if agent_config else None,
         },
         task={
             "type": envelope.agent.value,
@@ -166,40 +178,69 @@ def _campaign_payload(campaign: Campaign | None) -> dict | None:
     }
 
 
-def _load_knowledge(
-    session: Session, tenant_id: uuid.UUID, campaign: Campaign | None
-) -> list[dict]:
-    """Só documentos deste tenant, e só os visíveis para esta campanha.
+def _knowledge_query(session: Session, envelope: JobEnvelope) -> str | None:
+    """A pergunta que a recuperação vai responder.
 
-    Documento sem `campaign_ids` vale para o tenant inteiro; com lista, só
-    para as campanhas listadas.
+    Quem enfileira pode dizer explicitamente (`params["knowledge_query"]`). Se
+    não disser e o trabalho for sobre uma conversa, a pergunta é a última
+    mensagem do lead — que é, literalmente, o que o agente precisa responder.
     """
-    stmt = (
-        select(KnowledgeChunk, KnowledgeDocument)
-        .join(KnowledgeDocument, KnowledgeChunk.document_id == KnowledgeDocument.id)
-        .where(KnowledgeChunk.tenant_id == tenant_id)
-        .where(KnowledgeDocument.tenant_id == tenant_id)
-        .where(KnowledgeDocument.status == "indexed")
-        .order_by(KnowledgeDocument.created_at.desc(), KnowledgeChunk.ordinal)
-        .limit(MAX_KNOWLEDGE_CHUNKS * 5)
+    explicita = envelope.params.get("knowledge_query")
+    if isinstance(explicita, str) and explicita.strip():
+        return explicita.strip()[:MAX_QUERY_CHARS]
+
+    if envelope.entity_type != "conversation" or envelope.entity_id is None:
+        return None
+
+    ultima = session.execute(
+        select(Message)
+        .where(Message.conversation_id == envelope.entity_id)
+        .where(Message.direction == MessageDirection.INBOUND.value)
+        .order_by(Message.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if ultima is None:
+        return None
+    assert_same_tenant(ultima, envelope.tenant_id)
+    texto = f"{ultima.subject or ''} {ultima.body or ''}".strip()
+    return texto[:MAX_QUERY_CHARS] or None
+
+
+def _load_knowledge(
+    session: Session,
+    tenant_id: uuid.UUID,
+    campaign: Campaign | None,
+    query: str | None = None,
+) -> list[dict]:
+    """Os trechos mais relevantes deste tenant, visíveis para esta campanha.
+
+    Antes isto devolvia os mais recentes. Com dez documentos dá no mesmo; com
+    cem, o agente recebe o que foi carregado por último e responde "não está na
+    minha base" sobre algo que está — e escalar para humano à toa, todo dia, é
+    o jeito mais rápido de a empresa desligar o agente.
+
+    O escopo por campanha e o filtro por tenant são aplicados dentro da busca;
+    a verificação aqui é a segunda barreira, que deve ser redundante.
+    """
+    achados = knowledge_service.search_chunks(
+        session,
+        tenant_id,
+        query,
+        campaign_id=campaign.id if campaign is not None else None,
+        limit=MAX_KNOWLEDGE_CHUNKS,
     )
     out: list[dict] = []
-    for chunk, document in session.execute(stmt).all():
-        assert_same_tenant(chunk, tenant_id)
-        assert_same_tenant(document, tenant_id)
-        scope = document.campaign_ids or []
-        if scope and campaign is not None and str(campaign.id) not in {str(c) for c in scope}:
-            continue
-        if scope and campaign is None:
-            continue
+    for achado in achados:
+        chunk = session.get(KnowledgeChunk, uuid.UUID(achado["chunk_id"]))
+        if chunk is not None:
+            assert_same_tenant(chunk, tenant_id)
         out.append(
             {
-                "document_id": str(document.id),
-                "title": document.title,
-                "ordinal": chunk.ordinal,
-                "content": chunk.content,
+                "document_id": achado["document_id"],
+                "title": achado["title"],
+                "ordinal": achado["ordinal"],
+                "content": achado["content"],
+                "relevance": achado["relevance"],
             }
         )
-        if len(out) >= MAX_KNOWLEDGE_CHUNKS:
-            break
     return out

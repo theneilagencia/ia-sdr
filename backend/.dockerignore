@@ -1,0 +1,18 @@
+# O ambiente virtual da máquina local não serve dentro da imagem (a imagem
+# instala as dependências dela no `pip install`), e enviá-lo ao daemon a cada
+# build custa centenas de MB.
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+
+# Segredos de desenvolvimento nunca entram numa imagem.
+.env
+.env.*
+!.env.example
+
+# A suíte roda contra um PostgreSQL de verdade, fora da imagem.
+tests
+.git

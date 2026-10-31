@@ -22,8 +22,24 @@ WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid
 
 Quatro detalhes importam:
 
-- **`FORCE`** faz a política valer inclusive para o dono da tabela. Sem isso, o
-  RLS seria decorativo para quem roda as migrations.
+- **`FORCE`** faz a política valer inclusive para o dono da tabela — e é a única
+  das quatro que depende de onde o banco roda. Em servidor próprio ela fica
+  ligada, e nem quem rodou as migrations escapa. Em **Postgres gerenciado**
+  (Render, Neon, Supabase, RDS, Cloud SQL) ela sai, por um motivo que não é
+  escolha: nenhum provedor dá superusuário, `CREATEROLE` **não** concede
+  `BYPASSRLS` — só um superusuário concede —, e sem um dos dois a parte
+  administrativa (autenticação, painel, worker) não teria como enxergar mais de
+  uma empresa. O caminho que sobra é o do próprio PostgreSQL: o dono da tabela
+  atravessa as políticas. Então lá o dono é o role administrativo, `FORCE` sai, e
+  **o isolamento do role da aplicação não muda em nada** — `FORCE` nunca valeu
+  para quem não é dono. Quem decide é o `bootstrap_roles`, conforme os
+  privilégios que aquele banco permite, e o modo em vigor (`atributo` ou `posse`)
+  aparece no log da subida. A rede de proteção que `FORCE` dava — apontar a
+  aplicação para o dono por engano — passa a ser uma verificação explícita: a
+  aplicação recusa subir se o role dela for dono de qualquer tabela com
+  `tenant_id`. Há sete testes contra um banco montado com os privilégios exatos
+  de um provedor gerenciado, incluindo o que prova que uma empresa não enxerga a
+  outra nesse modo.
 - **`WITH CHECK`** impede *gravar* linha com `tenant_id` alheio, não só lê-la.
   Sem isso, dá para escrever no tenant do vizinho.
 - **Esquecer o escopo não vaza**: sessão sem `app.tenant_id` não lê nada, em
@@ -42,7 +58,18 @@ Quatro detalhes importam:
 
 `python -m scripts.bootstrap_roles` cria o role de aplicação e concede a ele
 `SELECT/INSERT/UPDATE/DELETE` — nada de DDL, nada de `TRUNCATE`. É idempotente
-e roda em toda subida.
+e roda em toda subida. Se o usuário administrativo não puder criar role, ele
+recusa e explica: sem o segundo role não existe isolamento, então não há o que
+fazer sem trocar de provedor de banco.
+
+**Em Postgres gerenciado, o nome e a senha do role de aplicação chegam por
+`APP_DB_USER` e `APP_DB_PASSWORD`**, e não dentro da `DATABASE_URL`. A razão é
+que esses provedores criam **um** usuário e injetam a URL inteira na variável de
+ambiente, sem como recombinar host, porta e banco com outro usuário. Então o
+endereço vem do provedor e as credenciais da aplicação entram por cima — as
+duas juntas, sempre: com só uma delas a aplicação conectaria com as credenciais
+do administrativo, que atravessa o RLS, e a configuração é recusada em vez de
+aceita pela metade.
 
 **Por que isso não é detalhe de deploy.** A imagem oficial do PostgreSQL cria o
 `POSTGRES_USER` como **superusuário**, e superusuário ignora RLS inteiro —
@@ -67,6 +94,22 @@ with tenant_session(tenant_id) as session:   # SET LOCAL app.tenant_id
 `backend/tests/test_rls.py` verifica cada uma dessas propriedades — inclusive
 `UPDATE` e `DELETE` cruzados, que retornam 0 linhas afetadas, e o privilégio do
 role com que a suíte está conectada.
+
+### A lista de tabelas é conferida contra os modelos
+
+A lista de tabelas que recebem RLS (`TENANT_SCOPED_TABLES`) é mantida à mão, e
+por isso a suíte confere as duas direções: toda tabela da lista tem política, **e
+nenhuma tabela mapeada com `tenant_id` está fora dela**.
+
+A segunda direção foi acrescentada depois de encontrar o caso que ela pega:
+`memberships` carregava `tenant_id` desde a primeira migration e nunca teve
+política. Não vazava por sorte — todos os caminhos que leem memberships de
+várias empresas (registro, login, troca de tenant, `/auth/me`, resolução de
+permissão) usam a sessão sem escopo de propósito. Mas `limits.check_can_add_user`
+conta os membros pela sessão **com escopo**, protegido apenas por um
+`WHERE tenant_id = ...` escrito à mão — exatamente aquilo que este capítulo diz
+que o RLS existe para não depender. A migration `0008_rls_memberships` fecha o
+laço.
 
 ## 2. IA
 

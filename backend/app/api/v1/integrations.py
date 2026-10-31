@@ -44,9 +44,7 @@ def list_integrations(
     return [_to_response(item) for item in rows]
 
 
-@router.post(
-    "", response_model=schemas.IntegrationResponse, status_code=status.HTTP_201_CREATED
-)
+@router.post("", response_model=schemas.IntegrationResponse, status_code=status.HTTP_201_CREATED)
 def create_integration(
     payload: schemas.IntegrationCreate,
     ctx: TenantContext = Depends(require(Permission.INTEGRATION_WRITE)),

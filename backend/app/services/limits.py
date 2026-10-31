@@ -43,14 +43,28 @@ def check_can_create_campaign(session: Session, tenant_id: uuid.UUID) -> None:
     _enforce(limits["campaigns"], current, "campaigns")
 
 
-def check_can_add_user(session: Session, tenant_id: uuid.UUID) -> None:
+def check_can_add_user(session: Session, tenant_id: uuid.UUID, *, email: str | None = None) -> None:
+    """Membros ativos **mais convites pendentes** contra o limite do plano.
+
+    Convite pendente é vaga ocupada: sem contá-lo, um plano de duas pessoas
+    aceitaria vinte convites, e o limite só apareceria para quem tentasse
+    aceitar por último — que não tem nada a ver com a decisão de quem convidou.
+
+    `email` é quem está sendo convidado agora, e existe por um motivo concreto:
+    reconvidar a mesma pessoa **substitui** o convite pendente dela em vez de
+    somar outro. Sem essa exceção, quem convida com o papel errado e tenta
+    corrigir recebe "limite do plano atingido" por causa do convite que o novo
+    vai apagar — a plataforma culpando o plano por um erro que ela mesma criou.
+    """
+    from app.services import invitations
+
     limits = effective_limits(session, tenant_id)
     current = _count(
         session,
         select(func.count(Membership.id))
         .where(Membership.tenant_id == tenant_id)
         .where(Membership.is_active.is_(True)),
-    )
+    ) + invitations.contar_pendentes(session, tenant_id, exceto_email=email)
     _enforce(limits["users"], current, "users")
 
 

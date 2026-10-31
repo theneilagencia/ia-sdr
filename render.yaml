@@ -1,0 +1,239 @@
+# Publicar no Render: a mesma aplicação, sem servidor para administrar.
+#
+# O caminho de servidor próprio continua sendo o de `deploy/` — um Docker
+# Compose e um proxy. Este arquivo existe para quem prefere não cuidar de
+# máquina, e a troca é conhecida: mais barato e mais controlado lá, menos
+# trabalho aqui. O passo a passo, o custo e as armadilhas estão em
+# `docs/09-render.md`.
+#
+# Três decisões deste arquivo não são óbvias, e é melhor lê-las antes de editar:
+#
+# 1. **A API é um serviço privado.** Ela não tem porta para a internet. Quem
+#    responde no domínio é só o web, e `/api/*` chega à API por um encaminhador
+#    do Next (ver `web/app/api/[...caminho]/route.ts`) — o mesmo desenho do Caddy
+#    em servidor próprio: um domínio só, dividido por caminho, e o encaminhador
+#    resolve o endereço da API a cada requisição, porque a imagem é construída
+#    antes de o serviço da API existir. Isso mantém o cookie de
+#    sessão same-site, evita CORS frouxo e faz o link de descadastro que vai em
+#    todo email sair pelo mesmo endereço da aplicação.
+#
+# 2. **São dois roles no banco, e o Render só cria um.** O usuário do provedor é
+#    o administrativo — dono das tabelas, é assim que autenticação, painel da
+#    plataforma e worker atravessam o Row Level Security sem existir
+#    superusuário. O role da **aplicação** é criado pelo `bootstrap_roles` no
+#    pré-deploy e entra por `APP_DB_USER`/`APP_DB_PASSWORD`, por cima do
+#    endereço que o provedor injeta. Sem essa separação o RLS não isola empresa
+#    nenhuma, e a aplicação recusa subir em vez de fingir que isola.
+#
+#    Isso depende de o usuário do provedor poder criar role (`CREATEROLE`). Se
+#    não puder, o pré-deploy falha dizendo exatamente isso — e é um veredito
+#    sobre o provedor, não um descuido de quem publicou.
+#
+# 3. **O Redis não está aqui.** O freio de requisições conta dentro do processo,
+#    o que basta para uma instância. `docs/09-render.md` tem as quatro linhas que
+#    adicionam um Key Value no dia em que houver duas.
+
+previews:
+  # "off" entre aspas porque YAML sem aspas leria `off` como o booleano falso.
+  #
+  # Desligado porque ambiente de pré-visualização no Render cria banco e
+  # serviços pagos a cada pull request. Quem quiser ligar, saiba que é uma
+  # cópia da stack inteira por PR aberto.
+  generation: "off"
+
+envVarGroups:
+  # O que api e worker compartilham e o Render consegue gerar sozinho. Um grupo,
+  # e não a mesma variável repetida nos dois serviços: `generateValue` num grupo
+  # gera **um** valor, e os dois processos precisam do mesmo — JWT assinado por
+  # um e rejeitado pelo outro seria um bug intermitente de sessão.
+  #
+  # O que não pode estar aqui: nada que venha de banco ou de outro serviço, e
+  # nada com `sync: false`. Grupo não aceita referência, e ignora `sync: false`
+  # em silêncio — o que transformaria um segredo em string vazia sem avisar.
+  - name: ia-sdr-backend
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: JWT_SECRET
+        generateValue: true
+      # Assina os links de descadastro. Separado do JWT_SECRET de propósito:
+      # vazio, ele herda o JWT_SECRET, e aí rotacionar o segredo das sessões
+      # (o que se faz depois de um vazamento) mataria todo link de descadastro
+      # já enviado — uma obrigação legal virando página de erro.
+      - key: UNSUBSCRIBE_SECRET
+        generateValue: true
+      # O role da aplicação: sem privilégio, é ele que faz o RLS valer.
+      - key: APP_DB_USER
+        value: ia_sdr_app
+      - key: APP_DB_PASSWORD
+        generateValue: true
+
+services:
+  # ---------------------------------------------------------------- API privada
+  - type: pserv
+    name: ia-sdr-api
+    runtime: docker
+    region: oregon
+    plan: starter
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    # Um commit que quebra o CI não vira deploy. O repositório tem cinco jobs
+    # (backend, web, e2e, stack de produção, deploy-config); `commit` publicaria
+    # antes de qualquer um deles terminar.
+    autoDeployTrigger: checksPass
+    # Mexer no frontend não reconstrói a API. Sem isto, todo commit reconstrói
+    # os três serviços — tempo de build que se paga e espera sem motivo.
+    buildFilter:
+      paths:
+        - backend/**
+    # Roda uma vez por deploy, antes de qualquer instância receber tráfego, e é
+    # idempotente: schema, políticas de RLS e role de aplicação. Falhar aqui
+    # aborta o deploy e mantém a versão anterior no ar — que é o que se quer de
+    # uma migration que não aplicou.
+    preDeployCommand: alembic upgrade head && python -m scripts.bootstrap_roles
+    envVars:
+      - fromGroup: ia-sdr-backend
+      # As duas apontam para o mesmo banco, e é assim mesmo: a URL traz o
+      # endereço, e `APP_DB_USER`/`APP_DB_PASSWORD` (do grupo) substituem
+      # usuário e senha só na de aplicação. É a única forma com um provedor que
+      # cria um usuário e injeta a URL inteira, sem como recombinar pedaços.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ia-sdr-db
+          property: connectionString
+      - key: DATABASE_ADMIN_URL
+        fromDatabase:
+          name: ia-sdr-db
+          property: connectionString
+      # Cifra as credenciais de email e as chaves de API das empresas.
+      #
+      # `sync: false` — o Render pergunta na criação e nunca sobrescreve. Não é
+      # `generateValue` de propósito: **esta chave você precisa ter fora do
+      # Render**. Perdê-la é perder toda credencial de email e chave de API já
+      # salva, sem recuperação, por desenho. Gere e guarde no seu gerenciador de
+      # senhas antes de colar aqui:
+      #
+      #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      - key: SECRETS_ENCRYPTION_KEY
+        sync: false
+      # Os três endereços. O Render não sabe o domínio da aplicação antes de ela
+      # existir, então não há como derivá-los aqui — e um padrão errado seria
+      # pior que uma pergunta: link de descadastro que não abre queima o domínio
+      # de envio, e convite que não abre tranca quem foi convidado do lado de
+      # fora. `docs/09-render.md` diz exatamente o que colar em cada um.
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      # Duas coisas dependem de a API saber o endereço de quem chamou, e as
+      # duas quebram em silêncio sem isto:
+      #
+      # * o log de auditoria, que registraria o IP interno do serviço web em
+      #   toda linha, em vez de quem agiu;
+      # * o freio de requisições, que para tráfego sem token conta **por IP** —
+      #   e com um IP só para todo mundo, o balde passa a ser compartilhado:
+      #   quem abusasse do link público gastaria a cota de todos os outros.
+      #
+      # Confiar no cabeçalho encaminhado só é seguro porque este serviço é
+      # privado: o único caminho até ele é a rede interna do Render, e quem
+      # preenche o cabeçalho é o web.
+      #
+      # É variável de ambiente, e não um `dockerCommand`, porque o uvicorn já lê
+      # esta: um comando com aspas dentro de YAML é uma forma de errar a mais,
+      # por nada. O `CMD` da imagem já liga `--proxy-headers` e já respeita a
+      # porta que a plataforma escolhe.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+
+  # ------------------------------------------------------------------- Worker
+  # Lê as caixas de entrada, despacha o que foi aprovado e avança as cadências.
+  # Sem ele a aplicação abre, mostra tudo e não faz nada acontecer.
+  - type: worker
+    name: ia-sdr-worker
+    runtime: docker
+    region: oregon
+    plan: starter
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    dockerCommand: python -m app.workers.runner
+    autoDeployTrigger: checksPass
+    # O runner trata SIGTERM: termina o ciclo em andamento e sai. 60s dá tempo
+    # de um disparo em curso concluir em vez de morrer entre o envio e o
+    # registro — que é o estado que duplica email.
+    maxShutdownDelaySeconds: 60
+    buildFilter:
+      paths:
+        - backend/**
+    envVars:
+      - fromGroup: ia-sdr-backend
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ia-sdr-db
+          property: connectionString
+      - key: DATABASE_ADMIN_URL
+        fromDatabase:
+          name: ia-sdr-db
+          property: connectionString
+      # Os mesmos valores da API, perguntados de novo porque grupo não aceita
+      # `sync: false`. O worker precisa da chave para decifrar a credencial de
+      # email de cada empresa, e das duas URLs porque a verificação de produção
+      # recusa subir com endereço de desenvolvimento — inclusive aqui.
+      - key: SECRETS_ENCRYPTION_KEY
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+
+  # ------------------------------------------------------- Web, o único público
+  - type: web
+    name: ia-sdr-web
+    runtime: docker
+    region: oregon
+    plan: starter
+    dockerContext: ./web
+    dockerfilePath: ./web/Dockerfile
+    autoDeployTrigger: checksPass
+    # `/` exige sessão e responde redirecionando para o login; `/login` responde
+    # 200 sem sessão nenhuma, que é o que um health check precisa.
+    healthCheckPath: /login
+    buildFilter:
+      paths:
+        - web/**
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # `hostport` é o que o Render sabe injetar de um serviço privado:
+      # `ia-sdr-api:10000`, sem esquema. O `http://` é acrescentado em
+      # `web/lib/api-url.ts` — sem isso o fetch leria `ia-sdr-api:` como
+      # protocolo e falharia com uma mensagem que não lembra a causa.
+      #
+      # Ela é lida a cada requisição, não no build: o endereço interno da API só
+      # existe depois de o serviço existir, e a imagem é construída antes.
+      - key: API_URL
+        fromService:
+          name: ia-sdr-api
+          type: pserv
+          property: hostport
+
+databases:
+  - name: ia-sdr-db
+    # `name`, `databaseName`, `user`, `region` e `postgresMajorVersion` não
+    # mudam depois de criado: trocar qualquer um exige banco novo e migrar os
+    # dados à mão. Vale ler duas vezes antes do primeiro sync.
+    databaseName: ia_sdr
+    # Este é o role administrativo: dono das tabelas, sem superusuário. É o
+    # arranjo de posse descrito em `docs/02-multi-tenancy.md`.
+    user: ia_sdr_admin
+    plan: basic-256mb
+    region: oregon
+    postgresMajorVersion: "16"
+    # Nenhum endereço externo: o banco só é alcançável pela rede privada do
+    # Render. Para rodar `psql` da sua máquina, libere seu IP no painel e feche
+    # depois — um Postgres com `0.0.0.0/0` e senha em variável de ambiente é
+    # como a maioria dos vazamentos começa.
+    ipAllowList: []
