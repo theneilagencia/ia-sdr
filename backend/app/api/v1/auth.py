@@ -13,14 +13,14 @@ from sqlalchemy.exc import IntegrityError
 from app.api.deps import get_current_context
 from app.api.v1 import schemas
 from app.core.config import settings
-from app.core.errors import AuthenticationError, ConflictError, PermissionDenied
+from app.core.errors import AuthenticationError, ConflictError, NotFound, PermissionDenied
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.models.knowledge import CompanyProfile
 from app.db.models.platform import Membership, Plan, SubscriptionStatus, Tenant, User
 from app.db.session import tenant_session, unscoped_session
 from app.rbac.roles import Role, permissions_for
-from app.services import audit
-from app.tenancy.context import TenantContext
+from app.services import audit, invitations, mfa
+from app.tenancy.context import TenantContext, system_context, use_context
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -128,6 +128,16 @@ def login(payload: schemas.LoginRequest) -> schemas.TokenResponse:
             chosen = match[0]
 
         membership, tenant = chosen
+
+        # Depois da senha e do vínculo, antes de emitir sessão. A ordem é o que
+        # separa "esta conta tem segundo fator" (dito só a quem provou a senha)
+        # de entregar isso a quem está chutando senha.
+        #
+        # `verificar` roda em transação própria de propósito: a recusa é uma
+        # exceção, e exceção aqui desfaz esta transação — o contador de
+        # tentativas iria embora junto com ela.
+        mfa.verificar(user.id, payload.code)
+
         user.last_login_at = datetime.now(UTC)
         token = create_access_token(
             user_id=user.id,
@@ -141,6 +151,59 @@ def login(payload: schemas.LoginRequest) -> schemas.TokenResponse:
             tenant_id=tenant.id,
             role=membership.role,
         )
+
+
+@router.post("/invitations/accept", response_model=schemas.TokenResponse)
+def accept_invitation(payload: schemas.AcceptInviteRequest) -> schemas.TokenResponse:
+    """Aceita um convite e entra — sem login antes, porque pode não haver conta.
+
+    É público por necessidade: quem clica no link ainda não é membro de nada.
+    Aceitar exige a senha **do dono do email**: se a conta é nova, a senha
+    informada nasce com ela; se já existe, tem de ser a que a pessoa usa. Essa
+    exigência é o que separa um convite de uma chave — quem convida vê o link uma
+    vez e, sem a senha, não anexa nem abre a conta de mais ninguém.
+
+    Por isso a sessão sai daqui em qualquer um dos dois casos: a prova de posse é
+    a mesma que o login pede.
+    """
+    aceite = invitations.aceitar(
+        payload.token,
+        password=payload.password,
+        full_name=payload.full_name,
+        code=payload.code,
+    )
+
+    with (
+        use_context(system_context(aceite.tenant_id, source="public")),
+        tenant_session(aceite.tenant_id) as book,
+    ):
+        audit.record(
+            book,
+            action="member.invite_accepted",
+            resource_type="user",
+            resource_id=aceite.user_id,
+            payload={
+                "email": aceite.email,
+                "role": aceite.role,
+                # Quem administra precisa distinguir "entrou gente nova na
+                # plataforma" de "alguém que já usava outra empresa entrou aqui".
+                "conta_criada": aceite.conta_criada,
+            },
+            context=system_context(aceite.tenant_id, source="public"),
+        )
+
+    token = create_access_token(
+        user_id=aceite.user_id,
+        tenant_id=aceite.tenant_id,
+        role=aceite.role,
+        is_platform_admin=aceite.is_platform_admin,
+    )
+    return schemas.TokenResponse(
+        access_token=token,
+        expires_in_minutes=settings.access_token_ttl_minutes,
+        tenant_id=aceite.tenant_id,
+        role=aceite.role,
+    )
 
 
 @router.post("/switch-tenant", response_model=schemas.TokenResponse)
@@ -170,6 +233,131 @@ def switch_tenant(
             expires_in_minutes=settings.access_token_ttl_minutes,
             tenant_id=payload.tenant_id,
             role=membership.role,
+        )
+
+
+@router.post("/change-password", response_model=schemas.TokenResponse)
+def change_password(
+    payload: schemas.ChangePasswordRequest,
+    request: Request,
+    ctx: TenantContext = Depends(get_current_context),
+) -> schemas.TokenResponse:
+    """Troca a senha e encerra as outras sessões.
+
+    Faltava, e não era detalhe: o provisionamento de uma empresa nova imprime
+    uma senha gerada e pede para trocar no primeiro acesso — o que, sem isto,
+    era impossível. Quem entra por convite já escolhe a própria senha no aceite;
+    o owner provisionado é o único que começa com uma senha escolhida por outra
+    pessoa, e é para ele que esta rota é a primeira coisa a fazer.
+
+    A senha atual é exigida mesmo com o token válido: token roubado não deve
+    virar conta roubada.
+    """
+    with unscoped_session(reason="auth:change-password") as session:
+        user = session.get(User, ctx.user_id)
+        if user is None or not verify_password(payload.current_password, user.password_hash):
+            raise AuthenticationError("Senha atual incorreta")
+        if verify_password(payload.new_password, user.password_hash):
+            raise ConflictError("A nova senha é igual à atual")
+        user.password_hash = hash_password(payload.new_password)
+        user.password_changed_at = datetime.now(UTC)
+        session.flush()
+
+    with tenant_session(ctx.tenant_id) as session:
+        audit.record(
+            session,
+            action="user.password_changed",
+            resource_type="user",
+            resource_id=ctx.user_id,
+            context=ctx,
+        )
+
+    # Um token novo junto com a resposta: a troca invalida o que o chamador
+    # tinha na mão, e devolver só 204 o deixaria deslogado sem motivo.
+    token = create_access_token(
+        user_id=ctx.user_id,
+        tenant_id=ctx.tenant_id,
+        role=ctx.role.value,
+        is_platform_admin=ctx.is_platform_admin,
+    )
+    return schemas.TokenResponse(
+        access_token=token,
+        expires_in_minutes=settings.access_token_ttl_minutes,
+        tenant_id=ctx.tenant_id,
+        role=ctx.role.value,
+    )
+
+
+# ------------------------------------------------------- segundo fator (TOTP)
+#
+# Todas em `/auth` porque o segundo fator é da **conta**, não da empresa: quem
+# serve duas empresas protege uma identidade. Nenhuma pede papel — um viewer
+# proteger a própria conta é exatamente o que se quer.
+
+
+@router.get("/mfa", response_model=schemas.MfaState)
+def mfa_state(ctx: TenantContext = Depends(get_current_context)) -> schemas.MfaState:
+    with unscoped_session(reason="auth:mfa-estado") as session:
+        user = session.get(User, ctx.user_id)
+        if user is None:
+            raise NotFound("Usuário não encontrado")
+        return schemas.MfaState(**mfa.estado(user))
+
+
+@router.post("/mfa/setup", response_model=schemas.MfaSetupResponse)
+def mfa_setup(
+    ctx: TenantContext = Depends(get_current_context),
+) -> schemas.MfaSetupResponse:
+    """Gera o segredo e devolve o link — uma vez, e sem ligar nada ainda.
+
+    Ligar só depois de um código de verdade é o que impede a pessoa de se
+    trancar fora: enquanto não confirmar, o login continua funcionando com a
+    senha, e um aplicativo configurado errado não custa uma conta.
+    """
+    config = mfa.iniciar(ctx.user_id)
+    return schemas.MfaSetupResponse(secret=config.secret, otpauth_uri=config.otpauth_uri)
+
+
+@router.post("/mfa/confirm", response_model=schemas.MfaRecoveryCodes)
+def mfa_confirm(
+    payload: schemas.MfaCodeRequest,
+    request: Request,
+    ctx: TenantContext = Depends(get_current_context),
+) -> schemas.MfaRecoveryCodes:
+    """Liga o segundo fator e devolve os códigos de recuperação, uma vez só."""
+    codigos = mfa.confirmar(ctx.user_id, payload.code)
+    with use_context(ctx), tenant_session(ctx.tenant_id) as book:
+        audit.record(
+            book,
+            action="mfa.enabled",
+            resource_type="user",
+            resource_id=ctx.user_id,
+            payload={"ip": request.client.host if request.client else None},
+            context=ctx,
+        )
+    return schemas.MfaRecoveryCodes(recovery_codes=codigos)
+
+
+@router.post("/mfa/disable", status_code=status.HTTP_204_NO_CONTENT)
+def mfa_disable(
+    payload: schemas.MfaDisableRequest,
+    request: Request,
+    ctx: TenantContext = Depends(get_current_context),
+) -> None:
+    """Desligar exige senha **e** código atual.
+
+    Token válido não basta: quem estiver com um token roubado poderia desligar a
+    proteção que existe justamente para o caso de a senha ter vazado.
+    """
+    mfa.desativar(ctx.user_id, password=payload.password, codigo=payload.code)
+    with use_context(ctx), tenant_session(ctx.tenant_id) as book:
+        audit.record(
+            book,
+            action="mfa.disabled",
+            resource_type="user",
+            resource_id=ctx.user_id,
+            payload={"ip": request.client.host if request.client else None},
+            context=ctx,
         )
 
 

@@ -1,0 +1,22 @@
+# O que NÃO entra no contexto de build. Dois motivos, e o segundo é um bug:
+#
+# 1. Tamanho: `node_modules` e `.next` da máquina de quem builda somam centenas
+#    de MB que o Docker enviaria ao daemon a cada build.
+# 2. Correção: o `COPY . .` do estágio de build acontece DEPOIS do `npm ci`, e
+#    sem esta lista o `node_modules` da máquina local sobrescreve o que o
+#    container acabou de instalar. Quem builda no macOS ou no Windows monta uma
+#    imagem Linux com binários da plataforma errada — e o erro aparece só na
+#    subida, longe da causa.
+node_modules
+.next
+npm-debug.log*
+
+# Teste de ponta a ponta: roda contra a aplicação de pé, não dentro da imagem.
+e2e
+
+# Ambiente e build local
+.env
+.env.*
+!.env.example
+tsconfig.tsbuildinfo
+.git

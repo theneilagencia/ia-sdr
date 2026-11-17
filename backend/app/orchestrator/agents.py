@@ -11,6 +11,10 @@ from dataclasses import dataclass
 from app.db.models.ai import AgentKind
 from app.services.usage import UsageKind
 
+#: Padrão da plataforma. Cada tenant pode escolher outro em `ai_agents.model`
+#: — é onde se troca capacidade por custo, e a decisão é do cliente.
+DEFAULT_MODEL = "claude-opus-5"
+
 
 @dataclass(frozen=True, slots=True)
 class AgentDefinition:
@@ -26,7 +30,7 @@ AGENT_DEFINITIONS: dict[AgentKind, AgentDefinition] = {
     AgentKind.RESEARCH: AgentDefinition(
         kind=AgentKind.RESEARCH,
         default_name="Research Agent",
-        default_model="claude-sonnet-5",
+        default_model=DEFAULT_MODEL,
         usage_kind=UsageKind.RESEARCH,
         tools=("web_search", "company_lookup"),
         base_instructions=(
@@ -38,7 +42,7 @@ AGENT_DEFINITIONS: dict[AgentKind, AgentDefinition] = {
     AgentKind.OUTREACH: AgentDefinition(
         kind=AgentKind.OUTREACH,
         default_name="Outreach Agent",
-        default_model="claude-sonnet-5",
+        default_model=DEFAULT_MODEL,
         usage_kind=UsageKind.AI_MESSAGE,
         tools=("send_email",),
         base_instructions=(
@@ -50,7 +54,7 @@ AGENT_DEFINITIONS: dict[AgentKind, AgentDefinition] = {
     AgentKind.CONVERSATION: AgentDefinition(
         kind=AgentKind.CONVERSATION,
         default_name="Conversation Agent",
-        default_model="claude-sonnet-5",
+        default_model=DEFAULT_MODEL,
         usage_kind=UsageKind.AI_MESSAGE,
         tools=("send_email", "knowledge_search"),
         base_instructions=(
@@ -62,7 +66,7 @@ AGENT_DEFINITIONS: dict[AgentKind, AgentDefinition] = {
     AgentKind.QUALIFICATION: AgentDefinition(
         kind=AgentKind.QUALIFICATION,
         default_name="Qualification Agent",
-        default_model="claude-sonnet-5",
+        default_model=DEFAULT_MODEL,
         usage_kind=UsageKind.QUALIFICATION,
         tools=("calendar_propose",),
         base_instructions=(

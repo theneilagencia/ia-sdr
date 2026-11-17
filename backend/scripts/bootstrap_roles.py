@@ -24,15 +24,49 @@ from app.core.config import settings
 TABLE_PRIVILEGES = sql.SQL("SELECT, INSERT, UPDATE, DELETE")
 
 
-def _connect(url) -> psycopg.Connection:
-    return psycopg.connect(
-        host=url.host or "localhost",
-        port=url.port or 5432,
-        user=url.username,
-        password=url.password,
-        dbname=url.database,
-        autocommit=True,
+def _tem_bypassrls(conn) -> bool:
+    return bool(
+        conn.execute("SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user").fetchone()[0]
     )
+
+
+def _e_dono(conn, tabela: str) -> bool:
+    """Se o role atual é dono daquela tabela do schema `public`.
+
+    Com o filtro de schema e de tipo, e não só `WHERE relname = %s`: `pg_class`
+    guarda índices, sequências e catálogos, e `relname` não é único entre
+    schemas — a primeira versão disto respondia sobre a linha errada e acusava
+    uma tabela "de outro dono" que não existia.
+    """
+    return bool(
+        conn.execute(
+            "SELECT pg_get_userbyid(c.relowner) = current_user "
+            "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname = %s",
+            (tabela,),
+        ).fetchone()[0]
+    )
+
+
+def _conninfo(url) -> str:
+    """A URL no formato que o libpq entende, com tudo o que vem depois do `?`.
+
+    O `+psycopg` sai porque é informação do SQLAlchemy: o libpq não conhece
+    dialeto, e receber `postgresql+psycopg://` faz ele recusar o esquema.
+    """
+    return url.set(drivername="postgresql").render_as_string(hide_password=False)
+
+
+def _connect(url) -> psycopg.Connection:
+    """Conecta pela URL inteira, e não por host/porta/usuário separados.
+
+    A primeira versão desmontava a URL em argumentos, o que jogava fora tudo o
+    que vem depois do `?`. Em Postgres gerenciado isso é exatamente o parâmetro
+    que não pode faltar: `sslmode=require`. O resultado era um bootstrap que
+    falhava na conexão, com uma mensagem sobre SSL, num script que a pessoa não
+    escreveu — enquanto a aplicação, que usa a URL inteira, conectava.
+    """
+    return psycopg.connect(_conninfo(url), autocommit=True)
 
 
 def main() -> int:
@@ -56,9 +90,35 @@ def main() -> int:
     role_id = sql.Identifier(role)
 
     with _connect(admin_url) as conn:
-        exists = conn.execute(
-            "SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)
-        ).fetchone()
+        # Primeiro: este usuário consegue mexer em role?
+        #
+        # Perguntado antes de tentar, e não capturando o erro depois, porque o
+        # mesmo privilégio faltando estraga dois passos — criar o role e trocar a
+        # senha dele — e o erro cru do Postgres ("permission denied to create
+        # role") não diz o que fazer nem por que a aplicação precisa de um
+        # segundo role. Em provedor gerenciado essa resposta é um veredito sobre o
+        # provedor, não um descuido de quem publicou: sem um segundo role, a
+        # aplicação conectaria como dona das tabelas e o Row Level Security não
+        # separaria empresa nenhuma.
+        pode_criar_role = conn.execute(
+            "SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user"
+        ).fetchone()[0]
+        if not pode_criar_role:
+            print(
+                f"✗ o usuário '{admin_url.username}' não tem CREATEROLE, e sem um segundo "
+                f"role ('{role}') o isolamento entre empresas deixa de existir: a aplicação "
+                "conectaria como dona das tabelas e o Row Level Security não valeria "
+                "para ela.\n"
+                "  Para conferir isso em qualquer provedor, antes de contratar:\n"
+                '    psql "$URL_DO_BANCO" -c '
+                '"select rolcreaterole from pg_roles where rolname = current_user"\n'
+                "  `f` ali significa que este banco gerenciado não serve para esta "
+                "aplicação. Use um provedor cujo usuário tenha CREATEROLE, ou um "
+                "Postgres em servidor próprio."
+            )
+            return 1
+
+        exists = conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)).fetchone()
         if not exists:
             conn.execute(sql.SQL("CREATE ROLE {} LOGIN").format(role_id))
             print(f"✓ role '{role}' criado")
@@ -66,9 +126,7 @@ def main() -> int:
             print(f"· role '{role}' já existe")
 
         conn.execute(
-            sql.SQL("ALTER ROLE {} WITH LOGIN PASSWORD {}").format(
-                role_id, sql.Literal(password)
-            )
+            sql.SQL("ALTER ROLE {} WITH LOGIN PASSWORD {}").format(role_id, sql.Literal(password))
         )
 
         # NOSUPERUSER/NOBYPASSRLS é o ponto todo: sem isso o RLS não vale nada.
@@ -80,14 +138,10 @@ def main() -> int:
         ).fetchone()[0]
         if admin_is_superuser:
             conn.execute(
-                sql.SQL("ALTER ROLE {} WITH NOSUPERUSER NOBYPASSRLS NOCREATEROLE").format(
-                    role_id
-                )
+                sql.SQL("ALTER ROLE {} WITH NOSUPERUSER NOBYPASSRLS NOCREATEROLE").format(role_id)
             )
         conn.execute(
-            sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
-                sql.Identifier(database), role_id
-            )
+            sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(sql.Identifier(database), role_id)
         )
         conn.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(role_id))
         conn.execute(
@@ -96,23 +150,71 @@ def main() -> int:
             )
         )
         conn.execute(
-            sql.SQL("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {}").format(
-                role_id
-            )
+            sql.SQL("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {}").format(role_id)
         )
         # Tabelas que as próximas migrations criarem já nascem acessíveis.
         conn.execute(
-            sql.SQL(
-                "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT {} ON TABLES TO {}"
-            ).format(TABLE_PRIVILEGES, role_id)
+            sql.SQL("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT {} ON TABLES TO {}").format(
+                TABLE_PRIVILEGES, role_id
+            )
         )
         conn.execute(
             sql.SQL(
-                "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
-                "GRANT USAGE, SELECT ON SEQUENCES TO {}"
+                "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {}"
             ).format(role_id)
         )
         print(f"✓ privilégios concedidos a '{role}' em {database}")
+
+        # --------------------------------------------------- FORCE ou não FORCE
+        #
+        # `FORCE ROW LEVEL SECURITY` sujeita **o dono da tabela** às políticas.
+        # Em servidor próprio isso é a rede de proteção que se quer: nem o dono
+        # escapa, então apontar a aplicação para o role errado não vaza nada.
+        #
+        # Em Postgres gerenciado (Render, Neon, Supabase, RDS, Cloud SQL) não há
+        # superusuário e `CREATEROLE` não concede BYPASSRLS — só superusuário
+        # concede. O único caminho que sobra para a parte administrativa
+        # (autenticação, painel da plataforma, worker) atravessar o RLS é ser
+        # dona das tabelas. Com FORCE ligado, ela é barrada: um INSERT do próprio
+        # dono devolve "new row violates row-level security policy". Então, nesse
+        # caso, FORCE sai — e o isolamento do role da aplicação não muda em nada,
+        # porque FORCE nunca valeu para quem não é dono.
+        tabelas = [
+            linha[0]
+            for linha in conn.execute(
+                "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relrowsecurity"
+            ).fetchall()
+        ]
+        if admin_is_superuser or _tem_bypassrls(conn):
+            for tabela in tabelas:
+                conn.execute(
+                    sql.SQL("ALTER TABLE {} FORCE ROW LEVEL SECURITY").format(
+                        sql.Identifier(tabela)
+                    )
+                )
+            print(f"✓ FORCE ROW LEVEL SECURITY em {len(tabelas)} tabela(s): nem o dono escapa")
+        else:
+            nao_proprias = [t for t in tabelas if not _e_dono(conn, t)]
+            if nao_proprias:
+                print(
+                    f"✗ o role administrativo não tem BYPASSRLS nem é dono de "
+                    f"{len(nao_proprias)} tabela(s) com RLS. Rode as migrations com o "
+                    "usuário que o provedor criou (o dono do banco) e tente de novo."
+                )
+                return 1
+            for tabela in tabelas:
+                conn.execute(
+                    sql.SQL("ALTER TABLE {} NO FORCE ROW LEVEL SECURITY").format(
+                        sql.Identifier(tabela)
+                    )
+                )
+            print(
+                f"· Postgres gerenciado: FORCE desligado em {len(tabelas)} tabela(s). "
+                "A parte administrativa atravessa o RLS por ser dona das tabelas — "
+                "é o único caminho sem superusuário. O role da aplicação continua "
+                "isolado do mesmo jeito: FORCE nunca valeu para quem não é dono."
+            )
 
         rolsuper, rolbypassrls = conn.execute(
             "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = %s", (role,)
@@ -121,7 +223,7 @@ def main() -> int:
             atributo = "SUPERUSER" if rolsuper else "BYPASSRLS"
             print(
                 f"✗ '{role}' tem {atributo} e ignoraria o Row Level Security. "
-                f"Como superusuário: ALTER ROLE \"{role}\" NOSUPERUSER NOBYPASSRLS;"
+                f'Como superusuário: ALTER ROLE "{role}" NOSUPERUSER NOBYPASSRLS;'
             )
             return 1
 

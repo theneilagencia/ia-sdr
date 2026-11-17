@@ -20,13 +20,26 @@ from app.api.v1 import (
     agents,
     auth,
     campaigns,
+    companies,
     company_brain,
+    contacts,
+    conversations,
     health,
     integrations,
+    knowledge,
+    messages,
+    prospects,
+    public,
+    sequences,
     tenants,
 )
+from app.api.v1 import (
+    settings as settings_router,
+)
 from app.core.config import settings
+from app.core.startup import verify_production_secrets
 from app.db.session import verify_database_roles
+from app.orchestrator.executors import register_default_executors
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -39,7 +52,16 @@ async def lifespan(app: FastAPI):
     # Antes de aceitar a primeira requisição: o role da aplicação consegue
     # mesmo ser filtrado pelo RLS? Se não, é melhor não subir do que servir
     # dados de todos os tenants para todo mundo.
-    verify_database_roles()
+    #
+    # O modo vai para o log porque a diferença importa numa investigação: em
+    # "atributo" nem o dono da tabela escapa das políticas; em "posse" (o único
+    # possível em Postgres gerenciado) o dono é justamente quem atravessa.
+    logging.getLogger("ia_sdr").info(
+        "Isolamento por RLS verificado (modo: %s)", verify_database_roles()
+    )
+    # E os segredos são de verdade, ou sobraram do .env.example?
+    verify_production_secrets()
+    register_default_executors()
     yield
 
 
@@ -66,7 +88,24 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
 
     v1 = APIRouter(prefix="/api/v1")
-    for module in (auth, tenants, campaigns, company_brain, agents, integrations, admin):
+    for module in (
+        auth,
+        tenants,
+        campaigns,
+        companies,
+        company_brain,
+        contacts,
+        conversations,
+        prospects,
+        sequences,
+        messages,
+        settings_router,
+        public,
+        agents,
+        integrations,
+        knowledge,
+        admin,
+    ):
         v1.include_router(module.router)
     app.include_router(v1)
 

@@ -111,6 +111,25 @@ def test_sessao_sem_tenant_nao_le_nada(make_tenant):
         assert session.execute(sa.select(sa.func.count(Campaign.id))).scalar_one() == 0
 
 
+def test_escopo_sobrevive_a_commit_no_meio_da_sessao(make_tenant):
+    """`SET LOCAL` morre com a transação — o escopo precisa ser reaplicado.
+
+    Sem isso, commitar no meio de um trabalho abre a transação seguinte sem
+    `app.tenant_id`, e dali em diante as consultas voltam vazias. É uma falha
+    silenciosa das piores: o RLS fecha em vez de abrir, então parece que o
+    dado sumiu.
+    """
+    a = make_tenant()
+    with tenant_session(a["tenant_id"]) as session:
+        session.add(_campaign(a["tenant_id"], "Antes do commit"))
+        session.commit()
+
+        assert session.execute(sa.select(sa.func.count(Campaign.id))).scalar_one() == 1
+        session.add(_campaign(a["tenant_id"], "Depois do commit"))
+        session.flush()
+        assert session.execute(sa.select(sa.func.count(Campaign.id))).scalar_one() == 2
+
+
 def test_conexao_da_aplicacao_nao_pode_ignorar_rls():
     """O teste que faltava.
 
@@ -122,8 +141,7 @@ def test_conexao_da_aplicacao_nao_pode_ignorar_rls():
     with SessionFactory() as session:
         rolname, rolsuper, rolbypassrls = session.execute(
             sa.text(
-                "SELECT rolname, rolsuper, rolbypassrls "
-                "FROM pg_roles WHERE rolname = current_user"
+                "SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
             )
         ).one()
     assert not rolsuper, f"role de aplicação '{rolname}' é superusuário e ignora o RLS"
@@ -171,14 +189,43 @@ def test_todas_as_tabelas_de_cliente_tem_politica():
     from app.db.models import TENANT_SCOPED_TABLES
 
     with unscoped_session(reason="test:inspect-policies") as session:
-        rows = session.execute(
-            sa.text(
-                "SELECT tablename FROM pg_policies WHERE policyname = 'tenant_isolation'"
+        rows = (
+            session.execute(
+                sa.text("SELECT tablename FROM pg_policies WHERE policyname = 'tenant_isolation'")
             )
-        ).scalars().all()
-        forced = session.execute(
-            sa.text("SELECT relname FROM pg_class WHERE relrowsecurity AND relforcerowsecurity")
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
+        forced = (
+            session.execute(
+                sa.text("SELECT relname FROM pg_class WHERE relrowsecurity AND relforcerowsecurity")
+            )
+            .scalars()
+            .all()
+        )
 
     assert set(TENANT_SCOPED_TABLES) <= set(rows)
     assert set(TENANT_SCOPED_TABLES) <= set(forced)
+
+
+def test_nenhuma_tabela_com_tenant_id_fica_fora_do_rls():
+    """A lista de tabelas com RLS é mantida à mão — então a suíte a confere.
+
+    O teste anterior provava um lado: toda tabela **da lista** tem política.
+    Faltava o outro, que é o que quebra na prática: um modelo novo com
+    `tenant_id` que ninguém lembrou de acrescentar à lista nasce sem política,
+    sem erro e sem teste vermelho. Foi assim que `memberships` passou seis
+    migrations carregando `tenant_id` e nenhuma proteção.
+    """
+    from app.db.models import TENANT_SCOPED_TABLES, Base
+
+    com_tenant = {t.name for t in Base.metadata.sorted_tables if "tenant_id" in t.columns}
+    fora = sorted(com_tenant - set(TENANT_SCOPED_TABLES))
+    assert fora == [], (
+        "tabelas com tenant_id fora do RLS: "
+        f"{fora}. Acrescente à lista e escreva a migration da política."
+    )
+    # E o contrário: nome na lista que não existe mais ou não tem tenant_id
+    # deixaria a verificação do outro teste passando por vazio.
+    sobrando = sorted(set(TENANT_SCOPED_TABLES) - com_tenant)
+    assert sobrando == [], f"nomes na lista que não são tabelas com tenant_id: {sobrando}"

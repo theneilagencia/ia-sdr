@@ -1,0 +1,226 @@
+:root {
+  --bg: #fbfaf9;
+  --surface: #ffffff;
+  --border: #e6e2dd;
+  --text: #1c1b19;
+  --muted: #6b6560;
+  --accent: #b4491f;
+  --accent-soft: #fdf1ec;
+  --ok: #2f6f4f;
+  --warn: #8a6d1f;
+  --warn-soft: #fbf4de;
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17161a;
+    --surface: #1f1e23;
+    --border: #322f38;
+    --text: #f2efec;
+    --muted: #a39d98;
+    --accent: #e8825c;
+    --accent-soft: #2a211f;
+    --ok: #7cc39a;
+    --warn: #d6b45c;
+    --warn-soft: #2b2617;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+a { color: inherit; }
+
+.shell { max-width: 1040px; margin: 0 auto; padding: 0 16px 64px; }
+
+header.top {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 28px;
+  background: var(--surface);
+}
+header.top .inner {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 14px 16px;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+header.top strong { letter-spacing: -0.01em; }
+header.top nav { display: flex; gap: 16px; flex-wrap: wrap; }
+header.top nav a { color: var(--muted); text-decoration: none; font-size: 14px; }
+header.top nav a:hover { color: var(--text); }
+header.top .who { margin-left: auto; color: var(--muted); font-size: 13px; }
+
+h1 { font-size: 22px; letter-spacing: -0.02em; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 32px 0 12px; }
+p.lede { color: var(--muted); margin: 0 0 24px; }
+
+.funnel { display: grid; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }
+.funnel div { background: var(--surface); padding: 16px; }
+.funnel .n { font-size: 26px; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.funnel .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; padding: 8px 12px; }
+td { padding: 10px 12px; border-top: 1px solid var(--border); }
+tbody tr { background: var(--surface); }
+
+.tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--accent-soft); color: var(--accent); }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
+.card h3 { margin: 0 0 6px; font-size: 15px; }
+.card .meta { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+.card pre { white-space: pre-wrap; font: inherit; margin: 0 0 14px; }
+
+.cota { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; font-size: 14px; color: var(--muted); margin-bottom: 8px; }
+.cota strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.enviar-tudo { margin-bottom: 16px; }
+.cota .acao-caixa { margin-top: 10px; }
+
+.card .ajuda { color: var(--muted); font-size: 14px; margin: 0 0 14px; }
+.card .estado { font-size: 14px; margin: 0 0 16px; }
+.card .estado code { background: var(--accent-soft); padding: 1px 6px; border-radius: 6px; }
+
+.campos { display: grid; gap: 16px; }
+.campos label { display: grid; gap: 6px; font-size: 14px; }
+.campos label small { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.campos label.checkbox { grid-auto-flow: column; justify-content: start; align-items: center; gap: 8px; }
+.campos label.checkbox input { width: auto; }
+.dupla { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
+
+.opcoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.opcao { display: flex !important; grid-auto-flow: column; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.opcao input { width: auto; }
+
+.ok { color: var(--ok); }
+.aviso { color: var(--warn); }
+
+.anchors { border-left: 2px solid var(--border); padding-left: 12px; margin-bottom: 14px; color: var(--muted); font-size: 13px; }
+
+form.inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+form.inline input[name="reason"] { flex: 1 1 320px; min-width: 240px; }
+select { font: inherit; border-radius: 8px; border: 1px solid var(--border); padding: 8px 12px; background: var(--surface); color: var(--text); }
+select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+input[type="file"] { padding: 6px; }
+
+input, button, textarea {
+  font: inherit;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button { cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.ghost { color: var(--muted); }
+
+/* Link que é ação. O download da exportação precisa ser um link de verdade —
+   `download` num botão de form não baixa arquivo —, e parecer um botão. */
+a.botao {
+  display: inline-block;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  padding: 8px 12px;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+}
+a.botao:hover { opacity: 0.92; }
+
+.empty { color: var(--muted); background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius); padding: 28px; text-align: center; }
+
+.login { max-width: 360px; margin: 14vh auto; }
+.login form { display: grid; gap: 10px; }
+.erro { color: var(--accent); font-size: 14px; }
+
+@media (max-width: 640px) {
+  .dupla { grid-template-columns: 1fr; }
+  .funnel { grid-template-columns: repeat(2, 1fr); }
+  table, thead, tbody, tr, td, th { display: block; }
+  thead { display: none; }
+  td { border-top: none; }
+  tbody tr { border-top: 1px solid var(--border); padding: 8px 0; }
+}
+
+/* Linha repetida de formulário: o rótulo aparece uma vez e as demais linhas o
+   escondem visualmente, sem deixar de existir para quem usa leitor de tela. */
+.repetido { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.dupla label { min-width: 0; }
+table .inline { display: inline-flex; margin-right: 8px; }
+table .ajuda { margin: 4px 0 0; font-size: 12px; }
+@media (max-width: 720px) {
+  .dupla { grid-template-columns: 1fr; }
+  header.top nav { flex-wrap: wrap; }
+}
+
+/* Conteúdo longo da campanha, fechado por padrão: a lista de campanhas continua
+   legível, e quem vai editar abre uma. */
+.dobra { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; }
+.dobra > summary { cursor: pointer; font-size: 14px; color: var(--accent); }
+.dobra > form { margin-top: 16px; }
+.dobra h4 { margin: 4px 0 0; font-size: 14px; }
+.dobra .ajuda { color: var(--muted); font-size: 13px; margin: 0; }
+
+/* O que falta para a campanha produzir. Não é decoração: cada linha é um agente
+   que não vai rodar. */
+.pendencias { margin: 0 0 12px; padding-left: 18px; color: var(--warn); font-size: 13px; }
+td .meta { display: block; color: var(--muted); font-size: 12px; }
+
+/* Caixa de entrada e conversa. A mensagem do lead encosta à esquerda com marca
+   própria: numa thread longa, saber de quem é cada bloco importa mais do que
+   qualquer enfeite. */
+.filtros { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; font-size: 14px; }
+.filtros a { color: var(--muted); }
+.filtros a.atual { color: var(--accent); font-weight: 600; }
+.tag.urgente { background: var(--warn-soft); color: var(--warn); }
+.card.mensagem { padding: 14px 18px; }
+.card.mensagem.lead { border-left: 3px solid var(--accent); }
+.lista { margin: 0 0 16px; padding-left: 18px; font-size: 14px; }
+.lista li { margin-bottom: 6px; }
+
+/* Id de empresa no painel da plataforma: o suficiente para achar a linha no log,
+   sem o nome de ninguém. */
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.dobra .campos small { color: var(--muted); font-weight: 400; }
+
+/* Os toques de uma cadência, na ordem em que saem. */
+.passos { margin: 0 0 14px; padding-left: 20px; font-size: 14px; }
+.passos li { margin-bottom: 6px; }
+.passos strong { color: var(--accent); }
+.dobra .opcoes { margin-bottom: 4px; }
+
+/* As saídas do funil. Cor de aviso porque é o que precisa ser vigiado: taxa de
+   retorno alta queima o domínio de quem envia. */
+.saidas { color: var(--warn); font-size: 14px; margin: -4px 0 16px; }
+.saidas strong { font-variant-numeric: tabular-nums; }
+
+/* O link do convite, que aparece uma única vez. Monoespaçado e em largura
+   cheia para caber inteiro na tela: um link truncado é um link copiado pela
+   metade, e o erro só apareceria do outro lado, para quem não pode consertar. */
+.link-de-convite {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  margin-bottom: 8px;
+  background: var(--accent-soft);
+}
+
+/* O seletor de empresa, na barra de cima. Menor e mais discreto que um campo de
+   formulário: é identidade de contexto, não coisa que se preenche. */
+header.top .who form.inline { display: inline-flex; gap: 6px; }
+header.top .who select { padding: 2px 6px; font-size: 13px; border-radius: 6px; }
+
+/* "Sair" na barra de cima: discreto, do tamanho do texto ao lado. */
+header.top .who form[data-secao="sair"] { display: inline-flex; margin-left: 8px; }
+header.top .who button { padding: 2px 8px; font-size: 12px; }

@@ -28,6 +28,8 @@ services:
       # com um role sem privilégio, criado pelo bootstrap na subida.
       DATABASE_URL: postgresql+psycopg://ia_sdr_app:ia_sdr_app@db:5432/ia_sdr
       DATABASE_ADMIN_URL: postgresql+psycopg://ia_sdr:ia_sdr@db:5432/ia_sdr
+      # Vem do .env do backend ou do ambiente do host; nunca do repositório.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy
@@ -39,6 +41,33 @@ services:
       sh -c "alembic upgrade head
       && python -m scripts.bootstrap_roles
       && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  worker:
+    build: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://ia_sdr_app:ia_sdr_app@db:5432/ia_sdr
+      DATABASE_ADMIN_URL: postgresql+psycopg://ia_sdr:ia_sdr@db:5432/ia_sdr
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      api:
+        condition: service_started
+      db:
+        condition: service_healthy
+    # Espera a API aplicar migrations e bootstrap antes de encostar no banco.
+    command: sh -c "sleep 10 && python -m app.workers.runner"
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    environment:
+      # O browser nunca fala com a API direto: quem chama é o servidor do Next.
+      API_URL: http://api:8000
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-3000}:3000"
 
 volumes:
   pgdata:

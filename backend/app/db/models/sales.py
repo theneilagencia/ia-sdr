@@ -122,11 +122,15 @@ class Prospect(Base, TenantScoped, TimestampMixin):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     campaign_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False,
+        PGUUID(as_uuid=True),
+        ForeignKey("campaigns.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
     contact_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("contacts.id", ondelete="CASCADE"), nullable=False,
+        PGUUID(as_uuid=True),
+        ForeignKey("contacts.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
     company_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -164,7 +168,9 @@ class Score(Base, TenantScoped, TimestampMixin):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     prospect_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("prospects.id", ondelete="CASCADE"), nullable=False,
+        PGUUID(as_uuid=True),
+        ForeignKey("prospects.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
     campaign_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), index=True)

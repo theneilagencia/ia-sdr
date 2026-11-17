@@ -5,12 +5,12 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections import defaultdict, deque
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from app.core import limitador as limitador_mod
 from app.core.config import settings
 
 logger = logging.getLogger("ia_sdr.request")
@@ -37,36 +37,40 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Janela deslizante por cliente.
+    """Janela deslizante por cliente, no backend que a configuração pedir.
 
-    Em memória e por processo: suficiente para o MVP e para não deixar a API
-    aberta. Com mais de uma réplica, trocar o backend por Redis sem mudar a
-    interface.
+    A contagem em si vive em `app/core/limitador.py`, em dois backends com a
+    mesma interface: em memória (uma réplica) e Redis (balde compartilhado). Com
+    duas réplicas e o balde em memória, o teto anunciado vale o dobro — cada
+    processo conta o seu —, e é por isso que o de Redis existe.
     """
 
-    def __init__(self, app, *, limit: int | None = None, window: int | None = None):
+    def __init__(
+        self,
+        app,
+        *,
+        limit: int | None = None,
+        window: int | None = None,
+        backend: limitador_mod.Limitador | None = None,
+    ):
         super().__init__(app)
-        self.limit = limit or settings.rate_limit_requests
-        self.window = window or settings.rate_limit_window_seconds
-        self._hits: dict[str, deque[float]] = defaultdict(deque)
-
-    def _key(self, request: Request) -> str:
-        auth = request.headers.get("authorization", "")
-        if auth:
-            return f"token:{hash(auth) & 0xFFFFFFFF}"
-        client = request.client.host if request.client else "unknown"
-        return f"ip:{client}"
+        # `is None`, não `or`: zero é falsy, e `limit=0` (bloquear tudo, numa
+        # emergência) ou `window=0` cairiam no padrão em silêncio — o parâmetro
+        # aceito e ignorado é pior do que o parâmetro recusado.
+        self.limit = settings.rate_limit_requests if limit is None else limit
+        self.window = settings.rate_limit_window_seconds if window is None else window
+        self.backend = backend or limitador_mod.construir(settings.redis_url)
 
     async def dispatch(self, request: Request, call_next):
         if request.url.path in ("/health", "/health/ready"):
             return await call_next(request)
-        key = self._key(request)
-        now = time.monotonic()
-        hits = self._hits[key]
-        while hits and now - hits[0] > self.window:
-            hits.popleft()
-        if len(hits) >= self.limit:
-            retry_after = max(1, int(self.window - (now - hits[0])))
+
+        chave = limitador_mod.chave_do_cliente(
+            request.headers.get("authorization", ""),
+            request.client.host if request.client else None,
+        )
+        permitido, espera = self.backend.consumir(chave, limite=self.limit, janela=self.window)
+        if not permitido:
             return JSONResponse(
                 status_code=429,
                 content={
@@ -75,7 +79,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         "message": "Muitas requisições; tente novamente em instantes",
                     }
                 },
-                headers={"retry-after": str(retry_after)},
+                headers={"retry-after": str(max(1, espera))},
             )
-        hits.append(now)
         return await call_next(request)

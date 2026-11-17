@@ -64,12 +64,8 @@ def test_token_de_outro_tenant_nao_serve(client, make_tenant, auth_headers):
     from app.core.security import create_access_token
 
     t = make_tenant()
-    forjado = create_access_token(
-        user_id=t["user_id"], tenant_id=uuid.uuid4(), role="owner"
-    )
-    response = client.get(
-        "/api/v1/campaigns", headers={"Authorization": f"Bearer {forjado}"}
-    )
+    forjado = create_access_token(user_id=t["user_id"], tenant_id=uuid.uuid4(), role="owner")
+    response = client.get("/api/v1/campaigns", headers={"Authorization": f"Bearer {forjado}"})
     assert response.status_code == 403
 
 
@@ -91,6 +87,46 @@ def test_credencial_de_integracao_nunca_volta_na_resposta(client):
 
     listed = client.get("/api/v1/integrations", headers=_headers(a))
     assert "super-secreta" not in listed.text
+
+
+def test_conta_alvo_e_pesquisa_ficam_no_tenant(client):
+    a = _register(client, "Empresa Alfa", "alfa@example.com")
+    b = _register(client, "Empresa Beta", "beta@example.com")
+
+    criada = client.post(
+        "/api/v1/companies",
+        headers=_headers(a),
+        json={"name": "Northern Ore", "domain": "northernore.ca", "country": "CA"},
+    )
+    assert criada.status_code == 201, criada.text
+    company_id = criada.json()["id"]
+
+    assert client.get("/api/v1/companies", headers=_headers(a)).json()[0]["id"] == company_id
+    assert client.get("/api/v1/companies", headers=_headers(b)).json() == []
+    assert client.get(f"/api/v1/companies/{company_id}", headers=_headers(b)).status_code == 404
+    # Sem pesquisa ainda, mas a rota existe e respeita a fronteira.
+    assert client.get(f"/api/v1/companies/{company_id}/research", headers=_headers(a)).json() == []
+
+    # Corrigir o que veio errado da planilha — domínio trocado é o caso comum, e
+    # o agente pesquisaria a empresa errada com ele.
+    corrigida = client.patch(
+        f"/api/v1/companies/{company_id}",
+        headers=_headers(a),
+        json={"domain": "northern-ore.ca", "employee_count": 450},
+    )
+    assert corrigida.status_code == 200, corrigida.text
+    assert corrigida.json()["domain"] == "northern-ore.ca"
+    assert corrigida.json()["employee_count"] == 450
+    # O que não veio no PATCH continua lá.
+    assert corrigida.json()["name"] == "Northern Ore"
+
+    # E a conta do vizinho não é editável nem por id.
+    alheia = client.patch(
+        f"/api/v1/companies/{company_id}",
+        headers=_headers(b),
+        json={"name": "Renomeada por fora"},
+    )
+    assert alheia.status_code == 404
 
 
 def test_auditoria_registra_quem_fez_o_que(client):

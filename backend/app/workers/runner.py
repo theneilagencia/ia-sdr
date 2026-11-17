@@ -1,0 +1,272 @@
+"""O worker: o que faz a plataforma trabalhar sem ninguém olhando.
+
+Um ciclo faz três coisas, nesta ordem:
+
+1. **Agenda o trabalho periódico** de cada empresa ativa — ler a caixa e
+   despachar o que está aprovado. Com deduplicação, então um ciclo lento não
+   acumula fila.
+2. **Devolve à fila o que ficou preso**, de worker que morreu no meio.
+3. **Executa os jobs disponíveis**, um de cada vez, cada um no contexto do seu
+   tenant.
+
+O que decide em qual empresa o trabalho acontece é o job, nunca o processo. É
+a mesma regra do envelope dos agentes, e pelo mesmo motivo: worker que herda
+contexto é worker que um dia executa com a configuração da empresa errada.
+"""
+
+from __future__ import annotations
+
+import logging
+import signal
+import time
+import uuid
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import select
+
+from app.core.errors import AppError
+from app.core.startup import verify_production_secrets
+from app.db.models.jobs import Job, JobKind
+from app.db.models.platform import Tenant
+from app.db.session import tenant_session, unscoped_session, verify_database_roles
+from app.orchestrator.envelope import JobEnvelope
+from app.orchestrator.executors import register_default_executors
+from app.orchestrator.runner import run_job
+from app.services import email_receiver, email_sender, jobs, ravi, retencao, sequences
+from app.tenancy.context import system_context, use_context
+
+logger = logging.getLogger("ia_sdr.worker")
+
+INTERVALO_CICLO = 5  # segundos entre ciclos quando não há trabalho
+INTERVALO_PERIODICO = timedelta(minutes=5)
+
+
+def executar(tenant_id: uuid.UUID, kind: str, payload: dict) -> None:
+    """Roda o trabalho dentro do tenant dono do job.
+
+    Recebe os dados soltos, não o objeto do banco: o trabalho acontece numa
+    sessão com escopo do tenant, e arrastar uma entidade da sessão
+    administrativa para dentro dela só convidaria confusão.
+    """
+    ctx = system_context(tenant_id, source="worker")
+    with use_context(ctx), tenant_session(tenant_id) as session:
+        if kind == JobKind.AGENT_RUN.value:
+            run_job(session, JobEnvelope.from_dict(payload))
+        elif kind == JobKind.FETCH_INBOX.value:
+            resultado = email_receiver.fetch_inbox(session, tenant_id=tenant_id, context=ctx)
+            _despachar_conversas(session, tenant_id, resultado)
+        elif kind == JobKind.SEND_QUEUED.value:
+            email_sender.send_queued(session, tenant_id=tenant_id, context=ctx)
+        elif kind == JobKind.SEQUENCE_TICK.value:
+            sequences.tick(session, tenant_id)
+        elif kind == JobKind.RAVI_SYNC.value:
+            ravi.sync_pending(session, tenant_id)
+        elif kind == JobKind.RETENTION.value:
+            saiu = retencao.aplicar(session, tenant_id)
+            # O log é a única prova de que a retenção rodou e o que ela levou: o
+            # dado apagado, por definição, não está mais lá para ser contado.
+            if any(saiu.values()):
+                logger.info(
+                    "retencao.aplicada",
+                    extra={
+                        "tenant_id": str(tenant_id),
+                        **{f"saiu_{classe}": n for classe, n in saiu.items()},
+                    },
+                )
+        else:
+            raise ValueError(f"Tipo de job desconhecido: {kind}")
+
+
+def _despachar_conversas(session, tenant_id: uuid.UUID, resultado: dict) -> None:
+    """Resposta nova aciona o Conversation Agent.
+
+    É aqui que o ciclo se fecha sozinho: o lead responde, o agente escreve a
+    réplica, e ela entra na fila de revisão humana como qualquer outra.
+
+    Aciona **só as conversas que receberam mensagem nesta leitura**. A versão
+    anterior procurava toda conversa com mensagem de entrada nos últimos dez
+    minutos — e como a leitura roda a cada cinco, uma conversa já respondida
+    voltava para a fila: segundo rascunho para a mesma mensagem do lead, uma
+    unidade de IA gasta de novo, e duas réplicas parecidas esperando aprovação.
+    A deduplicação por chave não pegava isso: ela impede dois jobs iguais **na
+    fila**, não um job novo depois de o primeiro ter concluído.
+    """
+    for conversa_id in resultado.get("conversations") or []:
+        jobs.enqueue(
+            session,
+            tenant_id=tenant_id,
+            kind=JobKind.AGENT_RUN,
+            payload={
+                "tenant_id": str(tenant_id),
+                "agent": "conversation",
+                "entity_type": "conversation",
+                "entity_id": str(conversa_id),
+            },
+            dedupe_key=f"conversation:{conversa_id}",
+        )
+
+
+def agendar_periodicos(agora: datetime | None = None) -> int:
+    """Enfileira leitura de caixa e envio para cada empresa ativa."""
+    agora = agora or datetime.now(UTC)
+    criados = 0
+    with unscoped_session(reason="worker:listar-tenants") as admin:
+        tenants = [
+            t.id
+            for t in admin.execute(select(Tenant).where(Tenant.is_active.is_(True))).scalars().all()
+        ]
+
+    for tenant_id in tenants:
+        # Guarda por empresa: sem isso, uma única empresa em estado ruim parava o
+        # agendamento de **todas as seguintes** — e como o processo reinicia e
+        # tenta na mesma ordem, quem vem depois dela nunca era agendado. Falha
+        # silenciosa e desigual: os clientes do fim da lista simplesmente param
+        # de ser atendidos.
+        try:
+            ctx = system_context(tenant_id, source="worker")
+            with use_context(ctx), tenant_session(tenant_id) as session:
+                for kind in (
+                    JobKind.FETCH_INBOX,
+                    JobKind.SEND_QUEUED,
+                    JobKind.SEQUENCE_TICK,
+                    JobKind.RAVI_SYNC,
+                ):
+                    if jobs.enqueue(
+                        session,
+                        tenant_id=tenant_id,
+                        kind=kind,
+                        dedupe_key=kind.value,
+                        run_at=agora,
+                        max_attempts=1,  # periódico: falhou, o próximo ciclo tenta
+                    ):
+                        criados += 1
+
+                # A retenção é diária, não a cada ciclo: varrer o banco inteiro a
+                # cada cinco minutos custaria I/O por nada — o que vence em cinco
+                # minutos é desprezível num prazo medido em dias. A chave de
+                # deduplicação carrega a data, então o segundo job do mesmo dia
+                # não é criado, e o primeiro do dia seguinte é.
+                if jobs.enqueue(
+                    session,
+                    tenant_id=tenant_id,
+                    kind=JobKind.RETENTION,
+                    dedupe_key=f"{JobKind.RETENTION.value}:{agora:%Y-%m-%d}",
+                    run_at=agora,
+                    max_attempts=1,
+                ):
+                    criados += 1
+        except Exception:  # noqa: BLE001 - ver comentário acima
+            logger.exception("periodicos.falha_ao_agendar", extra={"tenant_id": str(tenant_id)})
+    return criados
+
+
+def ciclo() -> dict:
+    """Um ciclo do worker. Devolve o que aconteceu, para o log e o teste."""
+    with unscoped_session(reason="worker:retomar-presos") as admin:
+        retomados = jobs.requeue_stale(admin)
+
+    executados, falhados = 0, 0
+    while True:
+        with unscoped_session(reason="worker:reservar-job") as admin:
+            job = jobs.claim_next(admin)
+            if job is None:
+                break
+            dados = (job.id, job.tenant_id, job.kind, dict(job.payload))
+
+        job_id, tenant_id, kind, payload = dados
+        try:
+            executar(tenant_id, kind, payload)
+            with unscoped_session(reason="worker:concluir") as admin:
+                registro = admin.get(Job, job_id)
+                if registro is not None:
+                    jobs.complete(admin, registro)
+                else:
+                    # O trabalho foi feito; só a linha do job sumiu. Contar como
+                    # falha seria mentir no log.
+                    logger.warning("job concluído mas a linha desapareceu: %s", job_id)
+            executados += 1
+        except Exception as exc:  # noqa: BLE001 - o worker não pode morrer por um job
+            logger.exception(
+                "job falhou", extra={"job_id": str(job_id), "tenant_id": str(tenant_id)}
+            )
+            # Recusa de política não é falha transitória: o descadastro não vai
+            # se desfazer em cinco minutos, nem a cota do mês. Tentar de novo só
+            # enche o log — e quando a recusa acontece depois da chamada ao
+            # modelo (teto de custo estourado), a segunda tentativa gasta de novo
+            # para ser recusada igual.
+            definitivo = isinstance(exc, AppError) and exc.status_code in (402, 403, 409)
+            # O registro da falha também pode falhar — o job pode ter sido
+            # apagado no meio, e `admin.get` devolveria None. Uma exceção **dentro
+            # do handler** subiria e mataria o processo justamente quando algo já
+            # estava errado.
+            try:
+                with unscoped_session(reason="worker:registrar-falha") as admin:
+                    registro = admin.get(Job, job_id)
+                    if registro is not None:
+                        jobs.fail(
+                            admin,
+                            registro,
+                            f"{type(exc).__name__}: {exc}",
+                            retry=not definitivo,
+                        )
+                    else:
+                        logger.warning("job desapareceu antes de registrar a falha: %s", job_id)
+            except Exception:  # noqa: BLE001 - ver comentário acima
+                logger.exception("falha ao registrar falha do job %s", job_id)
+            falhados += 1
+
+    return {"requeued": retomados, "done": executados, "failed": falhados}
+
+
+def main() -> int:  # pragma: no cover - laço de processo
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    # O worker escreve dado de cliente como a API escreve: as mesmas condições
+    # valem aqui. Um worker que ignora o RLS executaria o job de uma empresa com
+    # a configuração de outra — e ninguém estaria olhando quando isso acontece.
+    logger.info("Isolamento por RLS verificado (modo: %s)", verify_database_roles())
+    verify_production_secrets()
+    register_default_executors()
+
+    parar = False
+
+    def _sinal(*_):
+        nonlocal parar
+        parar = True
+        logger.info("encerrando após o ciclo atual")
+
+    signal.signal(signal.SIGTERM, _sinal)
+    signal.signal(signal.SIGINT, _sinal)
+
+    logger.info("worker de pé")
+    proximo_periodico = datetime.now(UTC)
+
+    while not parar:
+        # O ciclo inteiro protegido: banco que reinicia, conexão cortada,
+        # failover — nada disso é motivo para o processo sair. Sob
+        # `restart: unless-stopped` ele voltaria, mas cada piscada do banco viraria
+        # um reinício, e reinício no meio de um job é o que produz job órfão. Aqui
+        # a piscada custa um ciclo.
+        try:
+            agora = datetime.now(UTC)
+            if agora >= proximo_periodico:
+                criados = agendar_periodicos(agora)
+                proximo_periodico = agora + INTERVALO_PERIODICO
+                if criados:
+                    logger.info("trabalho periódico agendado", extra={"jobs": criados})
+
+            resultado = ciclo()
+        except Exception:  # noqa: BLE001 - ver comentário acima
+            logger.exception("ciclo falhou; tentando de novo no próximo intervalo")
+            time.sleep(INTERVALO_CICLO)
+            continue
+
+        if resultado["done"] or resultado["failed"]:
+            logger.info("ciclo concluído", extra=resultado)
+        else:
+            time.sleep(INTERVALO_CICLO)
+
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())
